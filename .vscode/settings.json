@@ -1,0 +1,12 @@
+{
+  // Use the workspace TypeScript (5.9, matching `pnpm typecheck`) instead of the
+  // editor's bundled compiler, which is older and mishandles this repo's config
+  // (erasableSyntaxOnly, rewriteRelativeImportExtensions) — the cause of phantom
+  // "Cannot find name 'console'/'process'" errors on scripts/*.mts while the CLI
+  // is clean. VSCode prompts once per workspace to adopt it (one "Allow" click).
+  //
+  // Unified `js/ts.*` keys (VSCode Feb-2026+). Older VSCode ignores them with a
+  // harmless "unknown setting" note and falls back to its bundled TypeScript.
+  "js/ts.tsdk.path": "node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true
+}

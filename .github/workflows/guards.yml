@@ -1,0 +1,35 @@
+# Runs the PreToolUse guard fixture suite (scripts/test-hooks.mts) independently of the
+# main ci.yml, so guard-regression coverage survives a customized ci.yml or the no-TS init
+# rewrite. Synced across repos via sync-template (MECHANICS). Node only — no pnpm install,
+# since the guards and the runner use node builtins exclusively.
+name: guards
+
+on:
+  push:
+    branches: [main]
+    paths: ['.claude/hooks/**', scripts/test-hooks.mts]
+  # No paths filter on pull_request: a path-filtered required check stays stuck "pending" on PRs
+  # that touch nothing under the filter. This job is fast (node-only), so always run it on PRs.
+  pull_request:
+
+concurrency:
+  group: guards-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - run: node scripts/test-hooks.mts

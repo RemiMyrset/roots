@@ -1,0 +1,28 @@
+node_modules/
+dist/
+.turbo/
+coverage/
+.DS_Store
+
+# VitePress build output and cache — never commit generated sites
+docs/**/.vitepress/dist/
+docs/**/.vitepress/cache/
+
+# Environment files: never commit; a future .env.example is the one allowed exception
+.env
+.env.*
+!.env.example
+
+# Other secret material — matches the Read-deny + shell-guard secret rule, and
+# keeps these out of the Grep/Glob tools (ripgrep skips gitignored paths).
+secrets/
+*.pem
+*.key
+
+# Obsidian per-user state (the committed app.json enforces portable links)
+docs/.obsidian/*
+!docs/.obsidian/app.json
+
+# Per-developer Claude Code settings (team-wide settings.json IS committed)
+.claude/settings.local.json
+CLAUDE.local.md

@@ -1,0 +1,20 @@
+# Label definitions synced to the repo by .github/workflows/labels.yml.
+# GitHub templates do NOT copy labels to child repos — this file + workflow do.
+- name: agent-task
+  color: 7057ff
+  description: Well-scoped task an AI agent executes end to end
+- name: spec
+  color: 0e8a16
+  description: Touches docs/internal/specs
+- name: decision
+  color: d93f0b
+  description: Touches docs/internal/decisions
+- name: docs
+  color: 0075ca
+  description: Documentation only
+- name: bug
+  color: d73a4a
+  description: Something is broken
+- name: enhancement
+  color: a2eeef
+  description: New capability or improvement

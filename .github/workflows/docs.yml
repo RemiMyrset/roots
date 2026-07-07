@@ -1,0 +1,72 @@
+# Docs integrity — blocking: automd/llms drift, structure lint, portability
+# lint, both VitePress builds. Advisory (never blocks): spec-discipline nudge.
+name: docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history for the spec-discipline diff below
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generated sections are current (blocking)
+        run: |
+          pnpm docs:gen
+          # git status --porcelain also catches UNTRACKED regenerated files
+          # (e.g. a deleted-but-committed llms.txt) that git diff would miss.
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            echo "::error::Generated docs are stale. Run 'pnpm docs:gen' and commit the result."
+            exit 1
+          fi
+
+      - name: Structure lint (blocking)
+        run: pnpm docs:check
+
+      - name: Portability lint (blocking)
+        run: pnpm docs:portability
+
+      - name: Internal site builds (blocking)
+        run: pnpm docs:internal:build
+
+      - name: Public site builds (blocking)
+        run: pnpm docs:public:build
+
+      - name: Spec-discipline nudge (advisory, never blocks)
+        # Structurally advisory: even if origin/$BASE_REF fails to resolve (e.g.
+        # a future edit drops fetch-depth:0), this step can never fail the job.
+        continue-on-error: true
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          changed=$(git diff --name-only "origin/$BASE_REF"...HEAD)
+          nondocs=$(echo "$changed" | grep -v -E '^(docs/|\.github/|\.claude/)' | grep -v -E '^[^/]+\.md$' || true)
+          docsync=$(echo "$changed" | grep -E '^docs/internal/(specs|decisions)/' || true)
+          if [ -n "$nondocs" ] && [ -z "$docsync" ]; then
+            echo "::warning::Files outside docs/ changed with no matching specs or decisions edit. If behavior changed, source + tests + spec move in the same PR."
+          fi

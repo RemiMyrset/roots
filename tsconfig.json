@@ -1,0 +1,11 @@
+{
+  // Typechecks the root-level TS that no package tsconfig covers: the init
+  // script and docs generators/checkers, the PreToolUse guard sources under
+  // .claude/hooks, plus the flat configs. The VitePress
+  // site configs are intentionally excluded — `vitepress build` transpiles them
+  // with esbuild (it does not typecheck them),
+  // and pulling them into this `tsc` run drags VitePress's bundled vite type
+  // surface in, which strictest rejects.
+  "extends": "./tsconfig.base.json",
+  "include": ["scripts", ".claude/hooks", "automd.config.ts", "eslint.config.ts"]
+}

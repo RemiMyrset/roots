@@ -1,0 +1,33 @@
+# Syncs .github/labels.yml to the repo's labels. Templates don't copy labels;
+# this workflow recreates them in every child on first run.
+name: labels
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/labels.yml]
+  workflow_dispatch:
+
+concurrency:
+  # Serialize label syncs; never cancel a mutation mid-flight (label-sync is a
+  # quick, idempotent write, so a queued run just re-applies).
+  group: labels-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  labels:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: EndBug/label-sync@52074158190acb45f3077f9099fea818aa43f97a # v2
+        with:
+          config-file: .github/labels.yml
+          delete-other-labels: false

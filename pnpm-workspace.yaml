@@ -1,0 +1,60 @@
+# Key order follows the pnpm-workspace convention enforced by yaml/sort-keys.
+
+# Build scripts are blocked by default; explicit verdicts only. esbuild and
+# @parcel/watcher need their native binaries; simple-git-hooks is invoked
+# explicitly via the prepare script, its postinstall is unnecessary.
+allowBuilds:
+  '@parcel/watcher': true
+  esbuild: true
+  simple-git-hooks: false
+
+# Fail installs on incompatible node (replaces the old .npmrc engine-strict).
+engineStrict: true
+
+# Supply-chain hardening: 48h cooldown against compromised fresh releases.
+minimumReleaseAge: 2880
+
+shellEmulator: true
+
+# No silently-downgraded publish trust.
+trustPolicy: no-downgrade
+# vite 5.x (pinned by vitepress 1.x) switched publish evidence from trusted
+# publisher to provenance attestation — a known false positive for the
+# no-downgrade policy, not a takeover. Remove when vitepress moves off vite 5.
+trustPolicyExclude:
+  - vite
+# Workspace globs. apps/ is created when the first app lands — pnpm tolerates
+# the empty glob until then.
+packages:
+  - apps/*
+  - packages/*
+
+# Catalog-first (enforced by pnpm/json-enforce-catalog): every dependency
+# version lives here once; packages reference "catalog:".
+catalog:
+  '@antfu/eslint-config': ^9.0.0
+  '@commitlint/cli': ^20.0.0
+  '@commitlint/config-conventional': ^20.0.0
+  '@tsconfig/node24': ^24.0.0
+  '@tsconfig/strictest': ^2.0.0
+  '@types/node': ^24.0.0
+  automd: ^0.4.0
+  changelogen: ^0.6.0
+  eslint: ^10.0.0
+  jiti: ^2.0.0
+  lint-staged: ^16.0.0
+  mermaid: ^11.0.0
+  simple-git-hooks: ^2.13.0
+  turbo: ^2.0.0
+  typescript: ^5.9.0
+  # vitest 4 peers on vite >=6; without an explicit vite entry pnpm would
+  # resolve the peer to vitepress's vite 5 and vitest fails at startup. Same
+  # skew is why @vitest/coverage-v8 is intentionally absent: it loads its own
+  # vitest whose transitive vite peer still dedupes to vitepress's vite 5 (no
+  # ./module-runner export), crashing `vitest --coverage`. Re-add coverage-v8
+  # + the coverage block in vitest.config.ts once vitepress moves off vite 5.
+  vite: ^7.0.0
+  vitepress: ^1.6.0
+  vitepress-plugin-llms: ^1.0.0
+  vitepress-plugin-mermaid: ^2.0.0
+  vitest: ^4.0.0
