@@ -46,14 +46,16 @@ and `apps/` may not exist yet; just create it.
    of `pnpm-workspace.yaml` — a load-bearing choice; record it (new-adr skill).
 3. Create `tsconfig.json`, exactly (TypeScript path only — the no-TypeScript init
    deletes `tsconfig.base.json`, so a no-TS repo skips this and the vitest step):
-   `{ "extends": "../../tsconfig.base.json", "include": ["src", "vitest.config.ts"] }`
+   `{ "extends": "../../tsconfig.base.json", "include": ["src", "test", "vitest.config.ts"] }`
 4. Create `vitest.config.ts` — copy `packages/core/vitest.config.ts` if it
    still exists (a minimal `defineConfig({ test: {} })`; coverage is omitted
    repo-wide until vitepress leaves vite 5, see the note in that file).
-5. Create `src/index.ts` plus a colocated `src/index.test.ts` with at least one
-   real test (relative imports carry explicit `.ts` extensions), so the gates
-   are honestly green. If this replaces the sample `packages/core`, delete or
-   rename it in the same change.
+5. Create `src/index.ts` plus a sibling `test/index.test.ts` with at least one
+   real test, so the gates are honestly green. Tests live in `test/`, never
+   colocated in `src/` — Vitest's default glob finds them with no config, and a
+   colocated test is an ESLint error. Relative imports carry explicit `.ts`
+   extensions, so the test imports `../src/index.ts`. If this replaces the sample
+   `packages/core`, delete or rename it in the same change.
 6. Add one line to the AGENTS.md "Monorepo map": path — purpose. Update the
    map line of anything you replaced.
 7. Run `pnpm install` (CI installs with a frozen lockfile — it fails if the

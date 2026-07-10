@@ -10,7 +10,9 @@
      Link both ways: the old record's Status line gains "superseded by ...";
      nothing else in it changes. MADR 4 minimal — add the full-MADR sections
      (Decision Drivers, Pros and Cons, Confirmation) only when a decision
-     warrants the ceremony. -->
+     warrants the ceremony. MADR 4 minimal carries no YAML frontmatter by
+     design: metadata is the visible bold bullets above, and
+     `pnpm docs:portability` rejects frontmatter anywhere under `docs/`. -->
 
 ## Context and Problem Statement
 

@@ -65,15 +65,23 @@ clean after your last edit — when unsure which apply, run them all.
 - ALWAYS use `pnpm`. Never npm, yarn, or bun. Enforced by a PreToolUse hook. (`npx`
   passes — one-off bin runner; prefer `pnpm dlx`.)
 - ALWAYS use TypeScript. No `.js` or `.mjs` files — node 24 runs `.ts`/`.mts`
-  natively. Keep syntax erasable (no enums/namespaces/param-properties; enforced
-  by `erasableSyntaxOnly`) and give relative imports explicit `.ts`/`.mts`
-  extensions.
+  natively. Keep syntax erasable (no enums/namespaces/param-properties, enforced
+  by `erasableSyntaxOnly`); never declare a `class` (banned by ESLint
+  `no-restricted-syntax` — use functions and plain objects; escape with an
+  `// eslint-disable-next-line no-restricted-syntax -- <reason>` when a dependency
+  demands a subclass); and give relative imports explicit `.ts`/`.mts` extensions.
 - ALWAYS write docs as portable markdown (GitHub + VitePress + Obsidian). Rules:
   [markdown-portability](./docs/internal/development/markdown-portability.md).
   Enforced by `pnpm docs:portability`.
 - ALWAYS write commits as Conventional Commits (`type(scope): subject`, subject
   ≤ 50 chars) — enforced by the commitlint `commit-msg` hook; `pnpm release`
   builds the changelog from them.
+- ALWAYS give every exported symbol a `/** */` block saying what it is for and
+  any constraint a caller cannot see from the signature — never a restatement of
+  the code. Convention, not lint-enforced.
+- NEVER `git push`. Pushing is a human operation: `.claude/settings.json` denies
+  it, and `pnpm release` is the only sanctioned path (it confirms with you
+  first). Commit freely; leave the push to the human.
 - NEVER hand-edit content between `automd` markers or the generated
   `docs/llms.txt` / `docs/llms-full.txt` — edit the source, run `pnpm docs:gen`.
 - NEVER rewrite an accepted decision record. Supersede it with a new one and link
@@ -108,6 +116,10 @@ behavior.
   `new-package` skill).
 <!-- Keep this a map, not a manual: one line per package, its purpose, nothing
      else. A stale map is worse than none — agents follow it literally. -->
+
+Unit tests live in `<package>/test/`, never colocated in `src/` — the sibling
+layout every unjs and antfu upstream uses; Vitest's default glob finds it with no
+config, and a colocated test is a lint error.
 
 When a package grows its own conventions, give it a scoped `AGENTS.md` — nearest
 file wins for agents working inside it; same 200-line budget.

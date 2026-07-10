@@ -41,7 +41,11 @@ their own formats over the portability requirement. Concretely:
   and `docs/llms-full.txt`; CI diff-gates the output so generated sections can
   never drift.
 * **Stack**: TypeScript-first pnpm + Turborepo monorepo, node 24 minimum, no
-  JavaScript files (erasable-syntax TypeScript runs natively).
+  JavaScript files (erasable-syntax TypeScript runs natively), and no `class` or
+  `enum` — functions and plain objects/union types only, enforced by ESLint
+  `no-restricted-syntax` (enums also by `erasableSyntaxOnly`). Unit tests live in
+  a sibling `test/` directory beside `src/`, never colocated — the unjs and antfu
+  house layout.
 
 ### Consequences
 
