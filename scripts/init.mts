@@ -140,7 +140,7 @@ replaceInFile('README.md', [
   [/Rapid Opinionated Onboarding[\s\S]*?wired from day one\./, a.description || `${a.title}.`],
 ])
 replaceInFile('AGENTS.md', [
-  [/<!-- roots:template-only -->[\s\S]*?<!-- \/roots:template-only -->\n+/, ''],
+  [/<!-- roots:template-only -->[\s\S]*?<!-- \/roots:template-only -->\n+/g, ''],
   ['# roots agent rulebook', `# ${a.slug} agent rulebook`],
   // Consume the description AND the guidance comment that follows it: that
   // comment tells the owner to "replace the two lines above", which init just
@@ -168,7 +168,7 @@ replaceInFile('packages/core/src/index.ts', [['@roots/core', `@${a.slug}/core`]]
 
 // Strip template-only regions from README.
 replaceInFile('README.md', [
-  [/<!-- roots:template-only -->[\s\S]*?<!-- \/roots:template-only -->\n+/, ''],
+  [/<!-- roots:template-only -->[\s\S]*?<!-- \/roots:template-only -->\n+/g, ''],
 ])
 
 // 2. Reset the decision log: the template's meta-decision is replaced by a fresh
@@ -225,7 +225,7 @@ if (!a.typescript) {
     [/- Install: `pnpm install`[\s\S]*?- Docs, preview: `pnpm docs:internal:dev` \/ `pnpm docs:public:dev`/, [
       '- Install: `pnpm install`',
       '- Test hooks: `pnpm test:hooks` (PreToolUse guard allow/deny fixtures)',
-      '- Docs, regenerate: `pnpm docs:gen` (automd indexes + llms.txt + llms-full.txt)',
+      '- Docs, regenerate: `pnpm docs:gen` (automd indexes + llms.txt)',
       '- Docs, validate: `pnpm docs:check && pnpm docs:portability`',
       '- Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`',
       '- Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev`',

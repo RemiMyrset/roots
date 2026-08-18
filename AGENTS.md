@@ -36,7 +36,7 @@ a section outgrows its space, move the content to its canonical home and leave a
 | Markdown authoring rules | [markdown-portability](./docs/internal/development/markdown-portability.md) |
 | Docs toolchain, recipes, growth paths | [docs-toolchain](./docs/internal/development/docs-toolchain.md) |
 | Setup, install, quickstart | [README.md](./README.md) |
-| Machine-readable docs map and corpus | `docs/llms.txt` and `docs/llms-full.txt` (generated) |
+| Machine-readable docs map | [llms.txt](./docs/llms.txt) (generated) |
 <!-- Add one row per fact as homes appear: ports, env vars, glossary, deploy
      runbook, architecture overview. If a fact has no row, pick a home, add a row. -->
 
@@ -51,7 +51,7 @@ clean after your last edit — when unsure which apply, run them all.
 - Test hooks: `pnpm test:hooks` (PreToolUse guard allow/deny fixtures)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
-- Docs, regenerate: `pnpm docs:gen` (automd indexes + llms.txt + llms-full.txt)
+- Docs, regenerate: `pnpm docs:gen` (automd indexes + llms.txt)
 - Docs, validate: `pnpm docs:check && pnpm docs:portability`
 - Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`
 - Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev`
@@ -83,9 +83,17 @@ clean after your last edit — when unsure which apply, run them all.
   it, and `pnpm release` is the only sanctioned path (it confirms with you
   first). Commit freely; leave the push to the human.
 - NEVER hand-edit content between `automd` markers or the generated
-  `docs/llms.txt` / `docs/llms-full.txt` — edit the source, run `pnpm docs:gen`.
+  `docs/llms.txt` — edit the source, run `pnpm docs:gen`.
 - NEVER rewrite an accepted decision record. Supersede it with a new one and link
   both ways; only the old record's Status line changes.
+<!-- roots:template-only -->
+- EXCEPT in this repo: roots keeps one living ADR 0001 describing the template's own
+  conventions and edits it in place. That record documents what roots *is*, not a
+  decision roots once made, so it has nothing to supersede. The append-only rule is
+  what roots *ships*; `.claude/rules/decisions-and-specs.md` states it without this
+  exception deliberately, because that file syncs into children and this exception
+  must not travel with it.
+<!-- /roots:template-only -->
 - NEVER run dependency build scripts (`pnpm approve-builds`) or add or change
   `allowBuilds` / `onlyBuiltDependencies` entries — supply-chain code-exec vector;
   each entry is a human verdict. The entries already in `pnpm-workspace.yaml` are
@@ -121,8 +129,12 @@ Unit tests live in `<package>/test/`, never colocated in `src/` — the sibling
 layout every unjs and antfu upstream uses; Vitest's default glob finds it with no
 config, and a colocated test is a lint error.
 
-When a package grows its own conventions, give it a scoped `AGENTS.md` — nearest
-file wins for agents working inside it; same 200-line budget.
+When a package grows its own conventions, give it a scoped `AGENTS.md` — same
+200-line budget — and a sibling `CLAUDE.md` next to it containing only `@AGENTS.md`.
+Both files are required: Claude Code discovers nested `CLAUDE.md`, never nested
+`AGENTS.md`, so the scoped rulebook is dead on its own. The import is the bare
+`@AGENTS.md` — it resolves relative to the file holding it, so
+`packages/foo/CLAUDE.md` picks up `packages/foo/AGENTS.md`, not the root.
 
 ## Gotchas
 
@@ -133,6 +145,10 @@ file wins for agents working inside it; same 200-line budget.
 
 - `pnpm docs:gen` mutates files; never run it inside a pre-commit hook (the
   pre-commit hook runs the read-only `docs:portability` instead).
+- automd swallows generator failures: it writes the error into the marker region as
+  a comment and still exits 0, and the re-run is byte-identical so the drift gate
+  stays green. `pnpm docs:check` is what catches it — never commit a generated
+  region containing a warning comment.
 - The internal handbook is for the team: if you host it, gate it behind access
   control — recipe in
   [docs-toolchain](./docs/internal/development/docs-toolchain.md). It ships

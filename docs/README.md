@@ -10,11 +10,11 @@ internal content cannot leak into it.
 - [public/](./public/index.md) — the publishable site. Keep it free of anything
   internal.
 
-Machine consumers: [llms.txt](./llms.txt) is the generated map of every doc;
-[llms-full.txt](./llms-full.txt) is the whole corpus in one file. Both are
-produced by `pnpm docs:gen` — never hand-edit them. Both embed the internal
-handbook, so treat them with the same access rules as `internal/` — never publish
-them on the public site.
+Machine consumers: [llms.txt](./llms.txt) is the generated map of every doc —
+one line each, path plus a one-sentence description. Produced by `pnpm docs:gen`;
+never hand-edit it. It indexes the internal handbook, so treat it with the same
+access rules as `internal/` — never publish it on the public site. Agents search
+the map and follow the links; there is deliberately no concatenated corpus.
 
 Obsidian users: open this `docs/` folder as your vault. The committed
 `.obsidian/app.json` makes Obsidian emit portable relative markdown links.

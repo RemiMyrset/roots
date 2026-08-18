@@ -43,7 +43,7 @@ pnpm install
 | --- | --- |
 | `pnpm build` / `pnpm test` / `pnpm typecheck` | Turbo across packages that define each script; `typecheck` also runs root `tsc` over scripts + configs |
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
-| `pnpm docs:gen` | Regenerate indexes, `docs/llms.txt`, `docs/llms-full.txt` |
+| `pnpm docs:gen` | Regenerate indexes and `docs/llms.txt` |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:internal:dev` | Internal handbook (VitePress, team-only) |
 | `pnpm docs:public:dev` | Public docs site |

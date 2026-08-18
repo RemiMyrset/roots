@@ -37,9 +37,13 @@ their own formats over the portability requirement. Concretely:
   tests, spec change in the same PR).
 * **Portability**: every doc renders in GitHub, VitePress, and Obsidian;
   machine-checked by `pnpm docs:portability` (blocking).
-* **Generation**: automd + repo generators produce the indexes, `docs/llms.txt`,
-  and `docs/llms-full.txt`; CI diff-gates the output so generated sections can
-  never drift.
+* **Generation**: automd + repo generators produce the indexes and `docs/llms.txt`;
+  CI diff-gates the output so generated sections can never drift. `docs/llms.txt`
+  follows [llms.txt v2](https://llmstxt.org/) — agents search the map and follow the
+  links. No concatenated corpus is generated: `llms-full.txt` appears in no version
+  of that spec, and a whole-corpus artifact grows with the child repo rather than
+  with the template. Paths are repo-relative rather than URLs, a deliberate
+  deviation, because the consumer fetches by exact path out of a private repo.
 * **Stack**: TypeScript-first pnpm + Turborepo monorepo, node 24 minimum, no
   JavaScript files (erasable-syntax TypeScript runs natively), and no `class` or
   `enum` — functions and plain objects/union types only, enforced by ESLint
@@ -51,9 +55,9 @@ their own formats over the portability requirement. Concretely:
 
 * Good, because conventions are enforced by `pnpm docs:check`,
   `pnpm docs:portability`, and the CI diff-gate — not by memory.
-* Good, because the generated `docs/llms.txt` map and `docs/llms-full.txt`
-  corpus let a docs-QA agent (for example LibreChat with the GitHub MCP server)
-  ground answers in one or two deterministic fetches.
+* Good, because the generated `docs/llms.txt` map lets a docs-QA agent (for
+  example LibreChat with the GitHub MCP server) start from one deterministic fetch
+  and follow exact paths from there, instead of relying on code search.
 * Bad, because the docs toolchain requires node 24 and pnpm even in repos whose
   product stack is something else.
 * Bad, because sequential decision numbering can collide across parallel

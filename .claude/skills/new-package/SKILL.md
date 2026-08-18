@@ -57,7 +57,10 @@ and `apps/` may not exist yet; just create it.
    extensions, so the test imports `../src/index.ts`. If this replaces the sample
    `packages/core`, delete or rename it in the same change.
 6. Add one line to the AGENTS.md "Monorepo map": path — purpose. Update the
-   map line of anything you replaced.
+   map line of anything you replaced. If the package needs its own conventions,
+   write `<package>/AGENTS.md` AND `<package>/CLAUDE.md` containing only
+   `@AGENTS.md` — Claude Code discovers nested `CLAUDE.md`, not nested
+   `AGENTS.md`, so a lone scoped `AGENTS.md` never loads.
 7. Run `pnpm install` (CI installs with a frozen lockfile — it fails if the
    lockfile misses the new member), then `pnpm typecheck && pnpm test &&
    pnpm lint`, then `pnpm docs:portability` (AGENTS.md changed) — all must

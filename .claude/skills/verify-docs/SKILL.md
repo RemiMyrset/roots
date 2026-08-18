@@ -7,7 +7,7 @@ description: Run the full docs gate locally and fix what it finds — generated-
 
 Run the same gates CI runs, in order, and fix failures at the source:
 
-1. `pnpm docs:gen` — regenerates indexes, `docs/llms.txt`, `docs/llms-full.txt`.
+1. `pnpm docs:gen` — regenerates indexes and `docs/llms.txt`.
    Then `git status --porcelain` (catches staged and untracked output, same as
    CI) — if generated files changed, include the regenerated output in this
    change; only if you made no docs edits does it mean the previous commit had

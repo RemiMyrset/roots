@@ -66,7 +66,7 @@ record. Overview docs link to both — they do not restate them.
 ## Generated vs hand-written
 
 `pnpm docs:gen` generates the mechanical skeleton — the decisions index, the
-specs index, `docs/llms.txt`, and `docs/llms-full.txt`. The VitePress sidebars
+specs index, and `docs/llms.txt`. The VitePress sidebars
 are derived live at build time from the same readers, so they cannot drift
 either. Never hand-edit generated output; change the source files and re-run.
 `pnpm docs:check` enforces the couplings generation cannot (Source and Tests

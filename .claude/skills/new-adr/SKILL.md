@@ -19,7 +19,7 @@ Create a decision record under `docs/internal/decisions/`.
    `- **Supersedes:** [NNNN](./NNNN-slug.md)` bullet here, and edit ONLY the old
    record's Status line to `superseded by [NNNN](./NNNN-slug.md)`. Never touch
    an old accepted record's body.
-5. Run `pnpm docs:gen` (regenerates the index and llms files), then
+5. Run `pnpm docs:gen` (regenerates the index and `docs/llms.txt`), then
    `pnpm docs:check` — both must pass before you are done.
 
 $ARGUMENTS is the decision topic if provided.

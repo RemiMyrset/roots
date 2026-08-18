@@ -7,7 +7,7 @@ does not ship wired.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm docs:gen` | automd indexes + `docs/llms.txt` + `docs/llms-full.txt` (mutates files) |
+| `pnpm docs:gen` | automd indexes + `docs/llms.txt` (mutates files) |
 | `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness |
 | `pnpm docs:portability` | trifecta lint (GitHub + VitePress + Obsidian), blocking |
 | `pnpm docs:internal:dev` / `docs:internal:build` | internal handbook site |
@@ -53,15 +53,22 @@ detection), which breaks its `import`/`export`.
 
 ### Power a docs-QA chatbot (LibreChat + GitHub MCP)
 
-The generated `docs/llms.txt` (map) and `docs/llms-full.txt` (corpus) exist for
-this. In LibreChat, add the GitHub MCP server over `streamable-http` with the
-PAT supplied per-user via `customUserVars` as the Authorization header; enable
-only `get_file_contents` and `get_repository_tree` (code search is unreliable on
-private repos: indexing lag and a separate low rate limit). Agent system prompt:
-"Read `docs/llms.txt` first, fetch the exact linked paths, cite paths in
-answers; `docs/llms-full.txt` holds the whole corpus if you need everything."
-Skip LibreChat's RAG API — per-conversation uploads re-ingest and drift; this
-corpus is small and structured enough for direct navigation.
+The generated `docs/llms.txt` (map) exists for this. In LibreChat, add the GitHub
+MCP server over `streamable-http` with the PAT supplied per-user via
+`customUserVars` as the Authorization header; enable only `get_file_contents` and
+`get_repository_tree` (code search is unreliable on private repos: indexing lag and
+a separate low rate limit). Agent system prompt: "Read `docs/llms.txt` first, fetch
+the exact linked paths, cite paths in answers."
+
+That is the [llms.txt v2](https://llmstxt.org/) model verbatim — agents search the
+map and follow links, rather than ingesting a concatenated corpus. roots generates
+no `llms-full.txt`: it is in no version of the spec, and a whole-corpus artifact
+grows with the child repo rather than with the template. One deliberate deviation
+from the spec: the map holds repo-relative paths rather than URLs, because this
+consumer fetches by exact path out of a private repo.
+
+Skip LibreChat's RAG API — per-conversation uploads re-ingest and drift; the docs
+are small and structured enough for direct navigation.
 
 ### Deploy the public site
 
@@ -96,8 +103,10 @@ the container.
 ### More agent surfaces
 
 - Gemini CLI reads `GEMINI.md`, not `AGENTS.md` — symlink it if you adopt Gemini.
-- Monorepo packages with their own conventions get a scoped `AGENTS.md` — see the
-  Monorepo map in the root `AGENTS.md` for how nearest-file-wins and the line budget apply.
+- Monorepo packages with their own conventions get a scoped `AGENTS.md` **plus a sibling
+  `CLAUDE.md` holding `@AGENTS.md`** — Claude Code walks nested `CLAUDE.md`, not nested
+  `AGENTS.md`, so the pair is what makes the scope load. Same class of fact as the Gemini
+  line above. See the Monorepo map in the root `AGENTS.md` for the line budget.
 - Project-scoped MCP servers go in `.mcp.json` when a real need appears (for
   example a browser-automation server once there is a UI) — native tools plus
   `gh` cover the GitHub workflows already.
@@ -130,6 +139,32 @@ but keep `.node-version` for maximum compatibility. The `packageManager` field i
 `package.json` is an exact hash-pinned pnpm version that never floats — refresh it
 periodically with `corepack use pnpm@latest` (or `pnpm self-update` where pnpm is
 not corepack-managed); both rewrite the version and its hash.
+
+### Migrating a child off the llms-full corpus
+
+roots used to generate `docs/llms-full.txt` beside the map. It no longer does. A
+child that runs `pnpm sync:template` receives the updated generator but keeps the
+artifact, because `sync:template` only stages deletions for files **inside** a
+`MECHANICS` path and `docs/` is not one. The result is an orphan: never regenerated,
+and invisible to every gate — the drift gate sees an unchanged file rather than a
+stale one, `docs:check` and `docs:portability` both filter on `.md`, and the
+`docs/README.md` link to it still resolves because the file is still on disk.
+
+Do these by hand, once, after syncing:
+
+1. `git rm docs/llms-full.txt`.
+2. Drop its `.gitattributes` line and its `eslint.config.ts` ignore entry.
+3. Fix the `docs/README.md` link and any prose that names it — `AGENTS.md`,
+   `README.md`, your ADR, this file. Sweep with
+   `rg -n --hidden -g '!.git' llms-full`. Both flags matter: without `--hidden`
+   ripgrep skips `.vitepress/`, and with it ripgrep descends `.git` unless excluded.
+4. If you use `vitepress-plugin-llms`, pass `generateLLMsFullTxt: false`, or the
+   published site keeps emitting one.
+5. Run `pnpm docs:gen` and confirm `git status --porcelain` is empty.
+
+Same shape applies to the nested-`AGENTS.md` rule: `AGENTS.md` is not synced, so
+correct the scoped-package line in your own rulebook if it predates the
+`CLAUDE.md` pairing requirement.
 
 ### Known migration risks
 

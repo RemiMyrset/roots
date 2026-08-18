@@ -7,7 +7,6 @@ export default antfu(
     ignores: [
       'docs/**/.vitepress/cache',
       'docs/**/.vitepress/dist',
-      'docs/llms-full.txt',
       'docs/llms.txt',
     ],
   },

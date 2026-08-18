@@ -31,10 +31,37 @@ function isRealIsoDate(s: string): boolean {
 }
 const BACKTICK_PATH_RE = /`([^`]+)`/g
 const REVIEWED_BULLET_RE = /^- \*\*Last reviewed:\*\*\s*(\d{4}-\d{2}-\d{2})/m
+// automd turns a generator throw into document CONTENT rather than a failure: it writes
+// `<!-- U+26A0 (generatorName) message -->` into the marker region and still exits 0. Once
+// that comment is committed, regeneration is byte-identical, so the CI drift gate (docs:gen then
+// `git status --porcelain`) can never see it, and check-portability strips HTML comments
+// before scanning. This is the only check that catches it.
+// Escaped, never pasted: automd's sentinel is U+26A0 followed by U+FE0F and two spaces, and
+// a hand-typed bare emoji would silently fail to match. Matching the comment opener rather
+// than the bare character also keeps legitimate emoji in prose from tripping it.
+const AUTOMD_WARNING = '<!-- \u26A0'
+const AUTOMD_CLOSE = '<!-- /automd -->'
 
 const root = repoRoot()
 const errors: string[] = []
 const warnings: string[] = []
+
+/**
+ * Errors when automd left a warning comment inside a generated region. `open` is the
+ * generator's opening marker; the region runs to the next `<!-- /automd -->`, or to
+ * end-of-file when the closing marker is absent — over-scanning is the safe direction,
+ * since a missing close means the region is already malformed.
+ */
+function checkAutomdRegion(where: string, text: string, open: string): void {
+  const start = text.indexOf(open)
+  if (start === -1)
+    return
+  const from = start + open.length
+  const closeAt = text.indexOf(AUTOMD_CLOSE, from)
+  const region = text.slice(from, closeAt === -1 ? undefined : closeAt)
+  if (region.includes(AUTOMD_WARNING))
+    errors.push(`${where}: automd generator failed and wrote a warning comment into the ${open} region. Fix the generator, re-run \`pnpm docs:gen\`, and never commit the warning — once committed it regenerates identically and the drift gate goes green.`)
+}
 
 /**
  * Markdown specs found below a directory (recursive), area-relative. Ignores
@@ -98,6 +125,7 @@ else {
   const decisionsIndexText = readFileSync(decisionsIndexPath, 'utf8')
   if (!decisionsIndexText.includes('<!-- automd:decisionsIndex -->'))
     errors.push('docs/internal/decisions/index.md: missing <!-- automd:decisionsIndex --> marker')
+  checkAutomdRegion('docs/internal/decisions/index.md', decisionsIndexText, '<!-- automd:decisionsIndex -->')
 }
 
 // --- specs -------------------------------------------------------------------
@@ -173,6 +201,7 @@ else {
   const specsIndexText = readFileSync(specsIndexPath, 'utf8')
   if (!specsIndexText.includes('<!-- automd:specIndex -->'))
     errors.push('docs/internal/specs/index.md: missing <!-- automd:specIndex --> marker')
+  checkAutomdRegion('docs/internal/specs/index.md', specsIndexText, '<!-- automd:specIndex -->')
 }
 
 // --- report ------------------------------------------------------------------
