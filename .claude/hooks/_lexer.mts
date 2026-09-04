@@ -1,17 +1,17 @@
 /**
  * Shared lexical core for the PreToolUse guards (deny-non-pnpm / deny-build-scripts /
- * deny-secret-reads). Consolidated here so a lexer fix lands ONCE for all three — the
+ * deny-secret-reads / deny-push-protected). Consolidated here so a lexer fix lands ONCE — the
  * previous triplication is why the guards regressed every audit.
  *
  * ZERO external dependencies (node builtins only): the guards run before `pnpm install`
  * and are synced into arbitrary repos, so this module must never require an npm package.
- * Best-effort lexical detection, NOT a shell — see each guard's header for scope.
+ * Best-effort lexical detection, NOT a shell — scope and out-of-scope live in SECURITY.md.
  */
 export const BANNED: ReadonlySet<string> = new Set(['npm', 'yarn', 'bun', 'bunx'])
 
 // Pass-through wrappers whose argv IS the real command: skip them to find the head. An
 // allowlist can never be exhaustive (proxychains/firejail/setarch/catchsegv/...); unknown
-// wrapper words are documented out-of-scope in each guard header.
+// wrapper words are documented out-of-scope in SECURITY.md.
 export const WRAP: ReadonlySet<string> = new Set([
   'sudo', 'doas', 'runuser', 'env', 'command', 'exec', 'eval', 'time', 'timeout', 'nice',
   'ionice', 'taskset', 'chrt', 'nohup', 'setsid', 'stdbuf', 'unbuffer', 'flock', 'xargs',

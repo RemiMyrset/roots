@@ -1,7 +1,5 @@
-# Normalize line endings to LF in the index. Shipped shell hooks and Linux CI
-# require LF; CRLF checkouts would break them.
+# Normalize line endings to LF in the index; Linux CI and the node hooks expect LF.
 * text=auto eol=lf
-*.sh text eol=lf
 *.md text
 
 # Lockfile: don't clutter diffs, mark as generated for linguist.
