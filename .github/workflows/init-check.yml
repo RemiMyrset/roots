@@ -54,6 +54,7 @@ jobs:
           # mid-block under `set -e` (POSIX: exit status of a `!`-inverted command is ignored).
           if grep -q '# roots agent rulebook' AGENTS.md; then echo "::error::old H1 leaked"; exit 1; fi
           if grep -q '@roots/core' package.json AGENTS.md packages/core/package.json packages/core/src/index.ts; then echo "::error::@roots/core leaked"; exit 1; fi
+          grep -q "greet('init-child')" packages/core/test/index.test.ts   # sample test rebranded
           if grep -rq 'roots:template-only' AGENTS.md README.md; then echo "::error::template-only banner leaked"; exit 1; fi
           # README + docs-site titles/H1s rebranded to the derived slug. These are
           # exact-string .replace() calls that silently no-op if ever reworded —
@@ -82,48 +83,6 @@ jobs:
           pnpm lint
           pnpm test
           pnpm build
-          pnpm docs:internal:build
-          pnpm docs:public:build
-
-      - name: Run init on the TypeScript-removal path
-        run: |
-          rsync -a --exclude node_modules --exclude .git . /tmp/init-child-nots/
-          cd /tmp/init-child-nots
-          node scripts/init.mts --defaults --no-typescript
-          test ! -f scripts/init.mts
-          test ! -f turbo.json
-          test ! -d packages
-          test ! -f tsconfig.json       # root config extended the deleted base
-          test ! -f tsconfig.base.json
-          test ! -f eslint.config.ts    # flat ESLint config removed with the TS layer
-          test ! -f .github/workflows/init-check.yml
-          # the rulebook must not command deleted scripts (if grep; a bare `! grep` is a
-          # no-op mid-block under `set -e`)
-          if grep -q 'ALWAYS use TypeScript' AGENTS.md; then echo "::error::TS rule leaked"; exit 1; fi
-          if grep -q 'pnpm build' AGENTS.md; then echo "::error::pnpm build leaked in AGENTS.md"; exit 1; fi
-          # README command rows for the deleted scripts are stripped
-          if grep -q 'pnpm build' README.md; then echo "::error::pnpm build row leaked in README"; exit 1; fi
-          if grep -q 'pnpm lint' README.md; then echo "::error::pnpm lint row leaked in README"; exit 1; fi
-          # AGENTS.md Monorepo map rewritten to the no-TS placeholder (old map named packages/core)
-          grep -q 'workspace layer was removed at init' AGENTS.md
-          if grep -q 'packages/core' AGENTS.md; then echo "::error::packages/core leaked in AGENTS.md"; exit 1; fi
-          # ci.yml replaced with the manual-only placeholder, hardened with persist-credentials
-          grep -q 'workflow_dispatch' .github/workflows/ci.yml
-          grep -q 'persist-credentials: false' .github/workflows/ci.yml
-          # package.json surgery: TS scripts + lint-staged removed, pre-commit rewritten, TS devDeps gone
-          node -e "const p=require('./package.json'); const s=p.scripts||{}; const d=p.devDependencies||{}; process.exit((!s.build && !s.test && !s.typecheck && !s.lint && !s['lint:fix'] && !p['lint-staged'] && !d.typescript && !d.eslint && !d.turbo && !d['@antfu/eslint-config'] && p['simple-git-hooks']['pre-commit']==='pnpm docs:portability')?0:1)"
-          # editor config scrubbed: dangling tsdk pin removed, ESLint rec dropped, JSON still valid
-          test ! -f .vscode/settings.json
-          if grep -q 'dbaeumer' .vscode/extensions.json; then echo "::error::ESLint rec leaked into no-TS child"; exit 1; fi
-          node -e "JSON.parse(require('fs').readFileSync('.vscode/extensions.json','utf8'))"
-
-      - name: Non-TypeScript child passes the docs gates
-        run: |
-          cd /tmp/init-child-nots
-          pnpm install --no-frozen-lockfile
-          pnpm docs:gen
-          pnpm docs:check
-          pnpm docs:portability
           pnpm docs:internal:build
           pnpm docs:public:build
 

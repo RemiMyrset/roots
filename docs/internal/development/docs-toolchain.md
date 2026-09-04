@@ -51,6 +51,13 @@ target repo's `package.json` `"type"`, whereas a `.ts` file is read as CommonJS 
 repo that sets `"type": "commonjs"` (or an older toolchain without module-syntax
 detection), which breaks its `import`/`export`.
 
+Sync only stages deletions for files **inside** a `MECHANICS` path, so an artifact the
+template retired elsewhere (a doc, a config line) stays behind as an orphan — sweep for
+it by hand after reviewing the diff. Two settings never travel because
+`.claude/settings.json` is yours: set `PROTECTED_BRANCHES` in its `env` block if
+`main` is not your protected branch, and drop any old blanket `Bash(git push:*)` deny
+so the `deny-push-protected` guard can allow feature-branch pushes.
+
 ### Power a docs-QA chatbot (LibreChat + GitHub MCP)
 
 The generated `docs/llms.txt` (map) exists for this. In LibreChat, add the GitHub
@@ -61,9 +68,9 @@ a separate low rate limit). Agent system prompt: "Read `docs/llms.txt` first, fe
 the exact linked paths, cite paths in answers."
 
 That is the [llms.txt v2](https://llmstxt.org/) model verbatim — agents search the
-map and follow links, rather than ingesting a concatenated corpus. roots generates
-no `llms-full.txt`: it is in no version of the spec, and a whole-corpus artifact
-grows with the child repo rather than with the template. One deliberate deviation
+map and follow links, rather than ingesting a concatenated corpus. No
+`llms-full.txt` is generated: it is in no version of the spec, and a whole-corpus
+artifact grows with the child repo rather than with the template. One deliberate deviation
 from the spec: the map holds repo-relative paths rather than URLs, because this
 consumer fetches by exact path out of a private repo.
 
@@ -139,32 +146,6 @@ but keep `.node-version` for maximum compatibility. The `packageManager` field i
 `package.json` is an exact hash-pinned pnpm version that never floats — refresh it
 periodically with `corepack use pnpm@latest` (or `pnpm self-update` where pnpm is
 not corepack-managed); both rewrite the version and its hash.
-
-### Migrating a child off the llms-full corpus
-
-roots used to generate `docs/llms-full.txt` beside the map. It no longer does. A
-child that runs `pnpm sync:template` receives the updated generator but keeps the
-artifact, because `sync:template` only stages deletions for files **inside** a
-`MECHANICS` path and `docs/` is not one. The result is an orphan: never regenerated,
-and invisible to every gate — the drift gate sees an unchanged file rather than a
-stale one, `docs:check` and `docs:portability` both filter on `.md`, and the
-`docs/README.md` link to it still resolves because the file is still on disk.
-
-Do these by hand, once, after syncing:
-
-1. `git rm docs/llms-full.txt`.
-2. Drop its `.gitattributes` line and its `eslint.config.ts` ignore entry.
-3. Fix the `docs/README.md` link and any prose that names it — `AGENTS.md`,
-   `README.md`, your ADR, this file. Sweep with
-   `rg -n --hidden -g '!.git' llms-full`. Both flags matter: without `--hidden`
-   ripgrep skips `.vitepress/`, and with it ripgrep descends `.git` unless excluded.
-4. If you use `vitepress-plugin-llms`, pass `generateLLMsFullTxt: false`, or the
-   published site keeps emitting one.
-5. Run `pnpm docs:gen` and confirm `git status --porcelain` is empty.
-
-Same shape applies to the nested-`AGENTS.md` rule: `AGENTS.md` is not synced, so
-correct the scoped-package line in your own rulebook if it predates the
-`CLAUDE.md` pairing requirement.
 
 ### Known migration risks
 

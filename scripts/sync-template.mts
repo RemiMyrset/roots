@@ -1,8 +1,7 @@
 /**
  * On-demand template update — no cron, no bot, no token, just git. Pulls the roots
- * mechanics (the shared docs, labels, and guards CI workflows, the docs generators
- * and guard test-suite, agent hooks/rules/skills) from the template repo into this
- * one. Works from any repo, whether or not it was created from the template.
+ * mechanics (the shared docs and labels CI workflows, the docs generators and guard
+ * test-suite, agent hooks/rules/skills) from the template repo into this one. Works from any repo, whether or not it was created from the template.
  *
  *   pnpm sync:template            # pull from the default template URL
  *   pnpm sync:template <git-url>  # or point at your own fork
@@ -28,7 +27,6 @@ const BRANCH = 'main'
 const MECHANICS = [
   '.github/workflows/docs.yml',
   '.github/workflows/labels.yml',
-  '.github/workflows/guards.yml',
   '.github/labels.yml',
   '.github/ISSUE_TEMPLATE',
   '.github/PULL_REQUEST_TEMPLATE.md',

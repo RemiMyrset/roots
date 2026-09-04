@@ -5,14 +5,11 @@
  * (not `.ts`) so it is unambiguously ESM — it uses top-level await and runs before
  * install, so its module system must not hinge on package.json `"type"`.
  *
- * Interactive by default. Flags for CI and automation:
- *   --defaults        answer every prompt non-interactively (slug from the git
- *                     origin URL, else the directory name)
- *   --no-typescript   take the TypeScript-removal path (works with or without
- *                     --defaults)
+ * Interactive by default. `--defaults` answers every prompt non-interactively
+ * (slug from the git origin URL, else the directory name).
  *
  * Executable spec: .github/workflows/init-check.yml asserts every observable
- * outcome of this script on both the TypeScript and non-TypeScript paths.
+ * outcome of this script.
  */
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -33,7 +30,6 @@ if (!existsSync(join(root, 'scripts/init.mts'))) {
 }
 
 const useDefaults = process.argv.includes('--defaults')
-const noTs = process.argv.includes('--no-typescript')
 const REMOTE_SLUG_RE = /\/([\w.-]+?)(?:\.git)?$/
 
 function deriveSlug(): string {
@@ -62,20 +58,15 @@ interface Answers {
   slug: string
   title: string
   description: string
-  typescript: boolean
 }
 
-// The subset of package.json this script reads or mutates. Typed so the parsed
-// manifest is never `any` (JSON.parse returns `any`); the index signature keeps
-// the untouched fields addressable without widening the known ones.
+// The subset of package.json this script mutates. Typed so the parsed manifest
+// is never `any` (JSON.parse returns `any`); the index signature keeps the
+// untouched fields addressable without widening the known ones.
 interface PackageJson {
-  'name': string
-  'version': string
-  'description': string
-  'scripts': Record<string, string>
-  'devDependencies': Record<string, string>
-  'simple-git-hooks': Record<string, string>
-  'lint-staged'?: unknown
+  name: string
+  version: string
+  description: string
   [key: string]: unknown
 }
 
@@ -86,12 +77,11 @@ async function ask(): Promise<Answers> {
       slug: validateSlug(slugDefault),
       title: slugDefault,
       description: '',
-      typescript: !noTs,
     }
   }
 
   if (!process.stdin.isTTY) {
-    console.error('stdin is not a TTY — run non-interactively: node scripts/init.mts --defaults [--no-typescript]')
+    console.error('stdin is not a TTY — run non-interactively: node scripts/init.mts --defaults')
     process.exit(1)
   }
 
@@ -99,13 +89,8 @@ async function ask(): Promise<Answers> {
   const slug = validateSlug((await rl.question(`Project slug [${slugDefault}]: `)).trim() || slugDefault)
   const title = (await rl.question(`Human title [${slug}]: `)).trim() || slug
   const description = (await rl.question('One-line description []: ')).trim()
-  let typescript = false
-  if (!noTs) {
-    const ts = (await rl.question('TypeScript project? [Y/n]: ')).trim().toLowerCase()
-    typescript = ts !== 'n' && ts !== 'no'
-  }
   rl.close()
-  return { slug, title, description, typescript }
+  return { slug, title, description }
 }
 
 function replaceInFile(path: string, replacements: [from: string | RegExp, to: string][]): void {
@@ -138,6 +123,7 @@ replaceInFile('README.md', [
   // only differ when the owner supplies a distinct title — an intentional split.
   ['# roots', `# ${a.title}`],
   [/Rapid Opinionated Onboarding[\s\S]*?wired from day one\./, a.description || `${a.title}.`],
+  [/<!-- roots:template-only -->[\s\S]*?<!-- \/roots:template-only -->\n+/g, ''],
 ])
 replaceInFile('AGENTS.md', [
   [/<!-- roots:template-only -->[\s\S]*?<!-- \/roots:template-only -->\n+/g, ''],
@@ -165,10 +151,11 @@ for (const [f, from, to] of RENAMES)
   replaceInFile(f, [[from, to]])
 replaceInFile('packages/core/package.json', [['@roots/core', `@${a.slug}/core`]])
 replaceInFile('packages/core/src/index.ts', [['@roots/core', `@${a.slug}/core`]])
-
-// Strip template-only regions from README.
-replaceInFile('README.md', [
-  [/<!-- roots:template-only -->[\s\S]*?<!-- \/roots:template-only -->\n+/g, ''],
+// The sample test greets the project by name; the slug is validated to a safe
+// character class above, so it cannot break the string literal.
+replaceInFile('packages/core/test/index.test.ts', [
+  [`greet('roots')`, `greet('${a.slug}')`],
+  [`'Hello, roots!'`, `'Hello, ${a.slug}!'`],
 ])
 
 // 2. Reset the decision log: the template's meta-decision is replaced by a fresh
@@ -203,68 +190,7 @@ this baseline are recorded as superseding decisions.
 * Bad, because the docs toolchain requires node 24 and pnpm even for docs-only edits.
 `)
 
-// 3. Optional TypeScript layer removal.
-if (!a.typescript) {
-  // Also scrub editor config for the TS layer that no longer exists: the .vscode
-  // tsdk pin points at a typescript/lib the no-TS child won't install, and the
-  // ESLint extension recommendation is moot once eslint.config.ts is gone.
-  for (const f of ['tsconfig.json', 'tsconfig.base.json', 'eslint.config.ts', 'turbo.json', 'packages', '.vscode/settings.json'])
-    rmSync(join(root, f), { recursive: true, force: true })
-  replaceInFile('.vscode/extensions.json', [[', "dbaeumer.vscode-eslint"', '']])
-  for (const s of ['build', 'test', 'typecheck', 'lint', 'lint:fix'])
-    delete pkg.scripts[s]
-  delete pkg['lint-staged']
-  pkg['simple-git-hooks']['pre-commit'] = 'pnpm docs:portability'
-  for (const d of ['@antfu/eslint-config', 'eslint', 'jiti', 'lint-staged', 'turbo', 'typescript', '@types/node', '@tsconfig/node24', '@tsconfig/strictest'])
-    delete pkg.devDependencies[d]
-  writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`)
-
-  // The rulebook and README must not command agents to run deleted scripts or
-  // enforce a TypeScript-only policy the owner just opted out of.
-  replaceInFile('AGENTS.md', [
-    [/- Install: `pnpm install`[\s\S]*?- Docs, preview: `pnpm docs:internal:dev` \/ `pnpm docs:public:dev`/, [
-      '- Install: `pnpm install`',
-      '- Test hooks: `pnpm test:hooks` (PreToolUse guard allow/deny fixtures)',
-      '- Docs, regenerate: `pnpm docs:gen` (automd indexes + llms.txt)',
-      '- Docs, validate: `pnpm docs:check && pnpm docs:portability`',
-      '- Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`',
-      '- Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev`',
-      '<!-- Add your stack\'s build/test/lint commands here the moment they exist —',
-      '     they are the highest-value content in this file for agents. -->',
-    ].join('\n')],
-    [/- ALWAYS use TypeScript\.[\s\S]*?extensions\.\n/, ''],
-    [/## Monorepo map\n[\s\S]*?(?=## Gotchas)/, '## Monorepo map\n\nNot set up — the TypeScript workspace layer was removed at init. Map your\nstack\'s layout here when it lands.\n\n'],
-  ])
-  replaceInFile('README.md', [
-    [/\| `pnpm build`[^\n]*\n/, ''],
-    [/\| `pnpm lint`[^\n]*\n/, ''],
-  ])
-
-  writeFileSync(join(root, '.github/workflows/ci.yml'), `# Placeholder project CI — the TypeScript layer was removed at init.
-# Replace the body with your stack's real gates and change \`on:\` to
-# push/pull_request. Until then it runs only manually, so it can never fake a
-# green check.
-name: ci
-
-on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  ci:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - run: echo "Replace this workflow with real project CI."
-`)
-}
-
-// 4. Self-delete — this script runs exactly once. The init-check workflow only
+// 3. Self-delete — this script runs exactly once. The init-check workflow only
 //    validates the template itself, so remove it too rather than leave a
 //    permanently-skipped workflow in the child.
 rmSync(join(root, '.github/workflows/init-check.yml'), { force: true })
@@ -276,12 +202,12 @@ ${a.title} initialized from roots.
 Manual checklist (things a script cannot do for you):
 
   [ ] pnpm install && pnpm docs:gen && pnpm docs:check && pnpm docs:portability
-  [ ] Branch ruleset (require the "docs"${a.typescript ? ' and "ci"' : ''} checks, block force-push):
+  [ ] Branch ruleset (require the "docs" and "ci" checks, block force-push):
         repo Settings -> Rules -> Rulesets (enforcement on private repos needs GitHub Pro)
   [ ] Disable wiki + projects (docs live in-repo):
         gh api -X PATCH repos/<owner>/${a.slug} -f has_wiki=false -f has_projects=false
   [ ] Seed repo labels: gh workflow run labels.yml (or Actions -> labels -> Run workflow)
   [ ] Review LICENSE (template ships MIT).
-  [ ] Fill the AGENTS.md guidance comments as sections become real; delete the comments.${a.typescript ? '' : '\n  [ ] AGENTS.md and README were trimmed for the non-TypeScript path — review them.'}
+  [ ] Fill the AGENTS.md guidance comments as sections become real; delete the comments.
   [ ] Commit: "chore: initialize from roots"
 `)
