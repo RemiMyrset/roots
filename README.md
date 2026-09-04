@@ -16,9 +16,9 @@ AGENTS.md agent layer wired from day one.
    node scripts/init.mts
    ```
 
-   It prompts for a name, title, and whether to keep TypeScript (add `--defaults`
-   to skip the prompts), then renames everything, resets the decision log, prints
-   the manual checklist (ruleset, wiki/projects settings), and deletes itself.
+   It prompts for a slug, title, and description (add `--defaults` to skip the
+   prompts), then renames everything, resets the decision log, prints the manual
+   checklist (ruleset, wiki/projects settings), and deletes itself.
 2. `pnpm install && pnpm docs:gen && pnpm docs:check && pnpm docs:portability`
 3. Commit. CI is green on the first push.
 
@@ -43,11 +43,14 @@ pnpm install
 | --- | --- |
 | `pnpm build` / `pnpm test` / `pnpm typecheck` | Turbo across packages that define each script; `typecheck` also runs root `tsc` over scripts + configs |
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
+| `pnpm test:hooks` | PreToolUse guard fixtures (allow/deny cases, node only) |
 | `pnpm docs:gen` | Regenerate indexes and `docs/llms.txt` |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
+| `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |
 | `pnpm docs:internal:dev` | Internal handbook (VitePress, team-only) |
 | `pnpm docs:public:dev` | Public docs site |
-| `pnpm release` | changelogen: version, CHANGELOG, tag, push |
+| `pnpm sync:template` | Stage the template's latest shared mechanics for review |
+| `pnpm release` | changelogen: version, CHANGELOG, tag, push — human-run (agents are blocked) |
 
 ## Where things live
 

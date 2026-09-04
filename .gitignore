@@ -4,8 +4,7 @@ dist/
 coverage/
 .DS_Store
 
-# VitePress build output and cache — never commit generated sites
-docs/**/.vitepress/dist/
+# VitePress cache (its dist/ output is covered by the dist/ rule above)
 docs/**/.vitepress/cache/
 
 # Environment files: never commit; a future .env.example is the one allowed exception

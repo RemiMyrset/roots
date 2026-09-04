@@ -25,8 +25,9 @@ Every fact has exactly one canonical home; this file links to it, never restates
 The one deliberate exception is the Commands list below: it restates the done-gates
 verbatim because they are the contract for "done" — keep it in sync when a gate
 command changes. When this file and a spec or decision record disagree, the
-spec/decision wins — fix the loser in the same PR. Hard budget: **200 lines**. When
-a section outgrows its space, move the content to its canonical home and leave a link.
+spec/decision wins — fix the loser in the same PR. Hard budget: **200 lines**, enforced
+by `pnpm docs:check`. When a section outgrows its space, move the content to its
+canonical home and leave a link.
 
 | Topic | Canonical source |
 | --- | --- |
@@ -79,9 +80,11 @@ clean after your last edit — when unsure which apply, run them all.
 - ALWAYS give every exported symbol a `/** */` block saying what it is for and
   any constraint a caller cannot see from the signature — never a restatement of
   the code. Convention, not lint-enforced.
-- NEVER `git push`. Pushing is a human operation: `.claude/settings.json` denies
-  it, and `pnpm release` is the only sanctioned path (it confirms with you
-  first). Commit freely; leave the push to the human.
+- NEVER push to a protected branch. Default `main`; the list is `PROTECTED_BRANCHES`
+  (comma-separated globs) in the `env` block of `.claude/settings.json`. A PreToolUse
+  guard denies it, along with `--force`/`--all`/`--mirror` pushes and `pnpm release`
+  (its push runs inside changelogen — human-run only). Feature branches: commit and
+  push freely, `--force-with-lease` allowed; each push still asks for permission.
 - NEVER hand-edit content between `automd` markers or the generated
   `docs/llms.txt` — edit the source, run `pnpm docs:gen`.
 - NEVER rewrite an accepted decision record. Supersede it with a new one and link
@@ -95,7 +98,7 @@ clean after your last edit — when unsure which apply, run them all.
   must not travel with it.
 <!-- /roots:template-only -->
 - NEVER run dependency build scripts (`pnpm approve-builds`) or add or change
-  `allowBuilds` / `onlyBuiltDependencies` entries — supply-chain code-exec vector;
+  `allowBuilds` entries — supply-chain code-exec vector;
   each entry is a human verdict. The entries already in `pnpm-workspace.yaml` are
   such verdicts — leave them alone. The hook blocks the CLI flags; config edits
   are on your honor.

@@ -1,15 +1,15 @@
 /**
  * Structural lint for the decisions/specs system — enforces the couplings that
  * generation cannot: record format, metadata bullets, supersede links, spec
- * Source/Tests paths resolving on disk, review-date freshness, and index pages
- * carrying their automd markers.
+ * Source/Tests paths resolving on disk, review-date freshness, index pages
+ * carrying their automd markers, and the AGENTS.md line budget.
  *
  * Blocking errors exit 1; warnings print but pass (CI shows them as ::warning).
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import process from 'node:process'
-import { repoRoot } from './generators.mts'
+import { repoRoot } from './root.mts'
 
 const STALE_DAYS = 180
 // Prefix-anchored on purpose: a "superseded by [NNNN](./…)" status carries a trailing
@@ -204,6 +204,26 @@ else {
   checkAutomdRegion('docs/internal/specs/index.md', specsIndexText, '<!-- automd:specIndex -->')
 }
 
+// --- rulebooks ---------------------------------------------------------------
+// AGENTS.md declares a hard 200-line budget for itself and every nested rulebook.
+const RULEBOOK_BUDGET = 200
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', '.turbo', '.vitepress'])
+function rulebooks(dir: string): string[] {
+  const out: string[] = []
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory() && !SKIP_DIRS.has(e.name))
+      out.push(...rulebooks(join(dir, e.name)))
+    else if (e.isFile() && e.name === 'AGENTS.md')
+      out.push(join(dir, e.name))
+  }
+  return out
+}
+for (const file of rulebooks(root)) {
+  const lines = readFileSync(file, 'utf8').replace(/\n$/, '').split('\n').length
+  if (lines > RULEBOOK_BUDGET)
+    errors.push(`${relative(root, file)}: ${lines} lines exceeds the ${RULEBOOK_BUDGET}-line rulebook budget — move content to its canonical home and link it`)
+}
+
 // --- report ------------------------------------------------------------------
 for (const w of warnings)
   console.warn(`::warning::docs:check: ${w}`)
@@ -214,4 +234,4 @@ if (errors.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ docs:check — ${decisionFiles.length} decision(s), specs valid${warnings.length ? `, ${warnings.length} warning(s)` : ''}`)
+console.log(`✔ docs:check — ${decisionFiles.length} decision(s), specs valid, rulebooks within budget${warnings.length ? `, ${warnings.length} warning(s)` : ''}`)

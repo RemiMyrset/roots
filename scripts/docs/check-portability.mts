@@ -12,7 +12,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import process from 'node:process'
-import { repoRoot } from './generators.mts'
+import { repoRoot } from './root.mts'
 
 const RULES_DOC = 'docs/internal/development/markdown-portability.md'
 const SKIP_DIRS = new Set(['.vitepress', '.obsidian', 'node_modules', 'dist'])

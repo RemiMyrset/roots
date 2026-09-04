@@ -10,7 +10,7 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
-import { repoRoot } from './generators.mts'
+import { repoRoot } from './root.mts'
 
 const SKIP_DIRS = new Set(['.vitepress', '.obsidian', 'node_modules', 'dist'])
 const H1_RE = /^# (.+)$/m

@@ -50,6 +50,12 @@ their own formats over the portability requirement. Concretely:
   `no-restricted-syntax` (enums also by `erasableSyntaxOnly`). Unit tests live in
   a sibling `test/` directory beside `src/`, never colocated — the unjs and antfu
   house layout.
+* **Agent guards**: one PreToolUse dispatcher runs node-only `deny-*` guards
+  (no shell shims, no npm dependencies) that block non-pnpm package managers,
+  dependency build scripts, shell reads of secrets, and pushes to protected
+  branches (`PROTECTED_BRANCHES`, default `main`; feature-branch pushes are
+  allowed). Threat model and scope live in `SECURITY.md`; the fixture suite
+  (`pnpm test:hooks`) pins every covered case.
 
 ### Consequences
 
