@@ -38,11 +38,11 @@ entirely, the sync works the same way — and there is no bot, cron, or token:
 ```sh
 pnpm sync:template                # URL and ref from .template-sync.json, else the defaults
 pnpm sync:template <fork-url>     # or point at your own fork (recorded for next time)
-pnpm sync:template --ref v0.1.0   # pin a template tag or branch (recorded for next time)
+pnpm sync:template --ref <name>   # pin a template branch or tag (recorded for next time)
 ```
 
-It adds a `template` git remote (tags excluded, so the template's releases never
-leak into your changelog), fetches the ref, and stages the template's version of
+It adds a `template` git remote (tags excluded, so template tags never leak
+into your changelog), fetches the ref, and stages the template's version of
 the mechanics paths: the CI, docs, labels, and pages workflows, the label list, the
 agent-task issue template and the PR template, the docs generators and checkers, the guard, sync, docs, and
 gate test-suites, the verify gate, the agent hooks, rules, and skills with their Codex

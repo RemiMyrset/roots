@@ -85,7 +85,7 @@ the portability requirement. Concretely:
   records the sync point in `.template-sync.json`, and prints the template
   commits since plus the `package.json` scripts that differ, as follow-ups. It
   works for template copies, forks, and pre-existing repos alike — the first
-  sync infers its baseline — and a child can pin a template release with `ref`. `package.json` and
+  sync infers its baseline — and a child can pin a template branch or tag with `ref`. `package.json` and
   `.claude/settings.json` are never synced; a template change that needs a
   hand-edit ships as a breaking Conventional Commit whose footer states it.
   Contract: [sync-template](./sync-template.md).
