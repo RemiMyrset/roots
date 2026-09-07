@@ -30,8 +30,8 @@ handing over the command; never work around the guard.
    `-r 1.0.0` is often cleanest).
 3. Hand off: tell the user the exact command to run (`pnpm release` plus the bump
    flag), the version and tag it will create, and the remote it pushes to.
-   Children can pin this release with `pnpm sync:template --ref vX.Y.Z`, so
-   tag only from a green `main`. Stop.
+   If other repositories sync mechanics from this one, they can pin this tag
+   with `pnpm sync:template --ref vX.Y.Z`, so tag only from a green `main`. Stop.
 4. If asked to verify afterwards: `git log -1` shows the release commit,
    `git tag -l` the new tag, tree clean. If the push was rejected (branch rulesets
    often block direct pushes to the default branch), the commit and tag exist
