@@ -1,15 +1,16 @@
 {
-  "name": "@roots/core",
+  "name": "@repo/example-app",
   "type": "module",
   "version": "0.0.0",
   "private": true,
-  "exports": {
-    ".": "./src/index.ts"
-  },
   "scripts": {
+    "start": "node src/main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@repo/example-package": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
