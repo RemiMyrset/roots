@@ -133,7 +133,7 @@ pnpm install
 
 | Command | What it does |
 | --- | --- |
-| `pnpm verify` | The done gate: every check CI runs, in CI order, stopping at the first failure |
+| `pnpm verify` | The done gate: every check CI runs, in CI order, stopping at the first failure (`pnpm verify <gate>` resumes there) |
 | `pnpm build` / `pnpm test` / `pnpm typecheck` | Turbo across packages that define each script; `typecheck` also runs root `tsc` over scripts + configs |
 | `pnpm --filter @repo/example-package test` | One package's tests (`test:watch` for watch mode) |
 | `pnpm --filter @repo/example-app start` | Runs the sample CLI (`node src/main.ts`) against the sample package |
@@ -142,6 +142,7 @@ pnpm install
 | `pnpm test:hooks` | Agent guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm test:docs` | Docs checker fixtures (a clean tree and a broken one, node only) |
+| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps |
 | `pnpm docs:gen` | Regenerate the decisions and specs indexes and the `.agents/skills` mirror |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |

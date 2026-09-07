@@ -16,6 +16,7 @@
     "test:hooks": "node scripts/test-hooks.mts",
     "test:sync": "node scripts/test-sync.mts",
     "test:docs": "node scripts/test-docs.mts",
+    "test:gates": "node scripts/test-gates.mts",
     "typecheck": "tsc --noEmit && turbo run typecheck",
     "lint": "CI=1 eslint .",
     "lint:fix": "CI=1 eslint . --fix",
