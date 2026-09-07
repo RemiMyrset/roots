@@ -13,10 +13,13 @@ Counts and lists on this page are links, never numbers — numbers drift.
    GitHub — `docs/template/` is not part of this site.)
 4. [Decision records](./decisions/index.md) — the why, append-only.
 5. [Specifications](./specs/index.md) — the what, capability and entity specs.
+   Worked examples to read first: `docs/template/sync-template.md` is a real
+   capability spec, `docs/template/conventions.md` a real rationale page.
 
 ## Reference
 
 - `docs/template/markdown-portability.md` — authoring rules for every doc.
-- `docs/template/docs-toolchain.md` — how the docs machinery works, plus recipes.
-- `development/` — this project's own guides (runbooks, design notes) go here as
-  they appear; the folder starts empty.
+- `docs/template/docs-toolchain.md` — how the docs mechanics work, plus recipes.
+- Create `development/` for this project's own guides (runbooks, design notes)
+  when the first one appears, and give it a sidebar group in
+  `.vitepress/config.ts`.
