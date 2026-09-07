@@ -44,12 +44,13 @@ pnpm install
 | `pnpm build` / `pnpm test` / `pnpm typecheck` | Turbo across packages that define each script; `typecheck` also runs root `tsc` over scripts + configs |
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
 | `pnpm test:hooks` | PreToolUse guard fixtures (allow/deny cases, node only) |
+| `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm docs:gen` | Regenerate indexes and `docs/llms.txt` |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |
 | `pnpm docs:internal:dev` | Internal handbook (VitePress, team-only) |
 | `pnpm docs:public:dev` | Public docs site |
-| `pnpm sync:template` | Stage the template's latest shared mechanics for review |
+| `pnpm sync:template` | Pull the template's mechanics: stages them, records the sync point, prints commits since and `package.json` follow-ups |
 | `pnpm release` | changelogen: version, CHANGELOG, tag, push — human-run (agents are blocked) |
 
 ## Where things live

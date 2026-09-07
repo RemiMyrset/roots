@@ -11,6 +11,7 @@ material that every child of the template shares:
   doc follows.
 - [docs-toolchain](./docs-toolchain.md) — how the docs machinery works, plus the
   recipes for everything roots deliberately does not ship wired.
+- [sync-template](./sync-template.md) — the contract behind `pnpm sync:template`.
 
 Three things follow from "template-owned":
 

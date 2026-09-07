@@ -52,6 +52,7 @@ clean after your last edit — when unsure which apply, run them all.
 - Build: `pnpm build` (turbo; packages that define `build`)
 - Test: `pnpm test` (turbo; single package: `pnpm --filter @roots/core test`)
 - Test hooks: `pnpm test:hooks` (PreToolUse guard allow/deny fixtures)
+- Test sync: `pnpm test:sync` (template-sync fixtures)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
 - Docs, regenerate: `pnpm docs:gen` (automd indexes + llms.txt)

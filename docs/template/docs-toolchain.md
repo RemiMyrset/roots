@@ -30,33 +30,72 @@ worth knowing: `file` (inline a file), `dir-tree`, `fetch`.
 
 ### Pull template updates (on demand)
 
-A repo made from roots keeps no link back to the template — and there is no bot,
-cron, or token. Pull the shared machinery whenever you want it:
+A repo made from roots shares no git history with the template, and there is no
+bot, cron, or token. Pull the shared machinery whenever you want it:
 
 ```sh
-pnpm sync:template            # default template URL
-pnpm sync:template <fork-url> # or point at your own fork
+pnpm sync:template            # URL from .template-sync.json, else the default
+pnpm sync:template <fork-url> # or point at your own fork (recorded for next time)
 ```
 
-It adds a `template` git remote, fetches it, and stages the template's version of
-the mechanics paths (the shared CI workflows, the label list, issue/PR templates,
-the docs generators and guard test-suite, and the agent hooks/rules/skills).
-Review with `git diff --cached`, keep what applies, and discard the rest with
-`git restore --staged --worktree <path>`. Your `package.json`, `src/`, `packages/`,
-docs content, and `.claude/settings.json` are never touched. Because it is plain
-git it works from any repo; edit the `MECHANICS` list in
-`scripts/sync-template.mts` to change what gets pulled. The synced `scripts/docs/*`
-files are `.mts`, not `.ts`, on purpose: `.mts` runs as ESM regardless of the
-target repo's `package.json` `"type"`, whereas a `.ts` file is read as CommonJS in a
-repo that sets `"type": "commonjs"` (or an older toolchain without module-syntax
-detection), which breaks its `import`/`export`.
+It adds a `template` git remote (tags excluded, so the template's releases never
+leak into your changelog), fetches it, and stages the template's version of the
+mechanics paths: the shared CI workflows, the label list, issue/PR templates,
+the docs generators and checkers, the guard and sync test-suites, the agent
+hooks/rules/skills, the template-owned docs under `docs/template/`, and the sync
+script itself. Files the template retired inside those paths are staged for
+deletion. Nothing is committed. Review with `git diff --cached`, keep what
+applies, and discard the rest with `git restore --staged --worktree <path>`.
+Your `package.json`, `src/`, `packages/`, `docs/internal/`, `docs/public/`, and
+`.claude/settings.json` are never touched. The synced scripts are `.mts`, not
+`.ts`, on purpose: `.mts` runs as ESM regardless of the target repo's
+`package.json` `"type"`, whereas a `.ts` file is read as CommonJS in a repo that
+sets `"type": "commonjs"`, which breaks its `import`/`export`.
 
-Sync only stages deletions for files **inside** a `MECHANICS` path, so an artifact the
-template retired elsewhere (a doc, a config line) stays behind as an orphan — sweep for
-it by hand after reviewing the diff. Two settings never travel because
-`.claude/settings.json` is yours: set `PROTECTED_BRANCHES` in its `env` block if
-`main` is not your protected branch, and drop any old blanket `Bash(git push:*)` deny
-so the `deny-push-protected` guard can allow feature-branch pushes.
+Then it prints what a file copy cannot carry:
+
+- **Commits since the last sync** — the template's log from the recorded sync
+  point, breaking commits marked `!` with their `BREAKING CHANGE` paragraph. A
+  template change that needs a hand-edit outside the synced paths (a
+  `.claude/settings.json` entry, a new devDependency, an orphan file to delete)
+  ships as such a commit; the footer is the instruction.
+- **Follow-ups** — the `package.json` scripts that differ from the template's,
+  compared three ways (template now, template at the last sync, yours), so a
+  script you customized on purpose is listed once as "customized locally"
+  rather than nagged about on every run. A script that still references a file
+  this sync deletes gets a note. Apply the ones that apply by hand.
+
+The sync point lives in `.template-sync.json` at the repo root — template URL
+plus the last synced commit — written by the script and staged with the sync,
+so commit it together. It is also where you customize the sync: list a
+mechanics path under `exclude` to stop pulling it, or an extra path under
+`include` (for example `tsconfig.base.json` or `eslint.config.ts`) to pull it
+too. Never edit the `MECHANICS` list in the script itself: the script is synced,
+and the edit would be staged for revert on the next run.
+
+A repo that predates the script, or holds an older copy that never recorded a
+sync point, bootstraps with plain git (works for private forks with whatever
+auth git already has; overwriting an older tracked copy is fine — the script
+exempts itself from its own dirty check):
+
+```sh
+mkdir -p scripts && git fetch --no-tags https://github.com/RemiMyrset/roots.git main && git show FETCH_HEAD:scripts/sync-template.mts > scripts/sync-template.mts && node scripts/sync-template.mts
+```
+
+The `sync:template` script then shows up as a missing follow-up on that first
+run. In Claude Code the `sync-template` skill drives the whole flow: bootstrap,
+sync, review, follow-ups, gates, commit proposal.
+
+Two things to know. Sync only stages deletions for files **inside** a synced
+path, so an artifact the template retired elsewhere (a doc, a config line) stays
+behind as an orphan; the breaking-commit footer names it, sweep it by hand. And
+a file of your own under a synced directory (say `.claude/skills/my-skill/`) is
+staged for deletion on every run because it is not upstream — discard that
+hunk, move the skill, or `exclude` the directory. `.claude/settings.json` never
+travels: set `PROTECTED_BRANCHES` in its `env` block if `main` is not your
+protected branch, and drop any old blanket `Bash(git push:*)` deny so the
+`deny-push-protected` guard can allow feature-branch pushes. The full contract,
+exit codes, and behavior branches: [sync-template](./sync-template.md).
 
 ### Power a docs-QA chatbot (LibreChat + GitHub MCP)
 

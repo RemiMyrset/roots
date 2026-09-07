@@ -66,6 +66,14 @@ the portability requirement. Concretely:
   branches (`PROTECTED_BRANCHES`, default `main`; feature-branch pushes are
   allowed). Threat model and scope live in `SECURITY.md`; the fixture suite
   (`pnpm test:hooks`) pins every covered case.
+* **Template updates**: pull-based and plain git. `pnpm sync:template` stages the
+  template's version of an allow-list of mechanics paths (including
+  `docs/template/` and the sync script itself), records the sync point in
+  `.template-sync.json`, and prints the template commits since plus the
+  `package.json` scripts that differ, as follow-ups. `package.json` and
+  `.claude/settings.json` are never synced; a template change that needs a
+  hand-edit ships as a breaking Conventional Commit whose footer states it.
+  Contract: [sync-template](./sync-template.md).
 
 ## Consequences
 
@@ -78,3 +86,5 @@ the portability requirement. Concretely:
   product stack is something else.
 * Bad, because sequential decision numbering can collide across parallel
   branches; solo/small-team use accepts this.
+* Bad, because template changes never apply automatically: the follow-ups
+  report is advisory, and a child that never syncs keeps drifting.
