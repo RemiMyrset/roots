@@ -36,7 +36,7 @@ argument, is refused.
 
 Template URL, first match wins: the argument; `url` in `.template-sync.json`;
 the existing `template` remote; the built-in roots URL. The argument must match
-`^[\w@:/.+~-]+$` and not start with `-`.
+`^[\w@:/.+~%-]+$` and not start with `-`.
 
 Ref, first match wins: `--ref`; `ref` in the state file; `main`. A ref must
 match `^\w[\w./+-]*$` and contain no `..`. It is fetched as a branch first (into

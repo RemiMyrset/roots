@@ -102,9 +102,10 @@ interface SyncState {
   include?: string[]
 }
 
-// Plausible git URL / scp-form / local-path characters only. execFileSync passes argv
+// Plausible git URL / scp-form / local-path characters only, percent-encoding included
+// (pathToFileURL encodes a `~` in a Windows temp path as %7E). execFileSync passes argv
 // without a shell, so this guards against junk and option injection, not shell metachars.
-const URL_RE = /^[\w@:/.+~-]+$/
+const URL_RE = /^[\w@:/.+~%-]+$/
 const REF_RE = /^\w[\w./+-]*$/
 const SHA_RE = /^[0-9a-f]{40}$/
 const BREAKING_SUBJECT_RE = /^[a-z]+(?:\([^)]*\))?!:/
