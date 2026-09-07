@@ -1,4 +1,4 @@
-# Docs integrity — blocking: automd/llms drift, structure lint, portability
+# Docs integrity — blocking: automd drift, structure lint, portability
 # lint, both VitePress builds. Advisory (never blocks): spec-discipline nudge.
 name: docs
 
@@ -37,7 +37,7 @@ jobs:
         run: |
           pnpm docs:gen
           # git status --porcelain also catches UNTRACKED regenerated files
-          # (e.g. a deleted-but-committed llms.txt) that git diff would miss.
+          # (e.g. a regenerated file that was deleted) that git diff would miss.
           if [ -n "$(git status --porcelain)" ]; then
             git status --porcelain
             echo "::error::Generated docs are stale. Run 'pnpm docs:gen' and commit the result."

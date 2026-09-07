@@ -12,7 +12,7 @@
  * outcome of this script.
  */
 import { execSync } from 'node:child_process'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import process from 'node:process'
 import { createInterface } from 'node:readline/promises'
@@ -107,7 +107,6 @@ function replaceInFile(path: string, replacements: [from: string | RegExp, to: s
 }
 
 const a = await ask()
-const today = new Date().toISOString().slice(0, 10)
 
 // 1. Names, titles, and descriptions across the replacement manifest.
 const pkgPath = join(root, 'package.json')
@@ -158,37 +157,16 @@ replaceInFile('packages/core/test/index.test.ts', [
   [`'Hello, roots!'`, `'Hello, ${a.slug}!'`],
 ])
 
-// 2. Reset the decision log: the template's meta-decision is replaced by a fresh
-//    provenance record so the child's history starts at its own 0001.
-rmSync(join(root, 'docs/internal/decisions/0001-adopt-roots-conventions.md'), { force: true })
-writeFileSync(join(root, 'docs/internal/decisions/0001-adopt-roots-conventions.md'), `# 0001. Adopt the roots template conventions
-
-- **Status:** accepted
-- **Date:** ${today}
-
-## Context and Problem Statement
-
-This repository was created from the roots template (RemiMyrset/roots). Which
-conventions govern documentation, decisions, specs, and agent configuration?
-
-## Considered Options
-
-* Adopt the roots conventions wholesale
-* Diverge immediately
-
-## Decision Outcome
-
-Chosen option: "Adopt the roots conventions wholesale", because they arrive
-pre-wired and CI-enforced: portable markdown (GitHub + VitePress + Obsidian),
-MADR-4-minimal decision records, capability and entity specs with three-place
-sync, automd-generated indexes, and the AGENTS.md rulebook. Divergences from
-this baseline are recorded as superseding decisions.
-
-### Consequences
-
-* Good, because every convention is enforced by \`pnpm docs:check\` and CI, not memory.
-* Bad, because the docs toolchain requires node 24 and pnpm even for docs-only edits.
-`)
+// 2. Clear the decision log and the specs: those folders belong to the child, so
+//    it starts with only the index and template files. The template's own
+//    rationale lives in docs/template/ (template-owned, synced) and stays.
+for (const dir of ['docs/internal/decisions', 'docs/internal/specs']) {
+  for (const entry of readdirSync(join(root, dir), { withFileTypes: true, recursive: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.md') || entry.name === 'index.md' || entry.name === '_template.md')
+      continue
+    rmSync(join(entry.parentPath, entry.name), { force: true })
+  }
+}
 
 // 3. Self-delete — this script runs exactly once. The init-check workflow only
 //    validates the template itself, so remove it too rather than leave a

@@ -1,5 +1,5 @@
 // Internal handbook — team audience. If hosted, gate it behind access control
-// (recipe: docs/internal/development/docs-toolchain.md). The noindex meta and
+// (recipe: docs/template/docs-toolchain.md). The noindex meta and
 // public/robots.txt are belt-and-braces guards against accidental public
 // exposure.
 import { defineConfig } from 'vitepress'
@@ -10,7 +10,7 @@ import { shared } from '../../.shared/config.ts'
 export default withMermaid(defineConfig({
   ...shared,
   title: 'roots — internal handbook',
-  description: 'Engineering handbook: decisions, specs, development guides.',
+  description: 'Engineering handbook: decisions, specs, guides.',
   head: [
     ['meta', { name: 'robots', content: 'noindex, nofollow' }],
   ],
@@ -20,15 +20,10 @@ export default withMermaid(defineConfig({
       { text: 'Decisions', link: '/decisions/' },
       { text: 'Specs', link: '/specs/' },
     ],
+    // No Development group: the shared guides live in docs/template/, which is
+    // template-owned and deliberately outside this site (read on GitHub). Add a
+    // group here when this project writes its own guides under development/.
     sidebar: [
-      {
-        text: 'Development',
-        items: [
-          { text: 'Spec discipline', link: '/development/spec-discipline' },
-          { text: 'Markdown portability', link: '/development/markdown-portability' },
-          { text: 'Docs toolchain', link: '/development/docs-toolchain' },
-        ],
-      },
       { text: 'Decisions', link: '/decisions/', items: decisionsSidebar() },
       { text: 'Specs', link: '/specs/', items: specsSidebar() },
     ],

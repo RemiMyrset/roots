@@ -1,0 +1,20 @@
+{
+  "context": {
+    "fileName": ["AGENTS.md"]
+  },
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "name": "roots-guards",
+            "type": "command",
+            "command": "node \"$(git rev-parse --show-toplevel)/.claude/hooks/dispatch.mts\"",
+            "timeout": 10000
+          }
+        ]
+      }
+    ]
+  }
+}

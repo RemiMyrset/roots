@@ -50,6 +50,21 @@ export default antfu(
   .override('antfu/eslint-comments/rules', {
     rules: { 'eslint-comments/require-description': 'error' },
   })
+  // Every exported symbol carries a `/** */` block (AGENTS.md rule), enforced here rather
+  // than by convention: `publicOnly` limits the check to ESM exports, the `require` keys cover
+  // exported functions in every spelling, and the contexts add exported interfaces, type
+  // aliases, and plain values. What the block must SAY (purpose plus constraints a caller
+  // cannot see, never a restatement) stays on the author. Layered onto antfu's jsdoc block,
+  // which registers the plugin but leaves this rule off.
+  .override('antfu/jsdoc/rules', {
+    rules: {
+      'jsdoc/require-jsdoc': ['error', {
+        publicOnly: true,
+        require: { FunctionDeclaration: true, ArrowFunctionExpression: true, FunctionExpression: true },
+        contexts: ['TSInterfaceDeclaration', 'TSTypeAliasDeclaration', 'ExportNamedDeclaration > VariableDeclaration'],
+      }],
+    },
+  })
 // Note: antfu default-ignores `.claude`, so the PreToolUse guard sources
 // (`.claude/hooks/*.mts`) are NOT ESLint-linted — intentionally. They are covered by the
 // root tsconfig typecheck (they are in its `include`) and by `pnpm test:hooks` (the behavioural

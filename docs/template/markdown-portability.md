@@ -9,8 +9,7 @@ their formats require YAML frontmatter.)
 ## Rules
 
 1. **Links** — relative markdown links **with the `.md` extension**:
-   `[text](./file.md)`, `[text](../dir/file.md#heading)`. The generated
-   `docs/llms.txt` is the one non-`.md` target allowed. Never wikilinks
+   `[text](./file.md)`, `[text](../dir/file.md#heading)`. Never wikilinks
    (`[[page]]`) or embeds (`![[file]]`) — Obsidian-only. Never absolute
    `](/...)` links.
 2. **Callouts** — only GitHub-alert syntax with the five UPPERCASE types:

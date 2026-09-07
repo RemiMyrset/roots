@@ -6,7 +6,7 @@ paths:
 
 # Decisions and specs
 
-Before editing these files, read `docs/internal/development/spec-discipline.md`.
+Before editing these files, read `docs/template/spec-discipline.md`.
 The load-bearing rules: decision records are append-only once accepted
 (`proposed` drafts may be revised freely; after acceptance: supersede, never
 rewrite — only the old record's Status line changes); specs describe externally

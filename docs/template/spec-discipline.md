@@ -14,7 +14,7 @@ Behavior lives in three places:
 
 1. **Source code.**
 2. **Tests.**
-3. **The spec** — inside `docs/`, that is one file, not several.
+3. **The spec** — one file under `docs/internal/specs/`, not several.
 
 **When a behavior changes, all three change in the same PR.** Three, not four,
 not six. If you cannot describe the change in plain prose in its spec, you do
@@ -22,21 +22,11 @@ not understand it well enough to merge.
 
 ## Canonical-home map
 
-| Concern | Canonical home |
-|---|---|
-| Why a decision was made | a new record under [decisions](../decisions/index.md) |
-| What a capability does now | one capability spec under [specs](../specs/index.md) |
-| An entity's cross-cutting invariants | one entity spec under [specs](../specs/index.md) |
-| Decision status changes | the Status line of the original record (the record is otherwise immutable) |
-| Markdown authoring rules | [markdown-portability](./markdown-portability.md) |
-| Docs toolchain, recipes, growth paths | [docs-toolchain](./docs-toolchain.md) |
-| Agent rules and pointers | `/AGENTS.md` — links into the homes above, never restates |
-| Project commands and quickstart | `/README.md` |
-
-If a concern is not in the table, pick one canonical home and **add a row**. As
-the project grows, add directories with their own rows: `runbooks/` for
-operational procedure, `design/` for product intent, a structure map once the
-codebase has shape.
+The map of concerns to canonical homes is the table at the top of `/AGENTS.md` —
+one place, owned by the project. If a concern is not in it, pick one canonical
+home and add a row there. As the project grows, add directories with their own
+rows: `runbooks/` for operational procedure, `design/` for product intent, a
+structure map once the codebase has shape.
 
 ## Concrete triggers
 
@@ -65,8 +55,8 @@ record. Overview docs link to both — they do not restate them.
 
 ## Generated vs hand-written
 
-`pnpm docs:gen` generates the mechanical skeleton — the decisions index, the
-specs index, and `docs/llms.txt`. The VitePress sidebars
+`pnpm docs:gen` generates the mechanical skeleton — the decisions index and the
+specs index. The VitePress sidebars
 are derived live at build time from the same readers, so they cannot drift
 either. Never hand-edit generated output; change the source files and re-run.
 `pnpm docs:check` enforces the couplings generation cannot (Source and Tests

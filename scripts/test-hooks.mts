@@ -11,8 +11,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 
-type Guard = 'deny-non-pnpm.mts' | 'deny-build-scripts.mts' | 'deny-secret-reads.mts' | 'deny-push-protected.mts' | 'dispatch.mts'
-interface Case { guard: Guard, expect: 0 | 2, cmd: string, env?: Record<string, string>, cwd?: string }
+type Guard = 'deny-non-pnpm.mts' | 'deny-build-scripts.mts' | 'deny-secret-reads.mts' | 'deny-push-protected.mts' | 'deny-hook-bypass.mts' | 'dispatch.mts'
+interface Case { guard: Guard, expect: 0 | 2, cmd: string, env?: Record<string, string>, cwd?: string, tool?: string, extra?: Record<string, unknown> }
 
 const HOOKS = join(import.meta.dirname, '..', '.claude', 'hooks')
 const D = 2 // deny
@@ -41,6 +41,13 @@ const ON_MAIN = checkout('on-main', 'main')
 const ON_FEAT = checkout('on-feat', 'feat/x')
 const DETACHED = checkout('detached', 'main', true)
 const P = 'deny-push-protected.mts'
+const B = 'deny-hook-bypass.mts'
+
+// Codex and Gemini CLI register the same dispatcher. Their payloads carry other
+// top-level fields and, for Gemini, another tool name; the guards read only
+// tool_input.command, so these shapes must deny and allow exactly like Claude Code.
+const CODEX = { cwd: process.cwd(), hook_event_name: 'PreToolUse', model: 'x', permission_mode: 'default', session_id: 's', tool_use_id: 't', transcript_path: null, turn_id: 'u' }
+const GEMINI = { cwd: process.cwd(), hook_event_name: 'BeforeTool', session_id: 's', timestamp: '2026-01-01T00:00:00Z', transcript_path: '/tmp/t.json' }
 
 const CASES: Case[] = [
   // --- deny-non-pnpm: this repo is pnpm-only ---------------------------------
@@ -281,17 +288,50 @@ const CASES: Case[] = [
   { guard: P, expect: A, cmd: 'git commit -m "chore: release notes"' },
   { guard: P, expect: A, cmd: 'git commit -m "changelogen --push"' }, // a quoted mention
 
+  // --- deny-hook-bypass: fix the failing hook, never skip it ----------------------
+  { guard: B, expect: D, cmd: 'git commit --no-verify -m "x"' },
+  { guard: B, expect: D, cmd: 'git commit -m "x" --no-verify' },
+  { guard: B, expect: D, cmd: 'git commit --no-veri -m x' }, // git accepts the unique abbreviation
+  { guard: B, expect: D, cmd: 'git commit -n -m x' },
+  { guard: B, expect: D, cmd: 'git commit -anm x' },
+  { guard: B, expect: D, cmd: 'git push --no-verify origin feat/x' },
+  { guard: B, expect: D, cmd: 'git merge --no-verify feat/x' },
+  { guard: B, expect: D, cmd: 'git -c core.hooksPath=/dev/null commit -m x' },
+  { guard: B, expect: D, cmd: 'git -C . -c core.hookspath=/tmp commit -m x' },
+  { guard: B, expect: D, cmd: 'SKIP_SIMPLE_GIT_HOOKS=1 git commit -m x' },
+  { guard: B, expect: D, cmd: 'env SKIP_SIMPLE_GIT_HOOKS=1 git commit -m x' },
+  { guard: B, expect: D, cmd: 'HUSKY=0 git push origin feat/x' },
+  { guard: B, expect: D, cmd: 'export SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' },
+  { guard: B, expect: D, cmd: 'pnpm build && git commit --no-verify -m x' },
+  { guard: B, expect: A, cmd: 'git commit -m x' },
+  { guard: B, expect: A, cmd: 'git commit -am "fix: no --no-verify here"' }, // quoted mention
+  { guard: B, expect: A, cmd: 'git commit -m "use -n carefully"' },
+  { guard: B, expect: A, cmd: 'git push -n origin feat/x' }, // push -n is --dry-run
+  { guard: B, expect: A, cmd: 'git log -n 5' },
+  { guard: B, expect: A, cmd: 'git commit --no-edit' },
+  { guard: B, expect: A, cmd: 'git commit --no-status -m x' },
+  { guard: B, expect: A, cmd: 'git -c user.name=t commit -m x' },
+  { guard: B, expect: A, cmd: 'HUSKY=1 git commit -m x' },
+
   // --- dispatch: the registered hook fans out to every guard --------------------
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install' },
   { guard: 'dispatch.mts', expect: D, cmd: 'pnpm approve-builds' },
   { guard: 'dispatch.mts', expect: D, cmd: 'cat .env' },
   { guard: 'dispatch.mts', expect: D, cmd: 'git push origin main' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'git commit --no-verify -m x' },
   { guard: 'dispatch.mts', expect: A, cmd: 'pnpm install && git push origin feat/x' },
+  // Same dispatcher, Codex-shaped and Gemini-shaped payloads.
+  { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'Bash', extra: CODEX },
+  { guard: 'dispatch.mts', expect: D, cmd: 'git push origin main', tool: 'Bash', extra: CODEX },
+  { guard: 'dispatch.mts', expect: A, cmd: 'pnpm install', tool: 'Bash', extra: CODEX },
+  { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'run_shell_command', extra: GEMINI },
+  { guard: 'dispatch.mts', expect: D, cmd: 'cat .env', tool: 'run_shell_command', extra: GEMINI },
+  { guard: 'dispatch.mts', expect: A, cmd: 'pnpm install', tool: 'run_shell_command', extra: GEMINI },
 ]
 
 const fails: string[] = []
 for (const c of CASES) {
-  const json = JSON.stringify({ tool_input: { command: c.cmd } })
+  const json = JSON.stringify({ ...c.extra, tool_name: c.tool ?? 'Bash', tool_input: { command: c.cmd } })
   const r = spawnSync(process.execPath, [join(HOOKS, c.guard)], { input: json, cwd: c.cwd ?? process.cwd(), env: { ...process.env, ...c.env } })
   if (r.status !== c.expect)
     fails.push(`[${c.guard}] got ${r.status ?? 'null'}, want ${c.expect}: ${c.cmd}`)

@@ -3,7 +3,7 @@
  * VitePress, AND Obsidian. Blocking. A lint, not a build.
  *
  * The full human-readable ruleset lives in
- * docs/internal/development/markdown-portability.md — error messages cite it.
+ * docs/template/markdown-portability.md — error messages cite it.
  * Scope: docs/** plus root README.md and AGENTS.md. Never .claude/ or .github/
  * (their files require YAML frontmatter, which is banned in docs/).
  *
@@ -14,7 +14,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import process from 'node:process'
 import { repoRoot } from './root.mts'
 
-const RULES_DOC = 'docs/internal/development/markdown-portability.md'
+const RULES_DOC = 'docs/template/markdown-portability.md'
 const SKIP_DIRS = new Set(['.vitepress', '.obsidian', 'node_modules', 'dist'])
 
 const BANNED: { re: RegExp, msg: string }[] = [

@@ -67,24 +67,18 @@ jobs:
           grep -q '^# init-child$' docs/public/index.md
           grep -q '^# init-child documentation$' docs/README.md
           if grep -rq 'Rapid Opinionated Onboarding' README.md AGENTS.md package.json; then echo "::error::template pitch leaked"; exit 1; fi
-          # Decision log reset to the child's own 0001: new provenance body written,
-          # template's meta-decision body removed (not appended to).
-          grep -q 'created from the roots template' docs/internal/decisions/0001-adopt-roots-conventions.md
-          if grep -q '19-repo fleet survey' docs/internal/decisions/0001-adopt-roots-conventions.md; then echo "::error::old 0001 body leaked"; exit 1; fi
+          # Decisions and specs belong to the child: only index.md and _template.md survive.
+          test "$(find docs/internal/decisions docs/internal/specs -name "*.md" ! -name index.md ! -name _template.md | wc -l)" = 0
+          # The template-owned docs stay: they are synced, not scaffolding.
+          test -f docs/template/conventions.md
 
       - name: Initialized child passes every gate
         run: |
           cd /tmp/init-child
           pnpm install --no-frozen-lockfile
-          pnpm docs:gen
-          pnpm docs:check
-          pnpm docs:portability
-          pnpm typecheck
-          pnpm lint
-          pnpm test
-          pnpm build
-          pnpm docs:internal:build
-          pnpm docs:public:build
+          pnpm verify
+          # The regenerated decisions index must show an empty log, not a leaked template row.
+          if grep -qF '| [0' docs/internal/decisions/index.md; then echo "::error::decision row leaked into the child index"; exit 1; fi
 
       - name: deriveSlug uses the git remote (the path every real child takes)
         # --defaults with no remote falls back to the dir name (covered above); a real

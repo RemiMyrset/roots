@@ -2,7 +2,7 @@
 > [!IMPORTANT]
 > This repository is an **uninitialized copy of the roots template**. Before any
 > other work, run `node scripts/init.mts` (non-interactive: `--defaults`). It
-> renames the project, resets the decision log, strips these template-only
+> renames the project, clears the decision log, strips these template-only
 > banners, and deletes itself. This banner disappears once init has run.
 >
 > **Exception:** if you are working on the roots template itself (this repo is
@@ -33,26 +33,30 @@ canonical home and leave a link.
 | --- | --- |
 | Why a decision was made | [docs/internal/decisions/](./docs/internal/decisions/index.md) |
 | What the system does now | [docs/internal/specs/](./docs/internal/specs/index.md) |
-| One fact, one home, three-place sync | [spec-discipline](./docs/internal/development/spec-discipline.md) |
-| Markdown authoring rules | [markdown-portability](./docs/internal/development/markdown-portability.md) |
-| Docs toolchain, recipes, growth paths | [docs-toolchain](./docs/internal/development/docs-toolchain.md) |
+| One fact, one home, three-place sync | [spec-discipline](./docs/template/spec-discipline.md) |
+| Markdown authoring rules | [markdown-portability](./docs/template/markdown-portability.md) |
+| Docs toolchain, recipes, growth paths | [docs-toolchain](./docs/template/docs-toolchain.md) |
+| Why the conventions are what they are | [conventions](./docs/template/conventions.md) (template-owned, synced) |
 | Setup, install, quickstart | [README.md](./README.md) |
-| Machine-readable docs map | [llms.txt](./docs/llms.txt) (generated) |
-<!-- Add one row per fact as homes appear: ports, env vars, glossary, deploy
-     runbook, architecture overview. If a fact has no row, pick a home, add a row. -->
+<!-- This table is the canonical-home map. Add one row per fact as homes appear:
+     ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
+     design/. If a fact has no row, pick one home, add a row. -->
 
 ## Commands
 
 A task is complete only when every command below that your change can affect passes
 clean after your last edit — when unsure which apply, run them all.
 
+- Done gate: `pnpm verify` (everything below, in CI order; stops at the first failure)
 - Install: `pnpm install`
 - Build: `pnpm build` (turbo; packages that define `build`)
 - Test: `pnpm test` (turbo; single package: `pnpm --filter @roots/core test`)
 - Test hooks: `pnpm test:hooks` (PreToolUse guard allow/deny fixtures)
+- Test sync: `pnpm test:sync` (template-sync fixtures)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
-- Docs, regenerate: `pnpm docs:gen` (automd indexes + llms.txt)
+- Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
+- Docs, regenerate: `pnpm docs:gen` (automd indexes)
 - Docs, validate: `pnpm docs:check && pnpm docs:portability`
 - Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`
 - Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev`
@@ -63,8 +67,8 @@ clean after your last edit — when unsure which apply, run them all.
      Add a rule only after an agent actually got it wrong — every rule you add
      dilutes every other rule. Prune rules that stop being true. -->
 
-- ALWAYS use `pnpm`. Never npm, yarn, or bun. Enforced by a PreToolUse hook. (`npx`
-  passes — one-off bin runner; prefer `pnpm dlx`.)
+- ALWAYS use `pnpm`. Never npm, yarn, or bun. Enforced by a pre-tool hook in Claude
+  Code, Codex, and Gemini CLI. (`npx` passes — one-off bin runner; prefer `pnpm dlx`.)
 - ALWAYS use TypeScript. No `.js` or `.mjs` files — node 24 runs `.ts`/`.mts`
   natively. Keep syntax erasable (no enums/namespaces/param-properties, enforced
   by `erasableSyntaxOnly`); never declare a `class` (banned by ESLint
@@ -72,30 +76,33 @@ clean after your last edit — when unsure which apply, run them all.
   `// eslint-disable-next-line no-restricted-syntax -- <reason>` when a dependency
   demands a subclass); and give relative imports explicit `.ts`/`.mts` extensions.
 - ALWAYS write docs as portable markdown (GitHub + VitePress + Obsidian). Rules:
-  [markdown-portability](./docs/internal/development/markdown-portability.md).
+  [markdown-portability](./docs/template/markdown-portability.md).
   Enforced by `pnpm docs:portability`.
 - ALWAYS write commits as Conventional Commits (`type(scope): subject`, subject
   ≤ 50 chars) — enforced by the commitlint `commit-msg` hook; `pnpm release`
-  builds the changelog from them.
+  builds the changelog from them. NEVER bypass a git hook (`--no-verify`, `-n`,
+  a `core.hooksPath` override, `SKIP_SIMPLE_GIT_HOOKS`): fix the failing check.
+  Guard-enforced.
 - ALWAYS give every exported symbol a `/** */` block saying what it is for and
   any constraint a caller cannot see from the signature — never a restatement of
-  the code. Convention, not lint-enforced.
+  the code. Presence is enforced by ESLint `jsdoc/require-jsdoc`; content is on you.
 - NEVER push to a protected branch. Default `main`; the list is `PROTECTED_BRANCHES`
-  (comma-separated globs) in the `env` block of `.claude/settings.json`. A PreToolUse
-  guard denies it, along with `--force`/`--all`/`--mirror` pushes and `pnpm release`
-  (its push runs inside changelogen — human-run only). Feature branches: commit and
-  push freely, `--force-with-lease` allowed; each push still asks for permission.
-- NEVER hand-edit content between `automd` markers or the generated
-  `docs/llms.txt` — edit the source, run `pnpm docs:gen`.
+  (comma-separated globs, e.g. `main,release/*`) in the `env` block of
+  `.claude/settings.json`. A pre-tool guard denies it, along with `--force`/`--all`/
+  `--mirror` pushes and `pnpm release` (its push runs inside changelogen — human-run
+  only); the GitHub branch ruleset is the server-side boundary. Feature branches:
+  commit, push, and open PRs freely — `git push` and read-only `gh` commands are
+  allow-listed, `--force-with-lease` passes. Merging into a protected branch is a
+  human action: `gh pr merge` always prompts.
+- NEVER hand-edit content between `automd` markers — edit the source, run
+  `pnpm docs:gen`.
 - NEVER rewrite an accepted decision record. Supersede it with a new one and link
   both ways; only the old record's Status line changes.
 <!-- roots:template-only -->
-- EXCEPT in this repo: roots keeps one living ADR 0001 describing the template's own
-  conventions and edits it in place. That record documents what roots *is*, not a
-  decision roots once made, so it has nothing to supersede. The append-only rule is
-  what roots *ships*; `.claude/rules/decisions-and-specs.md` states it without this
-  exception deliberately, because that file syncs into children and this exception
-  must not travel with it.
+- EXCEPT for roots itself: the template records its rationale as a living page,
+  `docs/template/conventions.md`, not as a decision record. The decisions and
+  specs folders belong to the child; init leaves them holding only their index
+  and template files.
 <!-- /roots:template-only -->
 - NEVER run dependency build scripts (`pnpm approve-builds`) or add or change
   `allowBuilds` entries — supply-chain code-exec vector;
@@ -114,7 +121,7 @@ dependency, deleting user data or git history, or anything a hook blocks.
 
 When behavior changes, source, tests, and its spec change in the same PR. The
 full rules — spec kinds, canonical-home map, concrete triggers — live in
-[spec-discipline](./docs/internal/development/spec-discipline.md) and the
+[spec-discipline](./docs/template/spec-discipline.md) and the
 [specs index](./docs/internal/specs/index.md); read them before touching
 behavior.
 
@@ -154,5 +161,5 @@ Both files are required: Claude Code discovers nested `CLAUDE.md`, never nested
   region containing a warning comment.
 - The internal handbook is for the team: if you host it, gate it behind access
   control — recipe in
-  [docs-toolchain](./docs/internal/development/docs-toolchain.md). It ships
+  [docs-toolchain](./docs/template/docs-toolchain.md). It ships
   noindex + robots.txt as guards against accidental exposure.

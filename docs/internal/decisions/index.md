@@ -16,12 +16,13 @@ record is its Status line.
 4. If it replaces or amends an earlier record, link both ways (see the template).
 5. Run `pnpm docs:gen` — the index below is generated; never hand-edit it.
 
+This directory starts empty in a fresh project. That is correct — the template's
+own rationale lives in `docs/template/conventions.md`, not here.
+
 ## Index
 
 <!-- automd:decisionsIndex -->
 
-| # | Title | Status |
-| --- | --- | --- |
-| [0001](./0001-adopt-roots-conventions.md) | Adopt the roots template conventions | accepted |
+_No decisions yet. The first one appears here after `pnpm docs:gen`._
 
 <!-- /automd -->

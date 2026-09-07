@@ -10,12 +10,15 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "verify": "node scripts/verify.mts",
     "test": "turbo run test",
     "test:hooks": "node scripts/test-hooks.mts",
+    "test:sync": "node scripts/test-sync.mts",
     "typecheck": "tsc --noEmit && turbo run typecheck",
     "lint": "CI=1 eslint .",
     "lint:fix": "CI=1 eslint . --fix",
-    "docs:gen": "automd && node scripts/docs/gen-llms.mts",
+    "lint:secrets": "secretlint \"**/*\"",
+    "docs:gen": "automd",
     "docs:check": "node scripts/docs/check-docs.mts",
     "docs:portability": "node scripts/docs/check-portability.mts",
     "docs:internal:dev": "vitepress dev docs/internal",
@@ -30,6 +33,7 @@
     "@antfu/eslint-config": "catalog:",
     "@commitlint/cli": "catalog:",
     "@commitlint/config-conventional": "catalog:",
+    "@secretlint/secretlint-rule-preset-recommend": "catalog:",
     "@tsconfig/node24": "catalog:",
     "@tsconfig/strictest": "catalog:",
     "@types/node": "catalog:",
@@ -39,6 +43,7 @@
     "jiti": "catalog:",
     "lint-staged": "catalog:",
     "mermaid": "catalog:",
+    "secretlint": "catalog:",
     "simple-git-hooks": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:",
@@ -51,7 +56,8 @@
     "commit-msg": "pnpm exec commitlint --edit $1"
   },
   "lint-staged": {
-    "*.{ts,mts,tsx,vue}": "eslint --fix"
+    "*.{ts,mts,tsx,vue}": "eslint --fix",
+    "*": "secretlint --no-glob"
   },
   "commitlint": {
     "extends": [

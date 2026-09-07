@@ -15,7 +15,7 @@ Specs come in two kinds:
 The test of a good spec: a reader of the spec can write the tests without seeing
 the source; a reader of the source can predict the spec. If they disagree, the
 spec lagged a code change — fix it in the same PR. See
-[spec discipline](../development/spec-discipline.md).
+`docs/template/spec-discipline.md` (template-owned, outside this site).
 
 ## How to write a new one
 

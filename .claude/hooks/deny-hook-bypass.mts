@@ -1,0 +1,110 @@
+/**
+ * deny-hook-bypass guard body (run via dispatch.mts). Blocks the common ways an agent skips
+ * this repo's git hooks (commitlint, lint-staged, docs:portability): `--no-verify` on
+ * `git commit|push|merge` and `-n` on `git commit`, a `core.hooksPath` override through
+ * `git -c` / `--config-env`, and the SKIP_SIMPLE_GIT_HOOKS / HUSKY environment prefixes.
+ * The rulebook's answer to a failing hook is to fix the check, never to bypass it.
+ * Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
+ */
+import process from 'node:process'
+import { resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+
+// `git` global options that take a SEPARATE value token.
+const GIT_VALUE_OPT: ReadonlySet<string> = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env'])
+// Subcommands whose hooks matter here. `-n` means --no-verify only for commit (push: dry-run).
+const HOOKED: ReadonlySet<string> = new Set(['commit', 'push', 'merge'])
+// `git commit` options that take a separate value, so their value is never read as a flag.
+const COMMIT_VALUE_OPT: ReadonlySet<string> = new Set(['-m', '-F', '-C', '-c', '-t', '--author', '--date', '--fixup', '--squash', '--message', '--file', '--template', '--reuse-message', '--reedit-message', '--trailer'])
+// git accepts unambiguous abbreviations of long options; `--no-veri` is the shortest unique one.
+const NO_VERIFY_RE = /^--no-veri(?:f(?:y)?)?$/
+const HOOKS_PATH_RE = /^core\.hookspath=/i
+const SKIP_ENV_RE = /^(?:SKIP_SIMPLE_GIT_HOOKS=|HUSKY=0$|HUSKY_SKIP_HOOKS=)/
+
+// Tokens outside quoted spans: tokenize() splits on whitespace regardless of quotes, so a
+// commit message mentioning `--no-verify` arrives as several tokens; skip everything from a
+// token that opens a quote to the token that closes it.
+function outsideQuotes(toks: string[]): string[] {
+  const out: string[] = []
+  let open: string | null = null
+  for (const t of toks) {
+    if (open) {
+      if (t.endsWith(open))
+        open = null
+      continue
+    }
+    const q = t[0]
+    if ((q === '"' || q === '\'') && !(t.length > 1 && t.endsWith(q))) {
+      open = q
+      continue
+    }
+    out.push(t)
+  }
+  return out
+}
+
+function verdict(toks: string[]): string | null {
+  const { i, head, probe } = resolveHead(toks)
+  if (probe)
+    return null
+  for (let k = 0; k < i; k++) {
+    const t = unquote(toks[k] ?? '')
+    if (SKIP_ENV_RE.test(t))
+      return `${t.split('=')[0]} disables the git hooks`
+  }
+  if (head === 'export' && SKIP_ENV_RE.test(unquote(toks[i + 1] ?? '')))
+    return `exporting ${unquote(toks[i + 1] ?? '').split('=')[0]} disables the git hooks for the session`
+  if (head !== 'git')
+    return null
+  let k = i + 1
+  while (k < toks.length) {
+    const t = unquote(toks[k]!)
+    if (!t.startsWith('-'))
+      break
+    const value = unquote(toks[k + 1] ?? '')
+    if ((t === '-c' && HOOKS_PATH_RE.test(value)) || /^--config-env=core\.hookspath=/i.test(t) || (t === '--config-env' && HOOKS_PATH_RE.test(value)))
+      return 'overriding core.hooksPath bypasses the repo hooks'
+    k++
+    if (GIT_VALUE_OPT.has(t))
+      k++
+  }
+  const sub = unquote(toks[k] ?? '')
+  if (!HOOKED.has(sub))
+    return null
+  const args = outsideQuotes(toks.slice(k + 1))
+  for (let a = 0; a < args.length; a++) {
+    const t = unquote(args[a]!)
+    if (t === '--')
+      break
+    if (NO_VERIFY_RE.test(t))
+      return `\`git ${sub} --no-verify\` skips the hooks`
+    if (sub === 'commit') {
+      if (COMMIT_VALUE_OPT.has(t)) {
+        a++
+        continue
+      }
+      if (/^-[a-zA-Z]+$/.test(t) && t.includes('n'))
+        return '`git commit -n` skips the hooks (it is --no-verify)'
+    }
+  }
+  return null
+}
+
+let s = ''
+process.stdin.on('data', (d) => { s += d }).on('end', () => {
+  let cmd: string
+  try {
+    cmd = String((JSON.parse(s).tool_input || {}).command || '')
+  }
+  catch {
+    process.stderr.write('hook-bypass guard: could not parse hook input as JSON; denying by default (fail closed).\n')
+    process.exit(2)
+  }
+  for (const seg of segments(cmd)) {
+    const why = verdict(tokenize(seg))
+    if (why) {
+      process.stderr.write(`Blocked: ${why}. Fix the failing check instead (AGENTS.md non-negotiable rules).\n`)
+      process.exit(2)
+    }
+  }
+  process.exit(0)
+})
