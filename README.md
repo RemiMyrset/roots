@@ -41,6 +41,7 @@ pnpm install
 
 | Command | What it does |
 | --- | --- |
+| `pnpm verify` | The done gate: every check CI runs, in CI order, stopping at the first failure |
 | `pnpm build` / `pnpm test` / `pnpm typecheck` | Turbo across packages that define each script; `typecheck` also runs root `tsc` over scripts + configs |
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
 | `pnpm test:hooks` | PreToolUse guard fixtures (allow/deny cases, node only) |

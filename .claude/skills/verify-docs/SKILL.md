@@ -20,4 +20,5 @@ Run the same gates CI runs, in order, and fix failures at the source:
    `pnpm docs:public:build` must both succeed.
 
 Report what was regenerated, what was fixed, and any remaining warnings (for
-example stale `Last reviewed` dates that need a human re-read).
+example stale `Last reviewed` dates that need a human re-read). For the full
+done gate (code and docs together), run `pnpm verify` instead.

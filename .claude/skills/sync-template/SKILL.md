@@ -39,10 +39,9 @@ follow-ups. Recipe and contract: `docs/template/docs-toolchain.md` and
    are edits to make in `package.json`; "differs" (first sync) needs judgment;
    "customized locally" is informational — leave those alone. Never edit
    `.claude/settings.json` unless a breaking footer says so.
-7. Gates. `pnpm install` if `package.json` changed, then `pnpm typecheck`,
-   `pnpm lint`, `pnpm test:hooks`, `pnpm test:sync`, `pnpm docs:gen` with
-   `git status --porcelain` quiet afterward, `pnpm docs:check`, and
-   `pnpm docs:portability`. Fix at the source; never loosen a synced checker.
+7. Gates. `pnpm install` if `package.json` changed, then `pnpm verify` (every
+   CI gate in order; it stops at the first failure and names it). Fix at the
+   source; never loosen a synced checker.
 8. Hand off: summarize what came in, what was discarded and why, which
    follow-ups were applied, and propose
    `git commit -m "chore: sync mechanics from template"` including

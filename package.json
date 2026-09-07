@@ -10,6 +10,7 @@
   },
   "scripts": {
     "build": "turbo run build",
+    "verify": "node scripts/verify.mts",
     "test": "turbo run test",
     "test:hooks": "node scripts/test-hooks.mts",
     "test:sync": "node scripts/test-sync.mts",

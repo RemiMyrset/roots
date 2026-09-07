@@ -7,6 +7,7 @@ does not ship wired.
 
 | Command | What it does |
 | --- | --- |
+| `pnpm verify` | every gate CI runs, in CI order — the done gate; docs gates included |
 | `pnpm docs:gen` | automd indexes: decisions and specs (mutates files) |
 | `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness |
 | `pnpm docs:portability` | trifecta lint (GitHub + VitePress + Obsidian), blocking |

@@ -53,6 +53,7 @@ const MECHANICS = [
   'scripts/sync-template.mts',
   'scripts/test-hooks.mts',
   'scripts/test-sync.mts',
+  'scripts/verify.mts',
   '.claude/hooks',
   '.claude/rules',
   '.claude/skills',

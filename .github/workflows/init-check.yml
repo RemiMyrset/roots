@@ -76,17 +76,9 @@ jobs:
         run: |
           cd /tmp/init-child
           pnpm install --no-frozen-lockfile
-          pnpm docs:gen
+          pnpm verify
           # The regenerated decisions index must show an empty log, not a leaked template row.
-          if grep -q "\| \[0" docs/internal/decisions/index.md; then echo "::error::decision row leaked into the child index"; exit 1; fi
-          pnpm docs:check
-          pnpm docs:portability
-          pnpm typecheck
-          pnpm lint
-          pnpm test
-          pnpm build
-          pnpm docs:internal:build
-          pnpm docs:public:build
+          if grep -qF '| [0' docs/internal/decisions/index.md; then echo "::error::decision row leaked into the child index"; exit 1; fi
 
       - name: deriveSlug uses the git remote (the path every real child takes)
         # --defaults with no remote falls back to the dir name (covered above); a real

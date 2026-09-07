@@ -47,6 +47,7 @@ canonical home and leave a link.
 A task is complete only when every command below that your change can affect passes
 clean after your last edit — when unsure which apply, run them all.
 
+- Done gate: `pnpm verify` (everything below, in CI order; stops at the first failure)
 - Install: `pnpm install`
 - Build: `pnpm build` (turbo; packages that define `build`)
 - Test: `pnpm test` (turbo; single package: `pnpm --filter @roots/core test`)
