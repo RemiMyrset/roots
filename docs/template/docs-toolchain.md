@@ -31,23 +31,28 @@ worth knowing: `file` (inline a file), `dir-tree`, `fetch`.
 
 ### Pull template updates (on demand)
 
-A repo made from roots shares no git history with the template, and there is no
-bot, cron, or token. Pull the shared machinery whenever you want it:
+Whether your repository was made with **Use this template** (no shared git
+history), forked or cloned from roots (shared history), or predates roots
+entirely, the sync works the same way — and there is no bot, cron, or token:
 
 ```sh
-pnpm sync:template            # URL from .template-sync.json, else the default
-pnpm sync:template <fork-url> # or point at your own fork (recorded for next time)
+pnpm sync:template                # URL and ref from .template-sync.json, else the defaults
+pnpm sync:template <fork-url>     # or point at your own fork (recorded for next time)
+pnpm sync:template --ref v0.1.0   # pin a template tag or branch (recorded for next time)
 ```
 
 It adds a `template` git remote (tags excluded, so the template's releases never
-leak into your changelog), fetches it, and stages the template's version of the
-mechanics paths: the shared CI workflows, the label list, issue/PR templates,
-the docs generators and checkers, the guard and sync test-suites, the agent
-hooks/rules/skills, the template-owned docs under `docs/template/`, and the sync
-script itself. Files the template retired inside those paths are staged for
-deletion. Nothing is committed. Review with `git diff --cached`, keep what
-applies, and discard the rest with `git restore --staged --worktree <path>`.
-Your `package.json`, `src/`, `packages/`, `docs/internal/`, `docs/public/`, and
+leak into your changelog), fetches the ref, and stages the template's version of
+the mechanics paths: the CI, docs, and labels workflows, the label list, the
+issue and PR templates, the docs generators and checkers, the guard and sync
+test-suites, the verify gate, the agent hooks, rules, and skills with their Codex
+and Gemini registrations, the generated `.agents/skills` mirror, the
+template-owned docs under `docs/template/`, and the sync script itself. Files
+the template retired inside those paths — or a whole path it retired — are
+staged for deletion. Nothing is committed. Review with `git diff --cached`,
+keep what applies, and discard the rest with
+`git restore --staged --worktree <path>`. Your `package.json`, `src/`,
+`packages/`, `apps/`, `docs/internal/`, `docs/public/`, and
 `.claude/settings.json` are never touched. The synced scripts are `.mts`, not
 `.ts`, on purpose: `.mts` runs as ESM regardless of the target repo's
 `package.json` `"type"`, whereas a `.ts` file is read as CommonJS in a repo that
@@ -55,24 +60,37 @@ sets `"type": "commonjs"`, which breaks its `import`/`export`.
 
 Then it prints what a file copy cannot carry:
 
-- **Commits since the last sync** — the template's log from the recorded sync
-  point, breaking commits marked `!` with their `BREAKING CHANGE` paragraph. A
-  template change that needs a hand-edit outside the synced paths (a
-  `.claude/settings.json` entry, a new devDependency, an orphan file to delete)
-  ships as such a commit; the footer is the instruction.
+- **Where you branched off.** A first sync infers the baseline and says how on a
+  `Baseline:` line: `(shared history)` from `git merge-base` for a fork or clone;
+  `(root tree)` when your root commit carries a template commit's tree verbatim,
+  which is what "Use this template" produces; `(root time)` for the template
+  commit at your root commit's time, checked against the synced paths and
+  marked approximate; or `none`, in which case the list starts on the next run.
+- **Commits since** — the template's log from that point (later, from the
+  recorded sync point), breaking commits marked `!` with their `BREAKING CHANGE`
+  paragraph. A template change that needs a hand-edit outside the synced paths
+  (a `.claude/settings.json` entry, a new devDependency, an orphan file to
+  delete) ships as such a commit; the footer is the instruction.
 - **Follow-ups** — the `package.json` scripts that differ from the template's,
-  compared three ways (template now, template at the last sync, yours), so a
+  compared three ways (template now, template at the baseline, yours), so a
   script you customized on purpose is listed once as "customized locally"
   rather than nagged about on every run. A script that still references a file
   this sync deletes gets a note. Apply the ones that apply by hand.
 
-The sync point lives in `.template-sync.json` at the repo root — template URL
-plus the last synced commit — written by the script and staged with the sync,
-so commit it together. It is also where you customize the sync: list a
-mechanics path under `exclude` to stop pulling it, or an extra path under
-`include` (for example `tsconfig.base.json` or `eslint.config.ts`) to pull it
-too. Never edit the `MECHANICS` list in the script itself: the script is synced,
-and the edit would be staged for revert on the next run.
+The sync point lives in `.template-sync.json` at the repo root — template URL,
+the ref it tracks, and the last synced commit — written by the script and staged
+with the sync, so commit it together. It is also where you customize the sync:
+list a mechanics path under `exclude` to stop pulling it (say
+`.gemini/settings.json` once you have local Gemini settings), or an extra path
+under `include` (for example `tsconfig.base.json` or `eslint.config.ts`) to
+pull it too. Never edit the `MECHANICS` list in the script itself: the script is
+synced, and the edit would be staged for revert on the next run.
+
+Pinning: `--ref` takes a template tag or branch and remembers it in the state
+file. Tags are fetched into `refs/template-tags/`, never `refs/tags/`, so
+`pnpm release` in your repository stays unaffected. `--ref main` unpins.
+Pinning to something older than your recorded sync point stages the older
+mechanics and says so.
 
 A repo that predates the script, or holds an older copy that never recorded a
 sync point, bootstraps with plain git (works for private forks with whatever
@@ -87,22 +105,23 @@ The `sync:template` script then shows up as a missing follow-up on that first
 run. In Claude Code the `sync-template` skill drives the whole flow: bootstrap,
 sync, review, follow-ups, gates, commit proposal.
 
-Two things to know. Sync only stages deletions for files **inside** a synced
-path, so an artifact the template retired elsewhere (a doc, a config line) stays
-behind as an orphan; the breaking-commit footer names it, sweep it by hand. And
-a file of your own under a synced directory (say `.claude/skills/my-skill/`) is
+Two things to know. Sync only stages deletions **inside** the synced paths, so
+an artifact the template retired elsewhere (a doc, a config line) stays behind
+as an orphan; the breaking-commit footer names it, sweep it by hand. And a file
+of your own under a synced directory (say `.claude/skills/my-skill/`) is
 staged for deletion on every run because it is not upstream — discard that
 hunk, move the skill, or `exclude` the directory. `.claude/settings.json` never
 travels: set `PROTECTED_BRANCHES` in its `env` block if `main` is not your
-protected branch, and drop any old blanket `Bash(git push:*)` deny so the
-`deny-push-protected` guard can allow feature-branch pushes. Add the push-flow
-allow entries too, so an agent can push a branch and open a PR without prompts:
-`Bash(git push:*)`, `Bash(gh pr create:*)`, `Bash(gh pr view:*)`,
-`Bash(gh pr list:*)`, `Bash(gh pr checks:*)`, `Bash(gh pr diff:*)`,
-`Bash(gh run list:*)`, `Bash(gh run view:*)`, `Bash(gh run watch:*)`,
-`Bash(gh issue view:*)`, `Bash(gh issue list:*)`. Leave `gh pr merge` off the
-list: merging into a protected branch stays a human decision. The full contract,
-exit codes, and behavior branches: [sync-template](./sync-template.md).
+protected branch (every tool's guard reads that block), and drop any old blanket
+`Bash(git push:*)` deny so the `deny-push-protected` guard can allow
+feature-branch pushes. Add the push-flow allow entries too, so an agent can push
+a branch and open a PR without prompts: `Bash(git push:*)`,
+`Bash(gh pr create:*)`, `Bash(gh pr view:*)`, `Bash(gh pr list:*)`,
+`Bash(gh pr checks:*)`, `Bash(gh pr diff:*)`, `Bash(gh run list:*)`,
+`Bash(gh run view:*)`, `Bash(gh run watch:*)`, `Bash(gh issue view:*)`,
+`Bash(gh issue list:*)`. Leave `gh pr merge` off the list: merging into a
+protected branch stays a human decision. The full contract, exit codes, and
+behavior branches: [sync-template](./sync-template.md).
 
 ### Deploy the public site
 
@@ -173,17 +192,23 @@ The rulebook is `AGENTS.md`; the guards are the `deny-*` scripts under
   skills from `.claude/skills/` only.
 - **Codex** reads `AGENTS.md` natively (merged root-down, 32 KiB cap), registers
   the same dispatcher as a PreToolUse hook in `.codex/hooks.json`, and reads
-  skills from `.agents/skills/` — a committed symlink to `.claude/skills/`
-  (Windows needs developer mode for symlinks). Project-level `.codex/` config
-  loads only after you trust the folder, and each hook once via `/hooks`.
+  skills from `.agents/skills/`. Project-level `.codex/` config loads only
+  after you trust the folder, and each hook once via `/hooks`.
 - **Gemini CLI** is told to load `AGENTS.md` by `context.fileName` in
   `.gemini/settings.json`, which also registers the dispatcher as a BeforeTool
-  hook; skills come from the same `.agents/skills/` symlink. Project settings
-  load only in a trusted folder.
-- The push guard reads `PROTECTED_BRANCHES` from the `env` block of
-  `.claude/settings.json`, which only Claude Code honours; under Codex and
-  Gemini it defaults to `main`. To protect other branches there, prefix the
-  registered command: `PROTECTED_BRANCHES=main,release/* node ...`.
+  hook; skills come from the same `.agents/skills/`. Project settings load only
+  in a trusted folder.
+- `.agents/skills/` is a generated, committed copy of `.claude/skills/` —
+  `pnpm docs:gen` rewrites it, the drift gate and `pnpm docs:check` refuse a
+  stale or hand-edited copy. A copy rather than a symlink because a symlink
+  needs privileges on Windows and silently becomes a text file without them.
+- The Codex and Gemini registrations run `pnpm -w --silent run guards`, a
+  workspace-root script that resolves from any subdirectory on every platform
+  with no shell-specific syntax; Claude Code calls the dispatcher directly.
+- The push guard reads `PROTECTED_BRANCHES` from the environment (Claude Code
+  exports the `env` block of `.claude/settings.json`) or, when unset, from that
+  file itself — so Codex and Gemini honour the same list with nothing to
+  configure per tool.
 - Codex exec-policy rules and Gemini's allowed-tools settings are those tools'
   counterparts to the Claude Code permission allowlist; roots ships neither, so
   expect their approval prompts on the commands Claude Code runs silently.

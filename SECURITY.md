@@ -28,9 +28,10 @@ suite pipes each tool's payload shape through the dispatcher. It runs every `den
 the directory, and any non-zero exit denies the call. Node builtins only, so they work before
 `pnpm install` and in any repo they are synced into. Codex and Gemini load project-level hook
 config only after the user trusts the folder (Codex also asks to trust each hook via
-`/hooks`), and neither reads the `env` block of `.claude/settings.json`: to protect branches
-other than `main` under those tools, prefix the registered command with
-`PROTECTED_BRANCHES=...`.
+`/hooks`); their registrations run `pnpm -w --silent run guards`, which works from any
+subdirectory on Linux, macOS, and Windows. Neither reads the `env` block of
+`.claude/settings.json`, so the push guard reads `PROTECTED_BRANCHES` from that file itself
+when the variable is unset — one list for all three tools.
 
 They are **not** a security boundary. A process actively trying to evade them can run a
 nested interpreter (`sh -c '…'`), pipe through a decoder (`base64 -d | sh`), write a script

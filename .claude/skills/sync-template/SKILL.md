@@ -23,8 +23,11 @@ follow-ups. Recipe and contract: `docs/template/docs-toolchain.md` and
    `mkdir -p scripts && git fetch --no-tags https://github.com/RemiMyrset/roots.git main && git show FETCH_HEAD:scripts/sync-template.mts > scripts/sync-template.mts`
 2. Start clean. The script refuses uncommitted changes under the synced paths;
    commit or stash them first rather than discarding anything.
-3. Run `pnpm sync:template` (add the fork URL if this repo tracks a fork; it is
-   remembered). Read the output top to bottom.
+3. Run `pnpm sync:template` (add the fork URL if this repo tracks a fork, or
+   `--ref <tag|branch>` to pin a template release; both are remembered). Read
+   the output top to bottom. On a first sync, the `Baseline:` line says how the
+   starting point was found — `root time` is approximate, `none` means no
+   commit list this run.
 4. Breaking commits first. Every `!` line and its `BREAKING CHANGE` paragraph is
    an instruction for a hand-edit outside the synced paths — a
    `.claude/settings.json` entry, a devDependency, an orphan file to delete.
@@ -34,7 +37,7 @@ follow-ups. Recipe and contract: `docs/template/docs-toolchain.md` and
    `git restore --staged --worktree <path>`, and if it should stay diverged
    for good, add it to `exclude` in `.template-sync.json`. A file of your own
    under a synced directory shows up as a deletion — discard that hunk or move
-   the file.
+   the file. A `Skipped` block means a checkout failed; fix the path and re-run.
 6. Apply the follow-ups. "missing here" and "changed on the template" entries
    are edits to make in `package.json`; "differs" (first sync) needs judgment;
    "customized locally" is informational — leave those alone. Never edit

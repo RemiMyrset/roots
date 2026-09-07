@@ -32,8 +32,8 @@ the portability requirement. Concretely:
 * **One agent rulebook**: `AGENTS.md` (the cross-tool standard) is canonical.
   Claude Code reads it through a one-line `CLAUDE.md` import, Codex reads it
   natively, and Gemini CLI is pointed at it by `.gemini/settings.json`. Skills
-  live once under `.claude/skills/`, reached by Codex and Gemini through the
-  `.agents/skills/` symlink.
+  live once under `.claude/skills/`, reached by Codex and Gemini through a
+  generated `.agents/skills/` copy (no symlinks: Windows is first-class).
 * **Template-owned docs**: `docs/template/` holds the rules and agent material
   the template owns — this page, spec discipline, markdown portability, the docs
   toolchain and its recipes. It is synced into children, never rendered by
@@ -78,9 +78,11 @@ the portability requirement. Concretely:
   (`pnpm test:hooks`) pins every covered case.
 * **Template updates**: pull-based and plain git. `pnpm sync:template` stages the
   template's version of an allow-list of mechanics paths (including
-  `docs/template/` and the sync script itself), records the sync point in
-  `.template-sync.json`, and prints the template commits since plus the
-  `package.json` scripts that differ, as follow-ups. `package.json` and
+  `docs/template/`, the agent registrations, and the sync script itself),
+  records the sync point in `.template-sync.json`, and prints the template
+  commits since plus the `package.json` scripts that differ, as follow-ups. It
+  works for template copies, forks, and pre-existing repos alike — the first
+  sync infers its baseline — and a child can pin a template release with `ref`. `package.json` and
   `.claude/settings.json` are never synced; a template change that needs a
   hand-edit ships as a breaking Conventional Commit whose footer states it.
   Contract: [sync-template](./sync-template.md).
