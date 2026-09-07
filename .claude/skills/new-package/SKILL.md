@@ -44,8 +44,7 @@ and `apps/` may not exist yet; just create it.
    lint runs repo-wide. Internal cross-package deps use `"workspace:*"`. A
    genuinely new dependency first gets a version entry in the `catalog:` block
    of `pnpm-workspace.yaml` — a load-bearing choice; record it (new-adr skill).
-3. Create `tsconfig.json`, exactly (TypeScript path only — the no-TypeScript init
-   deletes `tsconfig.base.json`, so a no-TS repo skips this and the vitest step):
+3. Create `tsconfig.json`, exactly:
    `{ "extends": "../../tsconfig.base.json", "include": ["src", "test", "vitest.config.ts"] }`
 4. Create `vitest.config.ts` — copy `packages/core/vitest.config.ts` if it
    still exists (a minimal `defineConfig({ test: {} })`; coverage is omitted
