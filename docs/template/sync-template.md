@@ -42,7 +42,7 @@ Ref, first match wins: `--ref`; `ref` in the state file; `main`. A ref must
 match `^\w[\w./+-]*$` and contain no `..`. It is fetched as a branch first (into
 `refs/remotes/template/<ref>`), then as a tag (into `refs/template-tags/<ref>`,
 never `refs/tags/`, so changelogen in this repository cannot see template
-releases). A name that is both resolves as the branch. The `template` remote is
+tags). A name that is both resolves as the branch. The `template` remote is
 always set to the resolved URL with tags disabled.
 
 Synced paths: the `MECHANICS` list in the script, minus `exclude`, plus
@@ -57,7 +57,7 @@ whenever it changes:
 {
   "$comment": "...",
   "url": "https://github.com/RemiMyrset/roots.git",
-  "ref": "v0.1.0",
+  "ref": "<branch or tag; absent means main>",
   "commit": "<40 hex, the template commit whose mechanics are staged>",
   "exclude": ["<mechanics path to skip>"],
   "include": ["<extra path to pull>"]

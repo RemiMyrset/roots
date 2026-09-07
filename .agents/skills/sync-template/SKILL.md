@@ -24,7 +24,7 @@ follow-ups. Recipe and contract: `docs/template/docs-toolchain.md` and
 2. Start clean. The script refuses uncommitted changes under the synced paths;
    commit or stash them first rather than discarding anything.
 3. Run `pnpm sync:template` (add the fork URL if this repo tracks a fork, or
-   `--ref <tag|branch>` to pin a template release; both are remembered). Read
+   `--ref <branch|tag>` to pin a template branch or tag; both are remembered). Read
    the output top to bottom. On a first sync, the `Baseline:` line says how the
    starting point was found — `root time` is approximate, `none` means no
    commit list this run.
