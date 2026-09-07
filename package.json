@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit && turbo run typecheck",
     "lint": "CI=1 eslint .",
     "lint:fix": "CI=1 eslint . --fix",
+    "lint:secrets": "secretlint \"**/*\"",
     "docs:gen": "automd",
     "docs:check": "node scripts/docs/check-docs.mts",
     "docs:portability": "node scripts/docs/check-portability.mts",
@@ -32,6 +33,7 @@
     "@antfu/eslint-config": "catalog:",
     "@commitlint/cli": "catalog:",
     "@commitlint/config-conventional": "catalog:",
+    "@secretlint/secretlint-rule-preset-recommend": "catalog:",
     "@tsconfig/node24": "catalog:",
     "@tsconfig/strictest": "catalog:",
     "@types/node": "catalog:",
@@ -41,6 +43,7 @@
     "jiti": "catalog:",
     "lint-staged": "catalog:",
     "mermaid": "catalog:",
+    "secretlint": "catalog:",
     "simple-git-hooks": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:",
@@ -53,7 +56,8 @@
     "commit-msg": "pnpm exec commitlint --edit $1"
   },
   "lint-staged": {
-    "*.{ts,mts,tsx,vue}": "eslint --fix"
+    "*.{ts,mts,tsx,vue}": "eslint --fix",
+    "*": "secretlint --no-glob"
   },
   "commitlint": {
     "extends": [

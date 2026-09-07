@@ -70,6 +70,16 @@ Read-tool deny list, and human review. Known over-block (safe direction, never a
 reader whose secret-looking token is a search term or output prefix (`look .env`,
 `split in .env_`) is denied although it reads no secret — rephrase or run it in a terminal.
 
+## Secrets in commits
+
+The deny rules above stop the agent from reading secret files; `secretlint` stops a secret
+that is already in the working tree from reaching git. `pnpm lint:secrets` scans every tracked
+file with the recommended preset (cloud credentials, private keys, tokens; `.gitignore` is
+honoured), lint-staged runs it on every staged file at commit time, and `pnpm verify` and CI
+run it after ESLint. A finding is fixed by removing the secret and rotating it, never by
+loosening `.secretlintrc.json`; a deliberate false positive in a test fixture gets an inline
+`secretlint-disable` comment with a reason.
+
 ## Push protection
 
 `deny-push-protected` keeps agents off protected branches. A branch is protected when it

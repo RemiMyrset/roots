@@ -55,6 +55,7 @@ clean after your last edit — when unsure which apply, run them all.
 - Test sync: `pnpm test:sync` (template-sync fixtures)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
+- Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
 - Docs, regenerate: `pnpm docs:gen` (automd indexes)
 - Docs, validate: `pnpm docs:check && pnpm docs:portability`
 - Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`

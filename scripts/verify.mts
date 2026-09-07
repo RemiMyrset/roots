@@ -28,6 +28,7 @@ function porcelain(): string | null {
 const GATES: Gate[] = [
   { name: 'typecheck', run: () => pnpm('typecheck') },
   { name: 'lint', run: () => pnpm('lint') },
+  { name: 'lint:secrets', run: () => pnpm('lint:secrets') },
   { name: 'test', run: () => pnpm('test') },
   { name: 'test:hooks', run: () => pnpm('test:hooks') },
   { name: 'test:sync', run: () => pnpm('test:sync') },

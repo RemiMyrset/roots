@@ -66,6 +66,9 @@ the portability requirement. Concretely:
   a sibling `test/` directory beside `src/`, never colocated — the unjs and antfu
   house layout. Every exported symbol carries a `/** */` block — presence
   enforced by ESLint `jsdoc/require-jsdoc`, content by review.
+* **Secret scanning**: `secretlint` (npm-native, no binary, no licence) with the
+  recommended preset runs on staged files at commit, in `pnpm verify`, and in
+  CI — the write-side counterpart to the secret-read guard.
 * **Agent guards**: one pre-tool dispatcher, registered in Claude Code, Codex,
   and Gemini CLI, runs node-only `deny-*` guards (no shell shims, no npm
   dependencies) that block non-pnpm package managers, dependency build scripts,

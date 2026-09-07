@@ -44,6 +44,7 @@ pnpm install
 | `pnpm verify` | The done gate: every check CI runs, in CI order, stopping at the first failure |
 | `pnpm build` / `pnpm test` / `pnpm typecheck` | Turbo across packages that define each script; `typecheck` also runs root `tsc` over scripts + configs |
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
+| `pnpm lint:secrets` | secretlint over every tracked file (also runs on staged files at commit) |
 | `pnpm test:hooks` | PreToolUse guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm docs:gen` | Regenerate the decisions and specs indexes |
