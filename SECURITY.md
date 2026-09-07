@@ -20,9 +20,17 @@ The `.claude/hooks/` PreToolUse guards (`deny-non-pnpm`, `deny-build-scripts`,
 cooperative agent, not a sandbox.** They stop the common, accidental ways an agent would run
 a banned package manager, enable a dependency build script, read a secret file, or push to a
 protected branch — mistakes worth catching before they happen. `dispatch.mts` is the one hook
-Claude Code registers; it runs every `deny-*.mts` in the directory, and any non-zero exit
-denies the call. Node builtins only, so they work before `pnpm install` and in any repo they
-are synced into.
+registered, three times over: as a Claude Code PreToolUse hook (`.claude/settings.json`), a
+Codex PreToolUse hook (`.codex/hooks.json`), and a Gemini CLI BeforeTool hook
+(`.gemini/settings.json`). All three deliver the command as `tool_input.command` and treat
+exit 2 with a reason on stderr as a block, so the guards are shared verbatim; the fixture
+suite pipes each tool's payload shape through the dispatcher. It runs every `deny-*.mts` in
+the directory, and any non-zero exit denies the call. Node builtins only, so they work before
+`pnpm install` and in any repo they are synced into. Codex and Gemini load project-level hook
+config only after the user trusts the folder (Codex also asks to trust each hook via
+`/hooks`), and neither reads the `env` block of `.claude/settings.json`: to protect branches
+other than `main` under those tools, prefix the registered command with
+`PROTECTED_BRANCHES=...`.
 
 They are **not** a security boundary. A process actively trying to evade them can run a
 nested interpreter (`sh -c '…'`), pipe through a decoder (`base64 -d | sh`), write a script

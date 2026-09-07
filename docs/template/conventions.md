@@ -29,9 +29,11 @@ CI-enforced conventions with generated mechanical sections, because rules that
 only live in prose drift, and external frameworks impose their own formats over
 the portability requirement. Concretely:
 
-* **One agent rulebook**: `AGENTS.md` (the cross-tool standard) is canonical;
-  `CLAUDE.md` contains only an import of it, because Claude Code reads
-  `CLAUDE.md`, not `AGENTS.md`.
+* **One agent rulebook**: `AGENTS.md` (the cross-tool standard) is canonical.
+  Claude Code reads it through a one-line `CLAUDE.md` import, Codex reads it
+  natively, and Gemini CLI is pointed at it by `.gemini/settings.json`. Skills
+  live once under `.claude/skills/`, reached by Codex and Gemini through the
+  `.agents/skills/` symlink.
 * **Template-owned docs**: `docs/template/` holds the rules and agent material
   the template owns — this page, spec discipline, markdown portability, the docs
   toolchain and its recipes. It is synced into children, never rendered by
@@ -60,11 +62,11 @@ the portability requirement. Concretely:
   `no-restricted-syntax` (enums also by `erasableSyntaxOnly`). Unit tests live in
   a sibling `test/` directory beside `src/`, never colocated — the unjs and antfu
   house layout.
-* **Agent guards**: one PreToolUse dispatcher runs node-only `deny-*` guards
-  (no shell shims, no npm dependencies) that block non-pnpm package managers,
-  dependency build scripts, shell reads of secrets, and pushes to protected
-  branches (`PROTECTED_BRANCHES`, default `main`; feature-branch pushes are
-  allowed). Threat model and scope live in `SECURITY.md`; the fixture suite
+* **Agent guards**: one pre-tool dispatcher, registered in Claude Code, Codex,
+  and Gemini CLI, runs node-only `deny-*` guards (no shell shims, no npm
+  dependencies) that block non-pnpm package managers, dependency build scripts,
+  shell reads of secrets, and pushes to protected branches
+  (`PROTECTED_BRANCHES`, default `main`; feature-branch pushes are allowed). Threat model and scope live in `SECURITY.md`; the fixture suite
   (`pnpm test:hooks`) pins every covered case.
 * **Template updates**: pull-based and plain git. `pnpm sync:template` stages the
   template's version of an allow-list of mechanics paths (including

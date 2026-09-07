@@ -66,8 +66,8 @@ clean after your last edit — when unsure which apply, run them all.
      Add a rule only after an agent actually got it wrong — every rule you add
      dilutes every other rule. Prune rules that stop being true. -->
 
-- ALWAYS use `pnpm`. Never npm, yarn, or bun. Enforced by a PreToolUse hook. (`npx`
-  passes — one-off bin runner; prefer `pnpm dlx`.)
+- ALWAYS use `pnpm`. Never npm, yarn, or bun. Enforced by a pre-tool hook in Claude
+  Code, Codex, and Gemini CLI. (`npx` passes — one-off bin runner; prefer `pnpm dlx`.)
 - ALWAYS use TypeScript. No `.js` or `.mjs` files — node 24 runs `.ts`/`.mts`
   natively. Keep syntax erasable (no enums/namespaces/param-properties, enforced
   by `erasableSyntaxOnly`); never declare a `class` (banned by ESLint

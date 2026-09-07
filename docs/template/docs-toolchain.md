@@ -148,11 +148,34 @@ the container.
 
 ### More agent surfaces
 
-- Gemini CLI reads `GEMINI.md`, not `AGENTS.md` — symlink it if you adopt Gemini.
-- Monorepo packages with their own conventions get a scoped `AGENTS.md` **plus a sibling
-  `CLAUDE.md` holding `@AGENTS.md`** — Claude Code walks nested `CLAUDE.md`, not nested
-  `AGENTS.md`, so the pair is what makes the scope load. Same class of fact as the Gemini
-  line above. See the Monorepo map in the root `AGENTS.md` for the line budget.
+The rulebook is `AGENTS.md`; the guards are the `deny-*` scripts under
+`.claude/hooks/`; the skills live under `.claude/skills/`. Three tools read them:
+
+- **Claude Code** reads `CLAUDE.md` (one line: `@AGENTS.md`), registers the
+  guard dispatcher as a PreToolUse hook in `.claude/settings.json`, and reads
+  skills from `.claude/skills/` only.
+- **Codex** reads `AGENTS.md` natively (merged root-down, 32 KiB cap), registers
+  the same dispatcher as a PreToolUse hook in `.codex/hooks.json`, and reads
+  skills from `.agents/skills/` — a committed symlink to `.claude/skills/`
+  (Windows needs developer mode for symlinks). Project-level `.codex/` config
+  loads only after you trust the folder, and each hook once via `/hooks`.
+- **Gemini CLI** is told to load `AGENTS.md` by `context.fileName` in
+  `.gemini/settings.json`, which also registers the dispatcher as a BeforeTool
+  hook; skills come from the same `.agents/skills/` symlink. Project settings
+  load only in a trusted folder.
+- The push guard reads `PROTECTED_BRANCHES` from the `env` block of
+  `.claude/settings.json`, which only Claude Code honours; under Codex and
+  Gemini it defaults to `main`. To protect other branches there, prefix the
+  registered command: `PROTECTED_BRANCHES=main,release/* node ...`.
+- Codex exec-policy rules and Gemini's allowed-tools settings are those tools'
+  counterparts to the Claude Code permission allowlist; roots ships neither, so
+  expect their approval prompts on the commands Claude Code runs silently.
+- Monorepo packages with their own conventions get a scoped `AGENTS.md` **plus a
+  sibling `CLAUDE.md` holding `@AGENTS.md`** — Claude Code walks nested
+  `CLAUDE.md`, not nested `AGENTS.md`, so the pair is what makes the scope load.
+  Codex merges nested `AGENTS.md` on its own; Gemini loads it when a tool first
+  touches the directory. See the Monorepo map in the root `AGENTS.md` for the
+  line budget.
 - Project-scoped MCP servers go in `.mcp.json` when a real need appears (for
   example a browser-automation server once there is a UI) — native tools plus
   `gh` cover the GitHub workflows already.
