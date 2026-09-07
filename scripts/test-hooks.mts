@@ -1,5 +1,5 @@
 /**
- * Regression suite for the .claude/hooks PreToolUse guards. Pipes crafted tool-call
+ * Regression suite for the .claude/hooks agent guards. Pipes crafted tool-call
  * JSON to each guard (and to the dispatcher that Claude Code actually registers) and
  * asserts the exit code (2 = deny, 0 = allow). Runs in CI via `pnpm test:hooks` so a
  * guard bypass can never ship silently again — every case below is a line an agent might

@@ -26,9 +26,9 @@ their formats require YAML frontmatter.)
    punctuation minimal; unique text per file (slug algorithms diverge on
    collisions). The decision-record H1 format `NNNN. Title` is the sanctioned
    punctuation exception.
-6. **Index files** — `index.md` inside `docs/` (VitePress convention, no
-   rewrites). `README.md` only at repo root and `docs/README.md` (both outside
-   the VitePress source directories).
+6. **Index files** — `index.md` inside the two site directories (VitePress
+   convention, no rewrites). `README.md` only outside them: the repo root,
+   `docs/README.md`, and `docs/template/README.md`.
 7. **Mermaid** — standard fenced `mermaid` code blocks work everywhere
    (VitePress renders them via the bundled plugin).
 8. **Emoji** — real Unicode characters, never `:shortcode:` colon codes

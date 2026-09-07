@@ -1,21 +1,21 @@
 # Docs toolchain
 
-How the docs machinery works, and the recipes for everything roots deliberately
+How the docs mechanics work, and the recipes for everything roots deliberately
 does not ship wired.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `pnpm verify` | every gate CI runs, in CI order — the done gate; docs gates included |
 | `pnpm docs:gen` | automd indexes: decisions and specs (mutates files) |
 | `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness |
 | `pnpm docs:portability` | trifecta lint (GitHub + VitePress + Obsidian), blocking |
 | `pnpm docs:internal:dev` / `docs:internal:build` | internal handbook site |
 | `pnpm docs:public:dev` / `docs:public:build` | public site |
 
-CI (`.github/workflows/docs.yml`) runs gen (diff-gated), check, portability, and
-both site builds — all blocking — plus an advisory spec-discipline nudge on PRs.
+All of them run inside the done gate, `pnpm verify`. CI (`.github/workflows/docs.yml`)
+runs gen (diff-gated), check, portability, and both site builds — all blocking —
+plus an advisory spec-discipline nudge on PRs.
 
 ## Adding a custom generator
 

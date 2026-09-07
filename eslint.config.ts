@@ -65,7 +65,7 @@ export default antfu(
       }],
     },
   })
-// Note: antfu default-ignores `.claude`, so the PreToolUse guard sources
+// Note: antfu default-ignores `.claude`, so the agent guard sources
 // (`.claude/hooks/*.mts`) are NOT ESLint-linted — intentionally. They are covered by the
 // root tsconfig typecheck (they are in its `include`) and by `pnpm test:hooks` (the behavioural
 // suite in scripts/test-hooks.mts), which is the coverage that actually matters

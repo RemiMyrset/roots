@@ -1,6 +1,6 @@
 ---
 name: sync-template
-description: Pull the roots template's shared mechanics into this repository and land them safely — bootstrap the script if missing, run the sync, review the staged diff, apply the printed follow-ups, run the done-gates, and propose the commit. Use when the user says "sync from template", "pull template updates", "update the mechanics", or "sync roots". Never commits or pushes on its own.
+description: Pull the roots template's shared mechanics into this repository and land them safely — bootstrap the script if missing, run the sync, review the staged diff, apply the printed follow-ups, run the done gate, and propose the commit. Use when the user says "sync from template", "pull template updates", "update the mechanics", or "sync roots". Never commits or pushes on its own.
 ---
 
 # Sync from the template

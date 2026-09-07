@@ -16,6 +16,8 @@ export default withMermaid(defineConfig({
     // discoverability in docs/template/docs-toolchain.md).
     // generateLLMsFullTxt is off deliberately: a concatenated corpus is in no version
     // of the llms.txt spec, and v2 is a search-the-map-then-follow-links model.
+    // The plugin needs at least one page beside index.md to emit llms.txt at all —
+    // that is why getting-started.md must be replaced, never just deleted.
     plugins: [llmstxt({ generateLLMsFullTxt: false })],
   },
 }))

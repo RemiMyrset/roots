@@ -1,5 +1,5 @@
 /**
- * Shared lexical core for the PreToolUse guards (deny-non-pnpm / deny-build-scripts /
+ * Shared lexical core for the agent guards (deny-non-pnpm / deny-build-scripts /
  * deny-secret-reads / deny-push-protected). Consolidated here so a lexer fix lands ONCE — the
  * previous triplication is why the guards regressed every audit.
  *

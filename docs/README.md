@@ -4,7 +4,7 @@ Two audiences, two directories: the public site build reads only `public/`, so
 internal content cannot leak into it.
 
 - [internal/](./internal/index.md) — the engineering handbook: decisions, specs,
-  development guides. Rendered by VitePress locally (`pnpm docs:internal:dev`);
+  and this project's own guides. Rendered by VitePress locally (`pnpm docs:internal:dev`);
   host it for the team behind access control — recipe in
   [docs-toolchain](./template/docs-toolchain.md).
 - [public/](./public/index.md) — the publishable site. Keep it free of anything
