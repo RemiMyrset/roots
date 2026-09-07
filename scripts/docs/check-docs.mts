@@ -7,9 +7,10 @@
  * Blocking errors exit 1; warnings print but pass (CI shows them as ::warning).
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 import process from 'node:process'
 import { repoRoot } from './root.mts'
+import { posixRelative, skillDrift, SKILLS_SOURCE, SKILLS_TARGET } from './skills.mts'
 
 const STALE_DAYS = 180
 // Prefix-anchored on purpose: a "superseded by [NNNN](./…)" status carries a trailing
@@ -221,12 +222,25 @@ function rulebooks(dir: string): string[] {
 for (const file of rulebooks(root)) {
   const lines = readFileSync(file, 'utf8').replace(/\n$/, '').split('\n').length
   if (lines > RULEBOOK_BUDGET)
-    errors.push(`${relative(root, file)}: ${lines} lines exceeds the ${RULEBOOK_BUDGET}-line rulebook budget — move content to its canonical home and link it`)
+    errors.push(`${posixRelative(root, file)}: ${lines} lines exceeds the ${RULEBOOK_BUDGET}-line rulebook budget — move content to its canonical home and link it`)
 }
 
 // --- report ------------------------------------------------------------------
 for (const w of warnings)
   console.warn(`::warning::docs:check: ${w}`)
+// The agent-skills mirror (.agents/skills) must equal its source (.claude/skills) byte for
+// byte: a stale or hand-edited copy means Codex and Gemini run different skills than
+// Claude Code. `pnpm docs:gen` regenerates it.
+{
+  const drift = skillDrift(root)
+  for (const f of drift.missing)
+    errors.push(`${SKILLS_TARGET}/${f}: missing — run \`pnpm docs:gen\` to mirror ${SKILLS_SOURCE}`)
+  for (const f of drift.different)
+    errors.push(`${SKILLS_TARGET}/${f}: differs from ${SKILLS_SOURCE}/${f} — never hand-edit the mirror; edit the source and run \`pnpm docs:gen\``)
+  for (const f of drift.stale)
+    errors.push(`${SKILLS_TARGET}/${f}: has no source under ${SKILLS_SOURCE} — run \`pnpm docs:gen\` to remove it`)
+}
+
 if (errors.length > 0) {
   console.error(`\n✖ docs:check — ${errors.length} error(s)\n`)
   for (const e of errors)

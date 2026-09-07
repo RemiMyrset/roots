@@ -10,7 +10,7 @@
  * Adapted from an earlier internal docs-portability checker.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { repoRoot } from './root.mts'
 
@@ -116,7 +116,7 @@ function checkLinkTarget(where: string, file: string, raw: string, display: stri
 }
 
 for (const file of files) {
-  const where = relative(root, file)
+  const where = relative(root, file).split(sep).join('/')
   const text = readFileSync(file, 'utf8')
   const lines = text.split('\n')
 

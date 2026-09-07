@@ -10,7 +10,7 @@
           {
             "name": "roots-guards",
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.claude/hooks/dispatch.mts\"",
+            "command": "pnpm -w --silent run guards",
             "timeout": 10000
           }
         ]

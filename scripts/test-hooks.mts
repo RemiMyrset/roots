@@ -6,13 +6,13 @@
  * plausibly type. Node builtins only; no deps. Node 24 runs this `.mts` natively.
  */
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 
 type Guard = 'deny-non-pnpm.mts' | 'deny-build-scripts.mts' | 'deny-secret-reads.mts' | 'deny-push-protected.mts' | 'deny-hook-bypass.mts' | 'dispatch.mts'
-interface Case { guard: Guard, expect: 0 | 2, cmd: string, env?: Record<string, string>, cwd?: string, tool?: string, extra?: Record<string, unknown> }
+interface Case { guard: Guard, expect: 0 | 2, cmd: string, env?: Record<string, string>, unset?: string[], cwd?: string, tool?: string, extra?: Record<string, unknown>, hooksDir?: string }
 
 const HOOKS = join(import.meta.dirname, '..', '.claude', 'hooks')
 const D = 2 // deny
@@ -20,7 +20,7 @@ const A = 0 // allow
 
 // Throwaway checkouts for the push guard's implicit-target resolution (`git push`, `HEAD`):
 // one on `main`, one on a feature branch, one detached. Created up front, removed at exit.
-const tmp = mkdtempSync(join(tmpdir(), 'roots-hooks-'))
+const tmp = mkdtempSync(join(tmpdir(), 'hooks-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 function checkout(name: string, branch: string, detach = false): string {
   const dir = join(tmp, name)
@@ -41,6 +41,13 @@ const ON_MAIN = checkout('on-main', 'main')
 const ON_FEAT = checkout('on-feat', 'feat/x')
 const DETACHED = checkout('detached', 'main', true)
 const P = 'deny-push-protected.mts'
+
+// A copy of .claude/ whose settings.json protects release/* instead of main: with the env
+// var unset, the push guard must read the list from the file (Codex and Gemini never set it).
+const SETTINGS_CLAUDE = join(tmp, 'settings-claude')
+cpSync(join(HOOKS, '..'), SETTINGS_CLAUDE, { recursive: true })
+writeFileSync(join(SETTINGS_CLAUDE, 'settings.json'), JSON.stringify({ env: { PROTECTED_BRANCHES: 'release/*' } }))
+const SETTINGS_HOOKS = join(SETTINGS_CLAUDE, 'hooks')
 const B = 'deny-hook-bypass.mts'
 
 // Codex and Gemini CLI register the same dispatcher. Their payloads carry other
@@ -273,6 +280,10 @@ const CASES: Case[] = [
   { guard: P, expect: D, cmd: 'git push origin develop', env: { PROTECTED_BRANCHES: 'develop' } },
   { guard: P, expect: A, cmd: 'git push origin maintenance', env: { PROTECTED_BRANCHES: 'main' } }, // full match, not prefix
   { guard: P, expect: D, cmd: 'git push origin main', env: { PROTECTED_BRANCHES: '' } }, //  empty means default
+  // No env var at all: the list comes from .claude/settings.json next to the hooks.
+  { guard: P, expect: D, cmd: 'git push origin release/1.x', unset: ['PROTECTED_BRANCHES'], hooksDir: SETTINGS_HOOKS },
+  { guard: P, expect: A, cmd: 'git push origin main', unset: ['PROTECTED_BRANCHES'], hooksDir: SETTINGS_HOOKS },
+  { guard: P, expect: D, cmd: 'git push origin main', unset: ['PROTECTED_BRANCHES'] }, // the real settings.json protects main
   // The release script pushes from inside changelogen; a `git push` rule never sees it.
   { guard: P, expect: D, cmd: 'pnpm release' },
   { guard: P, expect: D, cmd: 'pnpm run release' },
@@ -332,7 +343,10 @@ const CASES: Case[] = [
 const fails: string[] = []
 for (const c of CASES) {
   const json = JSON.stringify({ ...c.extra, tool_name: c.tool ?? 'Bash', tool_input: { command: c.cmd } })
-  const r = spawnSync(process.execPath, [join(HOOKS, c.guard)], { input: json, cwd: c.cwd ?? process.cwd(), env: { ...process.env, ...c.env } })
+  const env: Record<string, string | undefined> = { ...process.env, ...c.env }
+  for (const name of c.unset ?? [])
+    delete env[name]
+  const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, c.guard)], { input: json, cwd: c.cwd ?? process.cwd(), env })
   if (r.status !== c.expect)
     fails.push(`[${c.guard}] got ${r.status ?? 'null'}, want ${c.expect}: ${c.cmd}`)
 }

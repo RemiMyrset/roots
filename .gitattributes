@@ -4,3 +4,6 @@
 
 # Lockfile: don't clutter diffs, mark as generated for linguist.
 pnpm-lock.yaml -diff linguist-generated=true
+
+# Generated mirror of .claude/skills for Codex and Gemini CLI (pnpm docs:gen); reviewable but marked generated.
+.agents/skills/** linguist-generated=true

@@ -8,11 +8,31 @@
  * Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
  */
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import process from 'node:process'
 import { base, PNPM_VALUE_FLAG, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
 
 const ENV_VAR = 'PROTECTED_BRANCHES'
-const configured = (process.env[ENV_VAR] ?? '').split(',').map(p => p.trim()).filter(Boolean)
+
+// The list comes from the environment (Claude Code exports the `env` block of
+// .claude/settings.json) or, when unset, from that file directly — Codex and Gemini CLI
+// register the same dispatcher but never read the env block, so all three tools share
+// one list with no shell-specific env prefix. Located from this file, not cwd.
+function configuredList(): string {
+  const fromEnv = process.env[ENV_VAR]
+  if (fromEnv !== undefined)
+    return fromEnv
+  try {
+    const settings = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'settings.json'), 'utf8')) as { env?: { PROTECTED_BRANCHES?: unknown } }
+    const value = settings.env?.PROTECTED_BRANCHES
+    return typeof value === 'string' ? value : ''
+  }
+  catch {
+    return ''
+  }
+}
+const configured = configuredList().split(',').map(p => p.trim()).filter(Boolean)
 const PATTERNS = configured.length > 0 ? configured : ['main']
 const PROTECTED = PATTERNS.map(p => new RegExp(`^${p.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`))
 
