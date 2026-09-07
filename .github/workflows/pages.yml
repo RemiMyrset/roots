@@ -1,0 +1,102 @@
+# Publishes docs/public to GitHub Pages — the standard way to host the public site.
+# Builds on every push to main that touches the site (the build is a useful check on
+# its own) and deploys only when Pages is enabled for the repository: Settings →
+# Pages → Source: GitHub Actions, or
+#   gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow
+# A repository that never enables Pages sees a green run that says "built, not
+# deployed". Recipe: docs/template/docs-toolchain.md, "Publish the public site".
+# Action pinning: GitHub-owned actions/* by major tag; third-party by full SHA.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/public/**
+      - docs/.shared/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+# One deploy at a time, never cancelled mid-flight: a cancelled Pages deploy can
+# leave the site half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      enabled: ${{ steps.pages-enabled.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Is GitHub Pages enabled for this repository?
+        id: pages-enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/pages" > /dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve the Pages URL
+        if: steps.pages-enabled.outputs.enabled == 'true'
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Build the public site
+        env:
+          # Set by configure-pages when Pages is enabled; empty otherwise, so a local
+          # or unpublished build keeps relative links and the default base.
+          DOCS_URL: ${{ steps.pages.outputs.base_url }}
+          DOCS_BASE: ${{ steps.pages.outputs.base_path && format('{0}/', steps.pages.outputs.base_path) || '' }}
+        run: pnpm docs:public:build
+
+      - name: Upload the site
+        if: steps.pages-enabled.outputs.enabled == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/public/.vitepress/dist
+
+      - name: Not deployed (Pages is not enabled)
+        if: steps.pages-enabled.outputs.enabled != 'true'
+        run: |
+          echo "::notice::GitHub Pages is not enabled for this repository; the site was built but not deployed. Enable it under Settings → Pages → Source: GitHub Actions, or run the gh command in docs/template/docs-toolchain.md (Publish the public site)."
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Summary
+        run: echo "Published to ${{ steps.deployment.outputs.page_url }}" >> "$GITHUB_STEP_SUMMARY"

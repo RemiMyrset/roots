@@ -29,7 +29,9 @@ spec lagged a code change — fix it in the same PR. See
 4. Run `pnpm docs:gen` — the index below is generated; never hand-edit it.
 
 This directory starts empty in a fresh project. That is correct — do not
-backfill specs for code that does not exist yet.
+backfill specs for code that does not exist yet. For a worked example, read
+`docs/template/sync-template.md` first: a real capability spec, with its Source
+and Tests bullets, a Contract, and binary Behavior branches.
 
 ## Index
 

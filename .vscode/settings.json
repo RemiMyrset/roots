@@ -4,9 +4,16 @@
   // (erasableSyntaxOnly, rewriteRelativeImportExtensions) — the cause of phantom
   // "Cannot find name 'console'/'process'" errors on scripts/*.mts while the CLI
   // is clean. VSCode prompts once per workspace to adopt it (one "Allow" click).
-  //
-  // Unified `js/ts.*` keys (VSCode Feb-2026+). Older VSCode ignores them with a
-  // harmless "unknown setting" note and falls back to its bundled TypeScript.
+  // Both spellings on purpose: the unified `js/ts.*` keys (VSCode Feb-2026+) and the
+  // classic `typescript.*` keys older editors still read.
   "js/ts.tsdk.path": "node_modules/typescript/lib",
-  "js/ts.tsdk.promptToUseWorkspaceVersion": true
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true,
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  // The antfu flat config; fix on save so the editor and `pnpm lint:fix` agree.
+  "eslint.useFlatConfig": true,
+  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
+  // LF everywhere (the .gitattributes rule); keep the two site builds out of search.
+  "files.eol": "\n",
+  "search.exclude": { "**/.vitepress/dist": true, "**/.vitepress/cache": true }
 }

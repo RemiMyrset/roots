@@ -1,6 +1,6 @@
 /**
  * deny-push-protected guard body (run via dispatch.mts). Blocks a `git push` whose target is
- * a protected branch, any bare-force / --all / --mirror push, and the release script (its push
+ * a protected branch, any bare-force / --all / --mirror / wildcard-refspec push, and the release script (its push
  * happens inside changelogen, invisible to a `git push` rule). Protected patterns come from
  * PROTECTED_BRANCHES (comma-separated globs, `*` matches any run of characters) in the
  * `env` block of .claude/settings.json; unset means `main`. Implicit targets (`git push`,
@@ -8,11 +8,31 @@
  * Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
  */
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import process from 'node:process'
-import { base, PNPM_VALUE_FLAG, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+import { base, commandOf, gitSubcommand, PNPM_VALUE_FLAG, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
 
 const ENV_VAR = 'PROTECTED_BRANCHES'
-const configured = (process.env[ENV_VAR] ?? '').split(',').map(p => p.trim()).filter(Boolean)
+
+// The list comes from the environment (Claude Code exports the `env` block of
+// .claude/settings.json) or, when unset, from that file directly — Codex and Gemini CLI
+// register the same dispatcher but never read the env block, so all three tools share
+// one list with no shell-specific env prefix. Located from this file, not cwd.
+function configuredList(): string {
+  const fromEnv = process.env[ENV_VAR]
+  if (fromEnv !== undefined)
+    return fromEnv
+  try {
+    const settings = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'settings.json'), 'utf8')) as { env?: { PROTECTED_BRANCHES?: unknown } }
+    const value = settings.env?.PROTECTED_BRANCHES
+    return typeof value === 'string' ? value : ''
+  }
+  catch {
+    return ''
+  }
+}
+const configured = configuredList().split(',').map(p => p.trim()).filter(Boolean)
 const PATTERNS = configured.length > 0 ? configured : ['main']
 const PROTECTED = PATTERNS.map(p => new RegExp(`^${p.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`))
 
@@ -27,10 +47,10 @@ function currentBranch(): string | null {
   return out || null
 }
 
-// `git` global options that take a SEPARATE value token (the `--opt=value` spelling is one token).
-const GIT_VALUE_OPT: ReadonlySet<string> = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env'])
-// `git push` options that take a separate value token.
-const PUSH_VALUE_OPT: ReadonlySet<string> = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec', '--recurse-submodules'])
+// `git push` options that take a separate value token. `--recurse-submodules` is not one:
+// git accepts only its `=value` spelling, so treating it as separate would consume the
+// remote and shift the target.
+const PUSH_VALUE_OPT: ReadonlySet<string> = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec'])
 
 // Returns the deny reason for a `git push` argv (tokens after `push`), or null to allow.
 function pushVerdict(args: string[]): string | null {
@@ -74,6 +94,10 @@ function pushVerdict(args: string[]): string | null {
   for (const spec of refspecs) {
     if (spec.startsWith('+'))
       return `\`+${spec.slice(1)}\` is a force push; use --force-with-lease on an unprotected branch`
+    // A wildcard refspec can match a protected branch and this guard cannot evaluate the
+    // glob against the remote, so it is denied outright.
+    if (spec.includes('*'))
+      return `\`${spec}\` is a wildcard refspec; it can match a protected branch, so it is denied outright`
     const [src, dst] = spec.split(':') as [string, string?]
     const target = del ? src : (dst ?? src)
     if (target === '' || target.startsWith('refs/tags/'))
@@ -99,20 +123,6 @@ function pushVerdict(args: string[]): string | null {
   return null
 }
 
-// Subcommand + its args after `git` and any global options (`git -C x -c k=v push …`).
-function gitSubcommand(toks: string[], i: number): [sub: string, args: string[]] {
-  let k = i + 1
-  while (k < toks.length) {
-    const t = unquote(toks[k]!)
-    if (!t.startsWith('-'))
-      break
-    k++
-    if (GIT_VALUE_OPT.has(t))
-      k++
-  }
-  return [unquote(toks[k] ?? ''), toks.slice(k + 1)]
-}
-
 // First pnpm script/subcommand after global flags, unwrapping `run`.
 function pnpmScript(toks: string[], i: number): string {
   let k = i + 1
@@ -127,12 +137,9 @@ function pnpmScript(toks: string[], i: number): string {
 
 let s = ''
 process.stdin.on('data', (d) => { s += d }).on('end', () => {
-  let cmd: string
-  try {
-    cmd = String((JSON.parse(s).tool_input || {}).command || '')
-  }
-  catch {
-    process.stderr.write('push guard: could not parse hook input as JSON; denying by default (fail closed).\n')
+  const cmd = commandOf(s)
+  if (cmd === null) {
+    process.stderr.write('push guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
     process.exit(2)
   }
   const deny = (why: string): never => {
@@ -145,7 +152,7 @@ process.stdin.on('data', (d) => { s += d }).on('end', () => {
     if (probe)
       continue
     if (head === 'git') {
-      const [sub, args] = gitSubcommand(toks, i)
+      const { sub, args } = gitSubcommand(toks, i)
       if (sub !== 'push')
         continue
       const why = pushVerdict(args)

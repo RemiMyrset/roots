@@ -1,6 +1,7 @@
 /**
- * Shared lexical core for the PreToolUse guards (deny-non-pnpm / deny-build-scripts /
- * deny-secret-reads / deny-push-protected). Consolidated here so a lexer fix lands ONCE — the
+ * Shared lexical core for the agent guards (deny-non-pnpm / deny-build-scripts /
+ * deny-secret-reads / deny-push-protected / deny-hook-bypass), plus the git-option parsing and
+ * the hook-payload reader they share. Consolidated here so a fix lands ONCE — the
  * previous triplication is why the guards regressed every audit.
  *
  * ZERO external dependencies (node builtins only): the guards run before `pnpm install`
@@ -199,4 +200,40 @@ export function resolveHead(toks: string[]): Head {
     }
   }
   return { i, head: base(toks[i] ?? ''), probe }
+}
+
+// `git` global options that take a SEPARATE value token (the `--opt=value` spelling is one token).
+const GIT_VALUE_OPT: ReadonlySet<string> = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env'])
+
+/**
+ * The subcommand after `git` and its global options (`git -C x -c k=v push …`): the subcommand,
+ * its argv, and the unquoted global-option tokens (values included) for callers that inspect them.
+ */
+export function gitSubcommand(toks: string[], i: number): { sub: string, args: string[], globals: string[] } {
+  let k = i + 1
+  while (k < toks.length) {
+    const t = unquote(toks[k]!)
+    if (!t.startsWith('-'))
+      break
+    k++
+    if (GIT_VALUE_OPT.has(t))
+      k++
+  }
+  return { sub: unquote(toks[k] ?? ''), args: toks.slice(k + 1), globals: toks.slice(i + 1, k).map(unquote) }
+}
+
+/**
+ * `tool_input.command` of a pre-tool payload, or null when the JSON is malformed or the field is
+ * missing, null, or not a string — callers deny (fail closed). A present empty string is a
+ * command with nothing to run and is returned as such.
+ */
+export function commandOf(raw: string): string | null {
+  try {
+    const parsed = JSON.parse(raw) as { tool_input?: { command?: unknown } | null } | null
+    const cmd = parsed?.tool_input?.command
+    return typeof cmd === 'string' ? cmd : null
+  }
+  catch {
+    return null
+  }
 }

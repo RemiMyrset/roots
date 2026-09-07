@@ -1,10 +1,9 @@
 # roots conventions
 
-What roots is, why it is shaped this way, and what that costs. This is the
-template's own rationale, kept as a living page rather than a decision record:
-it ships with every child under `docs/template/` and is updated by
-`pnpm sync:template`, while the child's decision log starts empty and holds only
-the child's own decisions.
+This page describes the roots template, not this project; a project's own
+rationale goes in `docs/internal/decisions/`. It is what roots is, why it is
+shaped this way, and what that costs — the template's living rationale, shipped
+with every child under `docs/template/` and updated by `pnpm sync:template`.
 
 ## Why roots exists
 
@@ -32,8 +31,8 @@ the portability requirement. Concretely:
 * **One agent rulebook**: `AGENTS.md` (the cross-tool standard) is canonical.
   Claude Code reads it through a one-line `CLAUDE.md` import, Codex reads it
   natively, and Gemini CLI is pointed at it by `.gemini/settings.json`. Skills
-  live once under `.claude/skills/`, reached by Codex and Gemini through the
-  `.agents/skills/` symlink.
+  live once under `.claude/skills/`, reached by Codex and Gemini through a
+  generated `.agents/skills/` copy (no symlinks: Windows is first-class).
 * **Template-owned docs**: `docs/template/` holds the rules and agent material
   the template owns — this page, spec discipline, markdown portability, the docs
   toolchain and its recipes. It is synced into children, never rendered by
@@ -51,18 +50,22 @@ the portability requirement. Concretely:
   machine-checked by `pnpm docs:portability` (blocking).
 * **Generation**: automd + repo generators produce the decisions and specs
   indexes; CI diff-gates the output so generated sections can never drift.
+* **Public docs**: a synced GitHub Pages workflow publishes `docs/public/` on
+  every push to `main`, deploying only where Pages is enabled; the template's
+  own public site is the live demo.
 * **AI discoverability**: the public site build emits `llms.txt` (the
   [llms.txt](https://llmstxt.org/) standard — "SEO for AI") plus a markdown
   copy of every page, via `vitepress-plugin-llms`; that is the web-facing
   artifact for crawlers and agents on a deployed site. No committed repo-wide
-  map: the one roots used to generate held repo-relative paths for a
-  private-repo docs chatbot the template no longer targets, and coding agents
-  inside a checkout have the rulebook, the indexes, and file search. No
-  concatenated `llms-full.txt` either — it is in no version of the standard.
+  map and no concatenated `llms-full.txt`: coding agents inside a checkout
+  have the rulebook, the indexes, and file search, and a corpus file is in no
+  version of the standard.
 * **Stack**: TypeScript-first pnpm + Turborepo monorepo, node 24 minimum, no
   JavaScript files (erasable-syntax TypeScript runs natively), and no `class` or
   `enum` — functions and plain objects/union types only, enforced by ESLint
-  `no-restricted-syntax` (enums also by `erasableSyntaxOnly`). Unit tests live in
+  `no-restricted-syntax` (enums also by `erasableSyntaxOnly`); when a dependency
+  demands a subclass, escape with
+  `// eslint-disable-next-line no-restricted-syntax -- <reason>`. Unit tests live in
   a sibling `test/` directory beside `src/`, never colocated — the unjs and antfu
   house layout. Every exported symbol carries a `/** */` block — presence
   enforced by ESLint `jsdoc/require-jsdoc`, content by review.
@@ -74,13 +77,15 @@ the portability requirement. Concretely:
   dependencies) that block non-pnpm package managers, dependency build scripts,
   shell reads of secrets, pushes to protected branches (`PROTECTED_BRANCHES`,
   default `main`; feature-branch pushes are allowed), and git-hook bypasses
-  (`--no-verify`, hooks-path overrides, skip variables). Threat model and scope live in `SECURITY.md`; the fixture suite
+  (`--no-verify`, hooks-path overrides, skip variables). Threat model and scope live in [guards](./guards.md); the fixture suite
   (`pnpm test:hooks`) pins every covered case.
 * **Template updates**: pull-based and plain git. `pnpm sync:template` stages the
   template's version of an allow-list of mechanics paths (including
-  `docs/template/` and the sync script itself), records the sync point in
-  `.template-sync.json`, and prints the template commits since plus the
-  `package.json` scripts that differ, as follow-ups. `package.json` and
+  `docs/template/`, the agent registrations, and the sync script itself),
+  records the sync point in `.template-sync.json`, and prints the template
+  commits since plus the `package.json` scripts that differ, as follow-ups. It
+  works for template copies, forks, and pre-existing repos alike — the first
+  sync infers its baseline — and a child can pin a template release with `ref`. `package.json` and
   `.claude/settings.json` are never synced; a template change that needs a
   hand-edit ships as a breaking Conventional Commit whose footer states it.
   Contract: [sync-template](./sync-template.md).

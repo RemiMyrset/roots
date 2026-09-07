@@ -7,10 +7,8 @@
  * Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
  */
 import process from 'node:process'
-import { resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+import { commandOf, gitSubcommand, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
 
-// `git` global options that take a SEPARATE value token.
-const GIT_VALUE_OPT: ReadonlySet<string> = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env'])
 // Subcommands whose hooks matter here. `-n` means --no-verify only for commit (push: dry-run).
 const HOOKED: ReadonlySet<string> = new Set(['commit', 'push', 'merge'])
 // `git commit` options that take a separate value, so their value is never read as a flag.
@@ -22,8 +20,10 @@ const SKIP_ENV_RE = /^(?:SKIP_SIMPLE_GIT_HOOKS=|HUSKY=0$|HUSKY_SKIP_HOOKS=)/
 
 // Tokens outside quoted spans: tokenize() splits on whitespace regardless of quotes, so a
 // commit message mentioning `--no-verify` arrives as several tokens; skip everything from a
-// token that opens a quote to the token that closes it.
-function outsideQuotes(toks: string[]): string[] {
+// token that opens a quote to the token that closes it. `balanced` is false when a quote
+// never closed by this heuristic — the caller then scans every token (fail closed), which
+// also covers a quote closed mid-token (`-m "a "b --no-verify`).
+function outsideQuotes(toks: string[]): { toks: string[], balanced: boolean } {
   const out: string[] = []
   let open: string | null = null
   for (const t of toks) {
@@ -39,7 +39,7 @@ function outsideQuotes(toks: string[]): string[] {
     }
     out.push(t)
   }
-  return out
+  return { toks: out, balanced: open === null }
 }
 
 function verdict(toks: string[]): string | null {
@@ -55,22 +55,17 @@ function verdict(toks: string[]): string | null {
     return `exporting ${unquote(toks[i + 1] ?? '').split('=')[0]} disables the git hooks for the session`
   if (head !== 'git')
     return null
-  let k = i + 1
-  while (k < toks.length) {
-    const t = unquote(toks[k]!)
-    if (!t.startsWith('-'))
-      break
-    const value = unquote(toks[k + 1] ?? '')
+  const { sub, args: rest, globals } = gitSubcommand(toks, i)
+  for (let g = 0; g < globals.length; g++) {
+    const t = globals[g]!
+    const value = globals[g + 1] ?? ''
     if ((t === '-c' && HOOKS_PATH_RE.test(value)) || /^--config-env=core\.hookspath=/i.test(t) || (t === '--config-env' && HOOKS_PATH_RE.test(value)))
       return 'overriding core.hooksPath bypasses the repo hooks'
-    k++
-    if (GIT_VALUE_OPT.has(t))
-      k++
   }
-  const sub = unquote(toks[k] ?? '')
   if (!HOOKED.has(sub))
     return null
-  const args = outsideQuotes(toks.slice(k + 1))
+  const scanned = outsideQuotes(rest)
+  const args = scanned.balanced ? scanned.toks : rest
   for (let a = 0; a < args.length; a++) {
     const t = unquote(args[a]!)
     if (t === '--')
@@ -91,12 +86,9 @@ function verdict(toks: string[]): string | null {
 
 let s = ''
 process.stdin.on('data', (d) => { s += d }).on('end', () => {
-  let cmd: string
-  try {
-    cmd = String((JSON.parse(s).tool_input || {}).command || '')
-  }
-  catch {
-    process.stderr.write('hook-bypass guard: could not parse hook input as JSON; denying by default (fail closed).\n')
+  const cmd = commandOf(s)
+  if (cmd === null) {
+    process.stderr.write('hook-bypass guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
     process.exit(2)
   }
   for (const seg of segments(cmd)) {

@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.claude/hooks/dispatch.mts\"",
-            "statusMessage": "roots guards"
+            "command": "pnpm -w --silent run guards",
+            "statusMessage": "guards"
           }
         ]
       }

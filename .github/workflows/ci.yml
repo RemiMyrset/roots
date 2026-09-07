@@ -1,4 +1,8 @@
-# Project CI: typecheck, lint, test, test:hooks, build (turbo orchestrates build/test/typecheck).
+# Project CI on Ubuntu and Windows: typecheck, lint, secrets, test, test:hooks, test:sync,
+# test:docs, test:gates, build (turbo orchestrates build/test/typecheck). Every step runs
+# under bash on both runners. scripts/test-gates.mts keeps these steps and pnpm verify equal.
+# Action pinning: GitHub-owned actions/* by major tag (GitHub protects those tags); every
+# third-party action by full commit SHA with its version in a trailing comment.
 name: ci
 
 on:
@@ -15,8 +19,15 @@ permissions:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:
@@ -36,4 +47,6 @@ jobs:
       - run: pnpm test
       - run: pnpm test:hooks
       - run: pnpm test:sync
+      - run: pnpm test:docs
+      - run: pnpm test:gates
       - run: pnpm build

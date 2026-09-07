@@ -8,9 +8,9 @@
         "matcher": "run_shell_command",
         "hooks": [
           {
-            "name": "roots-guards",
+            "name": "guards",
             "type": "command",
-            "command": "node \"$(git rev-parse --show-toplevel)/.claude/hooks/dispatch.mts\"",
+            "command": "pnpm -w --silent run guards",
             "timeout": 10000
           }
         ]

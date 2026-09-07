@@ -3,16 +3,13 @@
  * command head. Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
  */
 import process from 'node:process'
-import { BANNED, resolveHead, segments, tokenize } from './_lexer.mts'
+import { commandOf, BANNED, resolveHead, segments, tokenize } from './_lexer.mts'
 
 let s = ''
 process.stdin.on('data', (d) => { s += d }).on('end', () => {
-  let cmd: string
-  try {
-    cmd = String((JSON.parse(s).tool_input || {}).command || '')
-  }
-  catch {
-    process.stderr.write('pnpm guard: could not parse hook input as JSON; denying by default (fail closed).\n')
+  const cmd = commandOf(s)
+  if (cmd === null) {
+    process.stderr.write('pnpm guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
     process.exit(2)
   }
   const heads: string[] = []

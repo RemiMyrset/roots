@@ -1,5 +1,6 @@
 # Docs integrity — blocking: automd drift, structure lint, portability
 # lint, both VitePress builds. Advisory (never blocks): spec-discipline nudge.
+# Action pinning: GitHub-owned actions/* by major tag; third-party by full commit SHA.
 name: docs
 
 on:
@@ -16,8 +17,15 @@ permissions:
 
 jobs:
   docs:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7
         with:

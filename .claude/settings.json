@@ -42,7 +42,7 @@
       "Bash(pnpm --filter * test:*)",
       "Bash(pnpm --filter * typecheck:*)",
       "Bash(pnpm --filter * lint:*)",
-      "Bash(pnpm verify)",
+      "Bash(pnpm verify:*)",
       "Bash(pnpm build:*)",
       "Bash(pnpm test:*)",
       "Bash(pnpm typecheck:*)",
@@ -71,6 +71,13 @@
       "Read(**/secrets/**)",
       "Read(**/*.pem)",
       "Read(**/*.key)",
+      "Read(**/*.p12)",
+      "Read(**/*.pfx)",
+      "Read(**/*.jks)",
+      "Read(**/.envrc)",
+      "Read(**/.netrc)",
+      "Read(**/_netrc)",
+      "Read(**/.npmrc)",
       "Bash(pnpm approve-builds:*)"
     ]
   },

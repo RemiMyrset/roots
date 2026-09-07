@@ -17,7 +17,9 @@ record is its Status line.
 5. Run `pnpm docs:gen` — the index below is generated; never hand-edit it.
 
 This directory starts empty in a fresh project. That is correct — the template's
-own rationale lives in `docs/template/conventions.md`, not here.
+own rationale lives in `docs/template/conventions.md`, which also shows the
+shape a good record takes: context, the options considered, the choice and why,
+and the consequences, good and bad.
 
 ## Index
 

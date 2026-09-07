@@ -3,18 +3,15 @@
  * that enable dependency build/postinstall scripts. Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
  */
 import process from 'node:process'
-import { resolveHead, segments, tokenize } from './_lexer.mts'
+import { commandOf, resolveHead, segments, tokenize } from './_lexer.mts'
 
 const BUILD = /(approve-builds|--allow-build|dangerously[-_]?allow[-_]?all[-_]?builds|dangerouslyAllowAllBuilds)/i
 
 let s = ''
 process.stdin.on('data', (d) => { s += d }).on('end', () => {
-  let cmd: string
-  try {
-    cmd = String((JSON.parse(s).tool_input || {}).command || '')
-  }
-  catch {
-    process.stderr.write('build-scripts guard: could not parse hook input as JSON; denying by default (fail closed).\n')
+  const cmd = commandOf(s)
+  if (cmd === null) {
+    process.stderr.write('build-scripts guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
     process.exit(2)
   }
   for (const seg of segments(cmd)) {

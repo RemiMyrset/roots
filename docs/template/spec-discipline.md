@@ -14,7 +14,8 @@ Behavior lives in three places:
 
 1. **Source code.**
 2. **Tests.**
-3. **The spec** — one file under `docs/internal/specs/`, not several.
+3. **The spec** — one file under `docs/internal/specs/` for product behavior,
+   not several. Template mechanics are specified under `docs/template/`.
 
 **When a behavior changes, all three change in the same PR.** Three, not four,
 not six. If you cannot describe the change in plain prose in its spec, you do

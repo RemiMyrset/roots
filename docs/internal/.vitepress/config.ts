@@ -5,11 +5,11 @@
 import { defineConfig } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 import { decisionsSidebar, specsSidebar } from '../../../scripts/docs/generators.mts'
-import { shared } from '../../.shared/config.ts'
+import { shared, siteName } from '../../.shared/config.ts'
 
 export default withMermaid(defineConfig({
   ...shared,
-  title: 'roots — internal handbook',
+  title: `${siteName} — internal handbook`,
   description: 'Engineering handbook: decisions, specs, guides.',
   head: [
     ['meta', { name: 'robots', content: 'noindex, nofollow' }],

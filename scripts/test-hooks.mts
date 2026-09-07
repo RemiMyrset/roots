@@ -1,18 +1,19 @@
 /**
- * Regression suite for the .claude/hooks PreToolUse guards. Pipes crafted tool-call
+ * Regression suite for the .claude/hooks agent guards. Pipes crafted tool-call
  * JSON to each guard (and to the dispatcher that Claude Code actually registers) and
  * asserts the exit code (2 = deny, 0 = allow). Runs in CI via `pnpm test:hooks` so a
  * guard bypass can never ship silently again — every case below is a line an agent might
  * plausibly type. Node builtins only; no deps. Node 24 runs this `.mts` natively.
  */
-import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
+import { resolveHead, tokenize } from '../.claude/hooks/_lexer.mts'
 
 type Guard = 'deny-non-pnpm.mts' | 'deny-build-scripts.mts' | 'deny-secret-reads.mts' | 'deny-push-protected.mts' | 'deny-hook-bypass.mts' | 'dispatch.mts'
-interface Case { guard: Guard, expect: 0 | 2, cmd: string, env?: Record<string, string>, cwd?: string, tool?: string, extra?: Record<string, unknown> }
+interface Case { guard: Guard, expect: 0 | 2, cmd: string, env?: Record<string, string>, unset?: string[], cwd?: string, tool?: string, extra?: Record<string, unknown>, hooksDir?: string, raw?: string }
 
 const HOOKS = join(import.meta.dirname, '..', '.claude', 'hooks')
 const D = 2 // deny
@@ -20,7 +21,7 @@ const A = 0 // allow
 
 // Throwaway checkouts for the push guard's implicit-target resolution (`git push`, `HEAD`):
 // one on `main`, one on a feature branch, one detached. Created up front, removed at exit.
-const tmp = mkdtempSync(join(tmpdir(), 'roots-hooks-'))
+const tmp = mkdtempSync(join(tmpdir(), 'hooks-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 function checkout(name: string, branch: string, detach = false): string {
   const dir = join(tmp, name)
@@ -41,6 +42,13 @@ const ON_MAIN = checkout('on-main', 'main')
 const ON_FEAT = checkout('on-feat', 'feat/x')
 const DETACHED = checkout('detached', 'main', true)
 const P = 'deny-push-protected.mts'
+
+// A copy of .claude/ whose settings.json protects release/* instead of main: with the env
+// var unset, the push guard must read the list from the file (Codex and Gemini never set it).
+const SETTINGS_CLAUDE = join(tmp, 'settings-claude')
+cpSync(join(HOOKS, '..'), SETTINGS_CLAUDE, { recursive: true })
+writeFileSync(join(SETTINGS_CLAUDE, 'settings.json'), JSON.stringify({ env: { PROTECTED_BRANCHES: 'release/*' } }))
+const SETTINGS_HOOKS = join(SETTINGS_CLAUDE, 'hooks')
 const B = 'deny-hook-bypass.mts'
 
 // Codex and Gemini CLI register the same dispatcher. Their payloads carry other
@@ -83,6 +91,21 @@ const CASES: Case[] = [
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm --filter x approve-builds' },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'sudo pnpm approve-builds' },
   { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm install' },
+
+  // --- deny-secret-reads: keystores, netrc, npmrc join the secret set --------------
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat cert.p12' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'head client.pfx' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat release.jks' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat CERT.PFX' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .netrc' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.netrc' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat _netrc' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .npmrc' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.npmrc' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat p12.txt' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat .netrc.md' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat npmrc-notes.md' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat pfx/README.md' },
   { guard: 'deny-build-scripts.mts', expect: A, cmd: 'echo "(pnpm approve-builds)"' },
 
   // --- deny-secret-reads: no shell reads of secret files ---------------------
@@ -261,6 +284,14 @@ const CASES: Case[] = [
   { guard: P, expect: A, cmd: 'git push -u origin HEAD', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin HEAD:feat/y', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin --tags', cwd: ON_MAIN }, // tags only: no branch target to resolve
+  // A wildcard refspec can match a protected branch; the guard cannot evaluate it, so deny.
+  { guard: P, expect: D, cmd: 'git push origin \'refs/heads/*:refs/heads/*\'', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin \'refs/heads/*\'', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin \'feat/*:feat/*\'', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push origin feat/star', cwd: ON_FEAT }, // no glob, no protected target
+  // --recurse-submodules takes only the =value spelling; the bare word must not eat the remote.
+  { guard: P, expect: D, cmd: 'git push --recurse-submodules origin main', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push --recurse-submodules=check origin feat/x', cwd: ON_FEAT },
   // Unresolvable target fails closed: detached HEAD, or no checkout at all.
   { guard: P, expect: D, cmd: 'git push', cwd: DETACHED },
   { guard: P, expect: D, cmd: 'git push origin HEAD', cwd: DETACHED },
@@ -273,6 +304,10 @@ const CASES: Case[] = [
   { guard: P, expect: D, cmd: 'git push origin develop', env: { PROTECTED_BRANCHES: 'develop' } },
   { guard: P, expect: A, cmd: 'git push origin maintenance', env: { PROTECTED_BRANCHES: 'main' } }, // full match, not prefix
   { guard: P, expect: D, cmd: 'git push origin main', env: { PROTECTED_BRANCHES: '' } }, //  empty means default
+  // No env var at all: the list comes from .claude/settings.json next to the hooks.
+  { guard: P, expect: D, cmd: 'git push origin release/1.x', unset: ['PROTECTED_BRANCHES'], hooksDir: SETTINGS_HOOKS },
+  { guard: P, expect: A, cmd: 'git push origin main', unset: ['PROTECTED_BRANCHES'], hooksDir: SETTINGS_HOOKS },
+  { guard: P, expect: D, cmd: 'git push origin main', unset: ['PROTECTED_BRANCHES'] }, // the real settings.json protects main
   // The release script pushes from inside changelogen; a `git push` rule never sees it.
   { guard: P, expect: D, cmd: 'pnpm release' },
   { guard: P, expect: D, cmd: 'pnpm run release' },
@@ -312,6 +347,13 @@ const CASES: Case[] = [
   { guard: B, expect: A, cmd: 'git commit --no-status -m x' },
   { guard: B, expect: A, cmd: 'git -c user.name=t commit -m x' },
   { guard: B, expect: A, cmd: 'HUSKY=1 git commit -m x' },
+  // A quote closed mid-token defeats the span heuristic; the guard then scans every token.
+  { guard: B, expect: D, cmd: 'git commit -m "fix: x "y --no-verify' },
+  { guard: B, expect: D, cmd: 'git commit -m "unterminated --no-verify' },
+  { guard: B, expect: D, cmd: 'git commit -m "oops -n' },
+  { guard: B, expect: A, cmd: 'git commit -m "unterminated message' },
+  { guard: B, expect: A, cmd: 'git commit -m "it\'s fine"' },
+  { guard: B, expect: A, cmd: 'git commit -m "say \'hi\' -n"' },
 
   // --- dispatch: the registered hook fans out to every guard --------------------
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install' },
@@ -327,21 +369,78 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'run_shell_command', extra: GEMINI },
   { guard: 'dispatch.mts', expect: D, cmd: 'cat .env', tool: 'run_shell_command', extra: GEMINI },
   { guard: 'dispatch.mts', expect: A, cmd: 'pnpm install', tool: 'run_shell_command', extra: GEMINI },
+
+  // --- fail closed: unparseable or shapeless hook input is denied, never allowed ----
+  { guard: 'dispatch.mts', expect: D, cmd: '<raw: empty>', raw: '' },
+  { guard: 'dispatch.mts', expect: D, cmd: '<raw: truncated>', raw: '{' },
+  { guard: 'dispatch.mts', expect: D, cmd: '<raw: null tool_input>', raw: '{"tool_input":null}' },
+  { guard: 'dispatch.mts', expect: D, cmd: '<raw: no tool_input>', raw: '{"tool_name":"Bash"}' },
+  { guard: 'dispatch.mts', expect: D, cmd: '<raw: command not a string>', raw: '{"tool_input":{"command":["npm","i"]}}' },
+  { guard: 'dispatch.mts', expect: A, cmd: '<raw: empty command>', raw: '{"tool_input":{"command":""}}' }, // a string, nothing to run
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '<raw: empty>', raw: '' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '<raw: truncated>', raw: '{' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '<raw: null tool_input>', raw: '{"tool_input":null}' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: '<raw: null tool_input>', raw: '{"tool_input":null}' },
+]
+
+// Direct lexer pins: WRAP / WRAP_VALUE_FLAGS / POSITIONAL_MODE / wouldHideHead / leadIndex all
+// resolve through resolveHead(), so a table change shows up here before it shows up as a bypass.
+interface LexerCase { cmd: string, head: string, probe?: boolean }
+const LEXER_CASES: LexerCase[] = [
+  { cmd: 'npm install', head: 'npm' },
+  { cmd: '', head: '' },
+  { cmd: 'echo npm i', head: 'echo' },
+  { cmd: 'pnpm -C dir exec npm i', head: 'npm' }, //         PNPM_VALUE_FLAG then exec unwrap
+  { cmd: 'pnpm exec pnpm exec npm i', head: 'npm' }, //      nested unwrap
+  { cmd: 'pnpm run build', head: 'pnpm' }, //                no unwrap without exec/dlx/x
+  { cmd: 'xargs -I{} npm i', head: 'npm' }, //               glued value flag stays a flag
+  { cmd: 'xargs -I {} npm i', head: 'npm' }, //              separate value consumed
+  { cmd: 'VAR=a VAR=b npm i', head: 'npm' },
+  { cmd: '2>&1 npm i', head: 'npm' }, //                     digit-prefixed redirect token
+  { cmd: 'npm</dev/null install', head: 'npm' }, //          glued redirect peeled
+  { cmd: 'timeout -k 5 5 npm i', head: 'npm' }, //           value flag + mandatory positional
+  { cmd: 'timeout npm i', head: 'npm' }, //                  wouldHideHead refuses the positional
+  { cmd: 'sudo -n npm i', head: 'npm' }, //                  boolean for sudo
+  { cmd: 'nice -n 10 npm i', head: 'npm' }, //               value-taking for nice
+  { cmd: 'nice -n 10 pnpm i', head: 'pnpm' },
+  { cmd: 'taskset 0x1 npm i', head: 'npm' }, //              unless-value: bare mask
+  { cmd: 'taskset -c 0-3 npm i', head: 'npm' }, //           unless-value: flag form
+  { cmd: 'flock -w 5 /tmp/l npm i', head: 'npm' },
+  { cmd: '/usr/bin/env npm i', head: 'npm' }, //             base()-normalised wrapper
+  { cmd: 'stdbuf -oL npm install', head: 'npm' },
+  { cmd: '{ npm i', head: 'npm' },
+  { cmd: 'command -v npm', head: 'npm', probe: true },
+  { cmd: 'if command -v npm', head: 'npm', probe: true },
 ]
 
 const fails: string[] = []
+for (const c of LEXER_CASES) {
+  const got = resolveHead(tokenize(c.cmd))
+  if (got.head !== c.head || got.probe !== (c.probe ?? false))
+    fails.push(`[lexer] ${JSON.stringify(c.cmd)}: head=${got.head} probe=${got.probe}, want head=${c.head} probe=${c.probe ?? false}`)
+}
 for (const c of CASES) {
-  const json = JSON.stringify({ ...c.extra, tool_name: c.tool ?? 'Bash', tool_input: { command: c.cmd } })
-  const r = spawnSync(process.execPath, [join(HOOKS, c.guard)], { input: json, cwd: c.cwd ?? process.cwd(), env: { ...process.env, ...c.env } })
+  const json = c.raw ?? JSON.stringify({ ...c.extra, tool_name: c.tool ?? 'Bash', tool_input: { command: c.cmd } })
+  const env: Record<string, string | undefined> = { ...process.env, ...c.env }
+  for (const name of c.unset ?? [])
+    delete env[name]
+  const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, c.guard)], { input: json, cwd: c.cwd ?? process.cwd(), env })
   if (r.status !== c.expect)
     fails.push(`[${c.guard}] got ${r.status ?? 'null'}, want ${c.expect}: ${c.cmd}`)
 }
 
+// A harness that opens stdin and never closes it must not hang the tool call: the dispatcher
+// denies after its timeout. Async on purpose — spawnSync would close the child's stdin.
+const hung = spawn(process.execPath, [join(HOOKS, 'dispatch.mts')], { stdio: ['pipe', 'ignore', 'ignore'] })
+const hungStatus = await new Promise<number | null>(resolve => hung.on('exit', resolve))
+if (hungStatus !== 2)
+  fails.push(`[dispatch.mts] stdin never closed: got ${hungStatus ?? 'null'}, want 2 (timeout deny)`)
+
 if (fails.length > 0) {
-  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length} failed:\n`)
+  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + 1} failed:\n`)
   for (const f of fails)
     console.error(`  ${f}`)
   console.error('')
   process.exit(1)
 }
-console.log(`✔ hook fixtures — ${CASES.length} guard cases pass (deny/allow correct)`)
+console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + the stdin timeout pass`)

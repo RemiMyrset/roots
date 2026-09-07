@@ -1,12 +1,12 @@
 /**
  * deny-secret-reads guard body (run via dispatch.mts). Blocks shell reads of
- * secret files (.env*, secrets/, *.pem, *.key) — direct readers, `<` redirects, pnpm-exec
+ * secret files (.env*, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks) — direct readers, `<` redirects, pnpm-exec
  * wrappers, and `find -exec` at a secret literal. `.env.example` is the one carve-out; other
  * placeholder spellings fail closed. Shared lexing in ./_lexer.mts. Scope and out-of-scope:
  * SECURITY.md. exit 2 = deny.
  */
 import process from 'node:process'
-import { resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+import { commandOf, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
 
 const READERS: ReadonlySet<string> = new Set([
   'cat', 'head', 'tail', 'less', 'more', 'bat', 'nl', 'tac', 'grep', 'egrep', 'fgrep', 'rg',
@@ -23,11 +23,16 @@ function isSecret(arg: string): boolean {
   const p = unquote(arg).replace(/\)+$/, '').replace(/^(?:if|of)=/, '')
   if (/(?:^|\/)secrets(?:\/|$)/i.test(p))
     return true
-  if (/\.(?:pem|key)$/i.test(p))
+  if (/\.(?:pem|key|p12|pfx|jks)$/i.test(p))
     return true
   // Lowercased so the match is case-insensitive, matching the *.pem/*.key branch above (a
   // case-insensitive filesystem treats `.ENV` as `.env`, and lowercase is the safe direction).
   const b = (p.split('/').pop() ?? '').toLowerCase()
+  // Plaintext machine credentials (.netrc, its Windows spelling) and the npm config that is
+  // where an _authToken actually lives. A project .npmrc is usually harmless, but a filename
+  // cannot prove it holds no token — fail closed; `pnpm config list` shows the config masked.
+  if (b === '.netrc' || b === '_netrc' || b === '.npmrc')
+    return true
   // Secret env files: `.env`, any separator-suffixed variant (.env.production, .env-prod,
   // .env_x, the `.env~` editor backup), and `.envrc` (direnv, holds exports) plus its own
   // suffixed variants (.envrc.bak, .envrc~) — but NOT an unrelated basename that merely starts
@@ -46,16 +51,13 @@ function braceMembers(a: string): string[] {
 
 let s = ''
 process.stdin.on('data', (d) => { s += d }).on('end', () => {
-  let cmd: string
-  try {
-    cmd = String((JSON.parse(s).tool_input || {}).command || '')
-  }
-  catch {
-    process.stderr.write('secret-read guard: could not parse hook input as JSON; denying by default (fail closed).\n')
+  const cmd = commandOf(s)
+  if (cmd === null) {
+    process.stderr.write('secret-read guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
     process.exit(2)
   }
   const deny = (): never => {
-    process.stderr.write('Blocked: reading secrets (.env, .env.*, secrets/, *.pem, *.key) via the shell is denied — same policy as the Read tool.\n')
+    process.stderr.write('Blocked: reading secrets (.env*, .envrc, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks) via the shell is denied — same policy as the Read tool.\n')
     process.exit(2)
   }
   for (const seg of segments(cmd)) {

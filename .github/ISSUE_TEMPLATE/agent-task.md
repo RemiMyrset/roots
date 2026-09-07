@@ -41,8 +41,7 @@ labels: agent-task
 ## Testing requirements
 
 <!-- New tests expected. The exact gate commands live in the Commands section of
-     AGENTS.md — they define "done" and stay correct whether or not this project
-     kept the TypeScript layer, so run those. -->
+     AGENTS.md — they define "done" — so run those (`pnpm verify` runs them all). -->
 
 - Every non-interactive command in the `AGENTS.md` Commands section passes clean
   (skip the `docs:*:dev` previews — they are dev servers, not gates).
