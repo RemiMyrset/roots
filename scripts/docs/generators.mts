@@ -1,7 +1,14 @@
+/**
+ * automd generators and VitePress sidebar readers for the decisions/specs system. The two
+ * readers (readDecisions, readSpecs) feed both the generated index tables and the site
+ * sidebars, so they cannot drift. This is the ONE docs script that imports automd — keep
+ * root.mts, skills.mts, and the checkers free of npm imports (the pre-commit hook runs them
+ * without the docs toolchain installed).
+ */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineGenerator } from 'automd'
-import { repoRoot } from './root.mts'
+import { DECISION_FILE_RE, repoRoot, STATUS_BULLET_RE } from './root.mts'
 
 /** One decision record as read from its file: number, title, and the Status bullet. */
 export interface DecisionEntry {
@@ -14,9 +21,7 @@ export interface DecisionEntry {
 const DECISIONS_DIR = 'docs/internal/decisions'
 const SPECS_DIR = 'docs/internal/specs'
 
-const DECISION_FILE_RE = /^\d{4}-[a-z0-9-]+\.md$/
 const DECISION_H1_RE = /^# \d{4}\. (\S.*)$/m
-const STATUS_BULLET_RE = /^- \*\*Status:\*\*(.*)$/m
 const H1_RE = /^# (.+)$/m
 const MD_EXT_RE = /\.md$/
 

@@ -141,6 +141,7 @@ pnpm install
 | `pnpm lint:secrets` | secretlint over every tracked file (also runs on staged files at commit) |
 | `pnpm test:hooks` | Agent guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
+| `pnpm test:docs` | Docs checker fixtures (a clean tree and a broken one, node only) |
 | `pnpm docs:gen` | Regenerate the decisions and specs indexes and the `.agents/skills` mirror |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |

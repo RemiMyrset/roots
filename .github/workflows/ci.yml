@@ -44,4 +44,5 @@ jobs:
       - run: pnpm test
       - run: pnpm test:hooks
       - run: pnpm test:sync
+      - run: pnpm test:docs
       - run: pnpm build

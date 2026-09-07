@@ -2,7 +2,7 @@
  * On-demand template update — no cron, no bot, no token, just git. Pulls the roots
  * mechanics (the CI, docs, labels, and pages workflows, the agent-task issue template, the PR
  * template, the docs generators
- * and checkers, the guard and sync test-suites, the verify gate, the agent hooks, rules,
+ * and checkers, the guard, sync, docs, and gate test-suites, the verify gate, the agent hooks, rules,
  * skills and the Codex/Gemini registrations, and the template-owned docs under
  * docs/template) from the template repo into this one. Works for a repo made with
  * "Use this template" (no shared git history), a fork or clone (shared history), or one
@@ -66,6 +66,7 @@ const MECHANICS = [
   'scripts/sync-template.mts',
   'scripts/test-hooks.mts',
   'scripts/test-sync.mts',
+  'scripts/test-docs.mts',
   'scripts/verify.mts',
   '.claude/hooks',
   '.claude/rules',

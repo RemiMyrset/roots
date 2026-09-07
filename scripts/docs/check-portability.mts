@@ -12,10 +12,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
-import { repoRoot } from './root.mts'
+import { repoRoot, SKIP_DIRS, WARN } from './root.mts'
 
 const RULES_DOC = 'docs/template/markdown-portability.md'
-const SKIP_DIRS = new Set(['.vitepress', '.obsidian', 'node_modules', 'dist'])
 
 const BANNED: { re: RegExp, msg: string }[] = [
   { re: /\[\[/, msg: 'Obsidian wikilink "[[" — use a relative [text](./file.md) link (rule 1)' },
@@ -70,13 +69,16 @@ function walk(dir: string): string[] {
 }
 
 const root = repoRoot()
-const files = [join(root, 'README.md'), join(root, 'AGENTS.md'), ...walk(join(root, 'docs'))]
+const docsDir = join(root, 'docs')
+if (!existsSync(docsDir))
+  console.log('  (docs/: not present, skipped)')
+const files = [join(root, 'README.md'), join(root, 'AGENTS.md'), ...(existsSync(docsDir) ? walk(docsDir) : [])]
   .filter(f => existsSync(f) && statSync(f).isFile())
 
 const problems: string[] = []
 const warns: string[] = []
 
-interface HeadingHit { line: number, text: string }
+interface HeadingHit { line: number }
 
 function recordHeading(headings: Map<string, HeadingHit>, where: string, headingText: string, lineNo: number): void {
   const key = headingText.toLowerCase()
@@ -84,7 +86,7 @@ function recordHeading(headings: Map<string, HeadingHit>, where: string, heading
   if (prev !== undefined)
     problems.push(`${where}:${lineNo}  duplicate heading "${headingText}" (also line ${prev.line}) — slug dedupe differs per renderer (rule 5)`)
   else
-    headings.set(key, { line: lineNo, text: headingText })
+    headings.set(key, { line: lineNo })
   if (HEADING_BACKTICK_RE.test(headingText) || NON_ASCII_RE.test(headingText))
     warns.push(`${where}:${lineNo}  heading with backticks or non-ASCII — slug algorithms diverge (rule 5)`)
 }
@@ -210,21 +212,23 @@ for (const file of files) {
   })
 
   // Link targets must resolve. Scan the visible text (fence + comment lines
-  // already blanked) with inline code dropped, so links shown as examples are
-  // ignored. Both inline links and reference definitions are checked, for every
-  // relative target — .md, images, and directories alike.
-  const noCode = visibleLines.join('\n').replace(INLINE_CODE_RE, '')
-  for (const m of noCode.matchAll(LINK_TARGET_RE))
-    checkLinkTarget(where, file, m[1]!, m[1]!, 'inline')
-  for (const line of noCode.split('\n')) {
+  // already blanked) line by line with inline code dropped, so links shown as
+  // examples are ignored and every problem carries its line. Both inline links
+  // and reference definitions are checked, for every relative target — .md,
+  // images, and directories alike. (Targets never span lines: LINK_TARGET_RE
+  // excludes newlines and INLINE_CODE_RE is single-line.)
+  visibleLines.forEach((raw, i) => {
+    const line = raw.replace(INLINE_CODE_RE, '')
+    for (const m of line.matchAll(LINK_TARGET_RE))
+      checkLinkTarget(`${where}:${i + 1}`, file, m[1]!, m[1]!, 'inline')
     const rm = line.match(REF_DEF_RE)
     if (rm)
-      checkLinkTarget(where, file, rm[1]!, rm[0]!.trim(), 'ref')
-  }
+      checkLinkTarget(`${where}:${i + 1}`, file, rm[1]!, rm[0]!.trim(), 'ref')
+  })
 }
 
 for (const w of warns)
-  console.warn(`::warning::docs:portability: ${w}`)
+  console.warn(`${WARN}docs:portability: ${w}`)
 if (problems.length > 0) {
   console.error(`\n✖ docs:portability — ${problems.length} issue(s). Rules: ${RULES_DOC}\n`)
   for (const p of problems)

@@ -47,6 +47,7 @@ clean after your last edit — when unsure which apply, run them all.
 - Test: `pnpm test` (turbo; single package: `pnpm --filter @repo/example-package test`)
 - Test hooks: `pnpm test:hooks` (agent guard allow/deny fixtures)
 - Test sync: `pnpm test:sync` (template-sync fixtures)
+- Test docs: `pnpm test:docs` (docs checker fixtures)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
