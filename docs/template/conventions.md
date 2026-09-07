@@ -64,7 +64,8 @@ the portability requirement. Concretely:
   `enum` — functions and plain objects/union types only, enforced by ESLint
   `no-restricted-syntax` (enums also by `erasableSyntaxOnly`). Unit tests live in
   a sibling `test/` directory beside `src/`, never colocated — the unjs and antfu
-  house layout.
+  house layout. Every exported symbol carries a `/** */` block — presence
+  enforced by ESLint `jsdoc/require-jsdoc`, content by review.
 * **Agent guards**: one pre-tool dispatcher, registered in Claude Code, Codex,
   and Gemini CLI, runs node-only `deny-*` guards (no shell shims, no npm
   dependencies) that block non-pnpm package managers, dependency build scripts,

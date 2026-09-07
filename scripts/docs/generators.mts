@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { defineGenerator } from 'automd'
 import { repoRoot } from './root.mts'
 
+/** One decision record as read from its file: number, title, and the Status bullet. */
 export interface DecisionEntry {
   file: string
   num: string
@@ -48,6 +49,7 @@ export function readDecisions(): DecisionEntry[] {
     })
 }
 
+/** One spec file, keyed by the area folder it lives in. */
 export interface SpecEntry {
   area: string
   file: string
@@ -121,6 +123,7 @@ export function decisionsSidebar(): SidebarItem[] {
   }))
 }
 
+/** VitePress sidebar entries for specs — the same reader as the automd index, so they cannot drift. */
 export function specsSidebar(): SidebarItem[] {
   return readSpecs().map(s => ({
     text: `${s.area}: ${s.title}`,

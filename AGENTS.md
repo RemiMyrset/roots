@@ -84,7 +84,7 @@ clean after your last edit — when unsure which apply, run them all.
   Guard-enforced.
 - ALWAYS give every exported symbol a `/** */` block saying what it is for and
   any constraint a caller cannot see from the signature — never a restatement of
-  the code. Convention, not lint-enforced.
+  the code. Presence is enforced by ESLint `jsdoc/require-jsdoc`; content is on you.
 - NEVER push to a protected branch. Default `main`; the list is `PROTECTED_BRANCHES`
   (comma-separated globs, e.g. `main,release/*`) in the `env` block of
   `.claude/settings.json`. A pre-tool guard denies it, along with `--force`/`--all`/

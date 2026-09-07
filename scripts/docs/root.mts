@@ -8,13 +8,14 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 
+let cachedRoot: string | undefined
+
 /**
  * Walk up from cwd to the directory containing automd.config.ts — the one
  * guaranteed root marker: these docs scripts are synced (via sync:template) into
  * arbitrary repos that need not be pnpm workspaces, so a workspace file is not a
  * reliable marker. Lazy + memoized so importing this module stays side-effect free.
  */
-let cachedRoot: string | undefined
 export function repoRoot(): string {
   if (cachedRoot)
     return cachedRoot
