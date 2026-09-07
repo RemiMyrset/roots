@@ -83,10 +83,13 @@ clean after your last edit — when unsure which apply, run them all.
   any constraint a caller cannot see from the signature — never a restatement of
   the code. Convention, not lint-enforced.
 - NEVER push to a protected branch. Default `main`; the list is `PROTECTED_BRANCHES`
-  (comma-separated globs) in the `env` block of `.claude/settings.json`. A PreToolUse
-  guard denies it, along with `--force`/`--all`/`--mirror` pushes and `pnpm release`
-  (its push runs inside changelogen — human-run only). Feature branches: commit and
-  push freely, `--force-with-lease` allowed; each push still asks for permission.
+  (comma-separated globs, e.g. `main,release/*`) in the `env` block of
+  `.claude/settings.json`. A pre-tool guard denies it, along with `--force`/`--all`/
+  `--mirror` pushes and `pnpm release` (its push runs inside changelogen — human-run
+  only); the GitHub branch ruleset is the server-side boundary. Feature branches:
+  commit, push, and open PRs freely — `git push` and read-only `gh` commands are
+  allow-listed, `--force-with-lease` passes. Merging into a protected branch is a
+  human action: `gh pr merge` always prompts.
 - NEVER hand-edit content between `automd` markers — edit the source, run
   `pnpm docs:gen`.
 - NEVER rewrite an accepted decision record. Supersede it with a new one and link

@@ -94,7 +94,13 @@ staged for deletion on every run because it is not upstream — discard that
 hunk, move the skill, or `exclude` the directory. `.claude/settings.json` never
 travels: set `PROTECTED_BRANCHES` in its `env` block if `main` is not your
 protected branch, and drop any old blanket `Bash(git push:*)` deny so the
-`deny-push-protected` guard can allow feature-branch pushes. The full contract,
+`deny-push-protected` guard can allow feature-branch pushes. Add the push-flow
+allow entries too, so an agent can push a branch and open a PR without prompts:
+`Bash(git push:*)`, `Bash(gh pr create:*)`, `Bash(gh pr view:*)`,
+`Bash(gh pr list:*)`, `Bash(gh pr checks:*)`, `Bash(gh pr diff:*)`,
+`Bash(gh run list:*)`, `Bash(gh run view:*)`, `Bash(gh run watch:*)`,
+`Bash(gh issue view:*)`, `Bash(gh issue list:*)`. Leave `gh pr merge` off the
+list: merging into a protected branch stays a human decision. The full contract,
 exit codes, and behavior branches: [sync-template](./sync-template.md).
 
 ### Deploy the public site

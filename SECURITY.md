@@ -89,6 +89,13 @@ init's checklist); this guard complements it and never replaces it. `.claude/set
 is not synced into child repos, so a child sets its own `PROTECTED_BRANCHES` (and must drop
 any old blanket `Bash(git push:*)` deny for branch pushes to work).
 
+`git push` and the read-only `gh` commands (`pr create/view/list/checks/diff`, `run
+list/view/watch`, `issue view/list`) are on the Claude Code allowlist, so a feature-branch
+push and a PR creation run without a prompt. That convenience rests on this guard — hooks run
+before allowed commands — and the guard's out-of-scope list above (nested interpreters first)
+is why the server-side ruleset is the boundary that matters. `gh pr merge` is deliberately
+not allow-listed: merging into a protected branch always asks.
+
 ## Supported versions
 
 This project tracks a single active line of development on the default branch.
