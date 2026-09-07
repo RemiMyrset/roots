@@ -49,13 +49,16 @@ the portability requirement. Concretely:
   tests, spec change in the same PR).
 * **Portability**: every doc renders in GitHub, VitePress, and Obsidian;
   machine-checked by `pnpm docs:portability` (blocking).
-* **Generation**: automd + repo generators produce the indexes and `docs/llms.txt`;
-  CI diff-gates the output so generated sections can never drift. `docs/llms.txt`
-  follows [llms.txt v2](https://llmstxt.org/) — agents search the map and follow the
-  links. No concatenated corpus is generated: `llms-full.txt` appears in no version
-  of that spec, and a whole-corpus artifact grows with the child repo rather than
-  with the template. Paths are repo-relative rather than URLs, a deliberate
-  deviation, because the consumer fetches by exact path out of a private repo.
+* **Generation**: automd + repo generators produce the decisions and specs
+  indexes; CI diff-gates the output so generated sections can never drift.
+* **AI discoverability**: the public site build emits `llms.txt` (the
+  [llms.txt](https://llmstxt.org/) standard — "SEO for AI") plus a markdown
+  copy of every page, via `vitepress-plugin-llms`; that is the web-facing
+  artifact for crawlers and agents on a deployed site. No committed repo-wide
+  map: the one roots used to generate held repo-relative paths for a
+  private-repo docs chatbot the template no longer targets, and coding agents
+  inside a checkout have the rulebook, the indexes, and file search. No
+  concatenated `llms-full.txt` either — it is in no version of the standard.
 * **Stack**: TypeScript-first pnpm + Turborepo monorepo, node 24 minimum, no
   JavaScript files (erasable-syntax TypeScript runs natively), and no `class` or
   `enum` — functions and plain objects/union types only, enforced by ESLint
@@ -81,9 +84,8 @@ the portability requirement. Concretely:
 
 * Good, because conventions are enforced by `pnpm docs:check`,
   `pnpm docs:portability`, and the CI diff-gate — not by memory.
-* Good, because the generated `docs/llms.txt` map lets a docs-QA agent (for
-  example LibreChat with the GitHub MCP server) start from one deterministic fetch
-  and follow exact paths from there, instead of relying on code search.
+* Good, because a deployed public site is discoverable by AI crawlers and agents
+  out of the box, with nothing to maintain by hand.
 * Bad, because the docs toolchain requires node 24 and pnpm even in repos whose
   product stack is something else.
 * Bad, because sequential decision numbering can collide across parallel

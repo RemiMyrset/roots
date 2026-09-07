@@ -7,7 +7,7 @@ does not ship wired.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm docs:gen` | automd indexes + `docs/llms.txt` (mutates files) |
+| `pnpm docs:gen` | automd indexes: decisions and specs (mutates files) |
 | `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness |
 | `pnpm docs:portability` | trifecta lint (GitHub + VitePress + Obsidian), blocking |
 | `pnpm docs:internal:dev` / `docs:internal:build` | internal handbook site |
@@ -97,30 +97,24 @@ protected branch, and drop any old blanket `Bash(git push:*)` deny so the
 `deny-push-protected` guard can allow feature-branch pushes. The full contract,
 exit codes, and behavior branches: [sync-template](./sync-template.md).
 
-### Power a docs-QA chatbot (LibreChat + GitHub MCP)
-
-The generated `docs/llms.txt` (map) exists for this. In LibreChat, add the GitHub
-MCP server over `streamable-http` with the PAT supplied per-user via
-`customUserVars` as the Authorization header; enable only `get_file_contents` and
-`get_repository_tree` (code search is unreliable on private repos: indexing lag and
-a separate low rate limit). Agent system prompt: "Read `docs/llms.txt` first, fetch
-the exact linked paths, cite paths in answers."
-
-That is the [llms.txt v2](https://llmstxt.org/) model verbatim — agents search the
-map and follow links, rather than ingesting a concatenated corpus. No
-`llms-full.txt` is generated: it is in no version of the spec, and a whole-corpus
-artifact grows with the child repo rather than with the template. One deliberate deviation
-from the spec: the map holds repo-relative paths rather than URLs, because this
-consumer fetches by exact path out of a private repo.
-
-Skip LibreChat's RAG API — per-conversation uploads re-ingest and drift; the docs
-are small and structured enough for direct navigation.
-
 ### Deploy the public site
 
 Options: a GitHub Pages workflow running `pnpm docs:public:build` (add
 `base` to the public VitePress config for project pages), or a
 `repository_dispatch` notification to a central docs-hub repo.
+
+**AI discoverability.** The public build already emits `/llms.txt` — the
+[llms.txt](https://llmstxt.org/) standard, the "SEO for AI" file that crawlers
+and agents fetch first — plus a clean markdown copy of every page next to its
+HTML, via `vitepress-plugin-llms` in `docs/public/.vitepress/config.ts`. Two
+settings need the deployed hostname, so set them when you wire the deploy: the
+plugin's `domain` option (absolute URLs in `llms.txt`) and VitePress
+`sitemap: { hostname }` (a `sitemap.xml`). The public site ships no
+`robots.txt`, so AI crawlers are allowed by default. `generateLLMsFullTxt`
+stays off: a concatenated corpus is in no version of the standard, which is a
+search-the-map-then-follow-links model. The internal site deliberately emits
+nothing for machines, and there is no committed repo-wide map either: coding
+agents work from `AGENTS.md` and the generated indexes.
 
 ### Serve the internal handbook to the team
 

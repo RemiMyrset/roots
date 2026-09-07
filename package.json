@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit && turbo run typecheck",
     "lint": "CI=1 eslint .",
     "lint:fix": "CI=1 eslint . --fix",
-    "docs:gen": "automd && node scripts/docs/gen-llms.mts",
+    "docs:gen": "automd",
     "docs:check": "node scripts/docs/check-docs.mts",
     "docs:portability": "node scripts/docs/check-portability.mts",
     "docs:internal:dev": "vitepress dev docs/internal",

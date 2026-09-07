@@ -4,6 +4,3 @@
 
 # Lockfile: don't clutter diffs, mark as generated for linguist.
 pnpm-lock.yaml -diff linguist-generated=true
-
-# Generated docs artifact: reviewable but marked generated.
-docs/llms.txt linguist-generated=true

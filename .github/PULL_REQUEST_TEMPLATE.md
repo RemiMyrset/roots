@@ -14,7 +14,7 @@ Behavior lives in three places. All that apply changed in this PR — or say why
 
 ## Docs hygiene
 
-- [ ] `pnpm docs:gen` run — nothing hand-edited between automd markers or in `docs/llms.txt`
+- [ ] `pnpm docs:gen` run — nothing hand-edited between automd markers
 - [ ] `pnpm docs:check && pnpm docs:portability` pass locally
 - [ ] No new file restates a fact that already has a canonical home (linked instead)
 

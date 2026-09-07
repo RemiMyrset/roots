@@ -38,7 +38,6 @@ canonical home and leave a link.
 | Docs toolchain, recipes, growth paths | [docs-toolchain](./docs/template/docs-toolchain.md) |
 | Why the conventions are what they are | [conventions](./docs/template/conventions.md) (template-owned, synced) |
 | Setup, install, quickstart | [README.md](./README.md) |
-| Machine-readable docs map | [llms.txt](./docs/llms.txt) (generated) |
 <!-- This table is the canonical-home map. Add one row per fact as homes appear:
      ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
      design/. If a fact has no row, pick one home, add a row. -->
@@ -55,7 +54,7 @@ clean after your last edit — when unsure which apply, run them all.
 - Test sync: `pnpm test:sync` (template-sync fixtures)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
-- Docs, regenerate: `pnpm docs:gen` (automd indexes + llms.txt)
+- Docs, regenerate: `pnpm docs:gen` (automd indexes)
 - Docs, validate: `pnpm docs:check && pnpm docs:portability`
 - Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`
 - Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev`
@@ -88,8 +87,8 @@ clean after your last edit — when unsure which apply, run them all.
   guard denies it, along with `--force`/`--all`/`--mirror` pushes and `pnpm release`
   (its push runs inside changelogen — human-run only). Feature branches: commit and
   push freely, `--force-with-lease` allowed; each push still asks for permission.
-- NEVER hand-edit content between `automd` markers or the generated
-  `docs/llms.txt` — edit the source, run `pnpm docs:gen`.
+- NEVER hand-edit content between `automd` markers — edit the source, run
+  `pnpm docs:gen`.
 - NEVER rewrite an accepted decision record. Supersede it with a new one and link
   both ways; only the old record's Status line changes.
 <!-- roots:template-only -->

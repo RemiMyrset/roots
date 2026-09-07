@@ -45,7 +45,7 @@ pnpm install
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
 | `pnpm test:hooks` | PreToolUse guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
-| `pnpm docs:gen` | Regenerate indexes and `docs/llms.txt` |
+| `pnpm docs:gen` | Regenerate the decisions and specs indexes |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |
 | `pnpm docs:internal:dev` | Internal handbook (VitePress, team-only) |
