@@ -1,10 +1,13 @@
 # Key order follows the pnpm-workspace convention enforced by yaml/sort-keys.
 
-# Build scripts are blocked by default; explicit verdicts only. esbuild and
-# @parcel/watcher need their native binaries; simple-git-hooks is invoked
-# explicitly via the prepare script, its postinstall is unnecessary.
+# Build scripts are blocked by default; explicit verdicts only. esbuild needs its
+# native binary (vite 5 via vitepress and vite 7 via vitest both depend on it).
+# @parcel/watcher: automd imports it only in --watch mode, its prebuilt binary arrives
+# as an optional dependency, and its install script is a no-op unless building from
+# source — so no build script is needed. simple-git-hooks is invoked explicitly via
+# the prepare script, its postinstall is unnecessary.
 allowBuilds:
-  '@parcel/watcher': true
+  '@parcel/watcher': false
   esbuild: true
   simple-git-hooks: false
 
@@ -14,6 +17,8 @@ engineStrict: true
 # Supply-chain hardening: 48h cooldown against compromised fresh releases.
 minimumReleaseAge: 2880
 
+# Run package.json scripts through pnpm's shell emulator, so `CI=1 eslint .`-style env
+# prefixes and `&&` chains behave the same on Windows as on POSIX.
 shellEmulator: true
 
 # No silently-downgraded publish trust.

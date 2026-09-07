@@ -1,5 +1,6 @@
 # Docs integrity — blocking: automd drift, structure lint, portability
 # lint, both VitePress builds. Advisory (never blocks): spec-discipline nudge.
+# Action pinning: GitHub-owned actions/* by major tag; third-party by full commit SHA.
 name: docs
 
 on:

@@ -1,7 +1,14 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": ["tsconfig.base.json"],
+  // Never talk to a remote cache by default; a project opts in deliberately (turbo login/link).
+  "remoteCache": { "enabled": false },
+  // Tasks see only the env vars they declare (turbo 2 default, spelled out so a variable
+  // that is "undefined inside a task" is not a mystery — declare it under the task's env).
+  "envMode": "strict",
   "tasks": {
+    // No package defines `build` yet, so `pnpm build` is a no-op that passes; the gate stays
+    // in CI and verify so the first package that adds `build` is covered with no wiring.
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
