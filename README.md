@@ -55,6 +55,30 @@ pnpm install
 | `pnpm sync:template` | Pull the template's mechanics: stages them, records the sync point, prints commits since and `package.json` follow-ups |
 | `pnpm release` | changelogen: version, CHANGELOG, tag, push — human-run (agents are blocked) |
 
+## Working with AI agents
+
+The rulebook is [AGENTS.md](./AGENTS.md). Claude Code reads it through the
+one-line `CLAUDE.md`, Codex reads it natively, and Gemini CLI is pointed at it by
+`.gemini/settings.json`. On first run, Codex and Gemini ask you to trust the folder
+(Codex also asks to trust each hook once via `/hooks`); say yes, or the guards and
+project settings stay off.
+
+- **Guards.** A shared set of pre-tool hooks denies the common mistakes in all
+  three tools: a non-pnpm package manager, enabling a dependency build script,
+  reading a secret file, pushing to a protected branch, and bypassing a git
+  hook. Threat model and scope: [SECURITY.md](./SECURITY.md).
+- **Push flow.** Feature-branch pushes and PR creation run without prompts;
+  `main` (or `PROTECTED_BRANCHES`) is only reachable through a PR a human
+  merges. The `pr` skill does the whole thing the house way.
+- **Done gate.** `pnpm verify` is what "done" means — every CI check, in order.
+- **Template updates.** `pnpm sync:template` pulls the shared mechanics; the
+  `sync-template` skill drives it end to end. Recipe and contract in
+  [docs/template/](./docs/template/README.md).
+- **Sandbox.** `.devcontainer/` gives every tool the same node 24 + pnpm
+  environment inside a container, for unattended runs and Codespaces. The
+  egress firewall is an opt-in recipe in
+  [docs-toolchain](./docs/template/docs-toolchain.md).
+
 ## Where things live
 
 - Agent rulebook: [AGENTS.md](./AGENTS.md) — conventions and canonical-source map.
