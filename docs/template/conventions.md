@@ -50,6 +50,9 @@ the portability requirement. Concretely:
   machine-checked by `pnpm docs:portability` (blocking).
 * **Generation**: automd + repo generators produce the decisions and specs
   indexes; CI diff-gates the output so generated sections can never drift.
+* **Public docs**: a synced GitHub Pages workflow publishes `docs/public/` on
+  every push to `main`, deploying only where Pages is enabled; the template's
+  own public site is the live demo.
 * **AI discoverability**: the public site build emits `llms.txt` (the
   [llms.txt](https://llmstxt.org/) standard — "SEO for AI") plus a markdown
   copy of every page, via `vitepress-plugin-llms`; that is the web-facing

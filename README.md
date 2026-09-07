@@ -33,8 +33,8 @@ anyone who wants an unopinionated starter. The rules are the product.
   first failure; CI runs the same on Ubuntu and Windows.
 - **Docs system.** Decisions (why) and specs (what) with generated indexes that
   cannot drift; portable markdown that renders in GitHub, VitePress, and
-  Obsidian; an internal handbook site and a public site with `llms.txt` for AI
-  crawlers.
+  Obsidian; an internal handbook site and a public site published to GitHub
+  Pages by a shipped workflow, with `llms.txt` and a sitemap for AI crawlers.
 - **Template sync.** `pnpm sync:template` pulls the shared mechanics into any
   child — copy, fork, or clone — and reports what a file copy cannot carry.
 - **Supply chain.** Dependency build scripts off by default, a 48-hour release
@@ -110,6 +110,11 @@ flowchart LR
    once (a required check that never reports blocks every PR), run the ruleset
    command under "Push protection" in [guards](./docs/template/guards.md). Free
    on public repositories, GitHub Pro on private ones.
+8. **Publish the public docs (optional).** Enable GitHub Pages with
+   `gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow`; the `pages`
+   workflow deploys `docs/public/` on every push to `main` from then on. Then
+   `gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/`.
+   **(skill)**
 
 ## Setup
 
@@ -182,6 +187,8 @@ guards and project settings stay off.
   [vocabulary](./docs/template/README.md#vocabulary) every page uses.
 - Docs system, recipes, growth paths:
   [docs-toolchain](./docs/template/docs-toolchain.md)
+- The public site, once Pages is enabled: `https://OWNER.github.io/REPO/` (the
+  template's own is [remimyrset.github.io/roots](https://remimyrset.github.io/roots/)).
 - Template provenance: created from [roots](https://github.com/RemiMyrset/roots);
   pull updates with `pnpm sync:template`.
 

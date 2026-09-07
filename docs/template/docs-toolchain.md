@@ -43,7 +43,7 @@ pnpm sync:template --ref v0.1.0   # pin a template tag or branch (recorded for n
 
 It adds a `template` git remote (tags excluded, so the template's releases never
 leak into your changelog), fetches the ref, and stages the template's version of
-the mechanics paths: the CI, docs, and labels workflows, the label list, the
+the mechanics paths: the CI, docs, labels, and pages workflows, the label list, the
 agent-task issue template and the PR template, the docs generators and checkers, the guard and sync
 test-suites, the verify gate, the agent hooks, rules, and skills with their Codex
 and Gemini registrations, the generated `.agents/skills` mirror, the
@@ -123,24 +123,48 @@ a branch and open a PR without prompts: `Bash(git push:*)`,
 protected branch stays a human decision. The full contract, exit codes, and
 behavior branches: [sync-template](./sync-template.md).
 
-### Deploy the public site
+### Publish the public site on GitHub Pages
 
-Options: a GitHub Pages workflow running `pnpm docs:public:build` (add
-`base` to the public VitePress config for project pages), or a
-`repository_dispatch` notification to a central docs-hub repo.
+`.github/workflows/pages.yml` is the standard, and it is synced. On every push to
+`main` that touches `docs/public/`, the shared VitePress fragment, or the
+lockfile (and on manual dispatch) it builds the public site; when GitHub Pages is
+enabled for the repository it also deploys it. Until then the run is green and
+says "built, not deployed", so a repository that never wants a public site pays
+nothing and sees no red.
 
-**AI discoverability.** The public build already emits `/llms.txt` — the
+Enable it once, either under Settings → Pages → Build and deployment → Source:
+GitHub Actions, or:
+
+```sh
+gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow
+gh workflow run pages.yml                       # first deploy without waiting for a push
+gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/
+```
+
+The site lands at `https://OWNER.github.io/REPO/` (a project site) or at the
+root of `OWNER.github.io` (a user site); a custom domain set under Settings →
+Pages is honoured too — add `docs/public/public/CNAME` holding the domain so
+the build keeps it. The workflow asks `actions/configure-pages` for the base
+path and URL and hands them to the build as `DOCS_BASE` and `DOCS_URL`, which
+`docs/public/.vitepress/config.ts` turns into VitePress `base`, a
+`sitemap.xml`, and absolute links in `llms.txt`. Local builds leave both unset
+and keep relative links.
+
+**AI discoverability.** The public build emits `/llms.txt` — the
 [llms.txt](https://llmstxt.org/) standard, the "SEO for AI" file that crawlers
 and agents fetch first — plus a clean markdown copy of every page next to its
-HTML, via `vitepress-plugin-llms` in `docs/public/.vitepress/config.ts`. Two
-settings need the deployed hostname, so set them when you wire the deploy: the
-plugin's `domain` option (absolute URLs in `llms.txt`) and VitePress
-`sitemap: { hostname }` (a `sitemap.xml`). The public site ships no
+HTML, via `vitepress-plugin-llms`; published through the workflow, its links
+are absolute and a sitemap sits beside it. The public site ships no
 `robots.txt`, so AI crawlers are allowed by default. `generateLLMsFullTxt`
 stays off: a concatenated corpus is in no version of the standard, which is a
 search-the-map-then-follow-links model. The internal site deliberately emits
 nothing for machines, and there is no committed repo-wide map either: coding
 agents work from `AGENTS.md` and the generated indexes.
+
+To opt out, list `.github/workflows/pages.yml` under `exclude` in
+`.template-sync.json` and delete the file. The internal handbook is the
+contrast: never published this way, access-gated when hosted at all (next
+recipe).
 
 ### Serve the internal handbook to the team
 

@@ -41,8 +41,11 @@ calls. Ask before any step whose input you would otherwise have to invent.
 5. GitHub settings, only when `gh auth status` succeeds (each call prompts for
    permission — expected):
    `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --enable-wiki=false --enable-projects=false`
-   then `gh workflow run labels.yml`. Not authenticated: print both commands
-   for the user instead.
+   then `gh workflow run labels.yml`. If the user wants the public docs
+   published: `gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow`,
+   `gh workflow run pages.yml`, and
+   `gh repo edit <owner>/<repo> --homepage https://<owner>.github.io/<repo>/`.
+   Not authenticated: print the commands for the user instead.
 6. Delete the `## First run` section from `README.md` — from that heading to the
    line before the next `## ` heading — then run `pnpm docs:portability` and
    `pnpm verify` once more.
