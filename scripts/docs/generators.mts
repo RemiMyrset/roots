@@ -76,7 +76,10 @@ export function readSpecs(): SpecEntry[] {
 export const decisionsIndex = defineGenerator({
   name: 'decisionsIndex',
   generate() {
-    const rows = readDecisions().map(d =>
+    const decisions = readDecisions()
+    if (decisions.length === 0)
+      return { contents: '_No decisions yet. The first one appears here after `pnpm docs:gen`._' }
+    const rows = decisions.map(d =>
       `| [${d.num}](./${d.file}) | ${escapeCell(d.title)} | ${escapeCell(d.status)} |`,
     )
     return {

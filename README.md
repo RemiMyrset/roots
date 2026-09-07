@@ -17,7 +17,7 @@ AGENTS.md agent layer wired from day one.
    ```
 
    It prompts for a slug, title, and description (add `--defaults` to skip the
-   prompts), then renames everything, resets the decision log, prints the manual
+   prompts), then renames everything, clears the decision log, prints the manual
    checklist (ruleset, wiki/projects settings), and deletes itself.
 2. `pnpm install && pnpm docs:gen && pnpm docs:check && pnpm docs:portability`
 3. Commit. CI is green on the first push.
@@ -57,8 +57,10 @@ pnpm install
 - Agent rulebook: [AGENTS.md](./AGENTS.md) — conventions and canonical-source map.
 - Decisions (why): [docs/internal/decisions/](./docs/internal/decisions/index.md)
 - Specs (what): [docs/internal/specs/](./docs/internal/specs/index.md)
+- Template-owned rules and agent material (synced, never rendered):
+  [docs/template/](./docs/template/README.md)
 - Docs system, recipes, growth paths:
-  [docs-toolchain](./docs/internal/development/docs-toolchain.md)
+  [docs-toolchain](./docs/template/docs-toolchain.md)
 
 ## License
 

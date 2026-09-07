@@ -4,7 +4,7 @@
 import type { UserConfig } from 'vitepress'
 
 // No markdown options on purpose: docs are authored to the portable ruleset
-// (docs/internal/development/markdown-portability.md), nothing VitePress-specific.
+// (docs/template/markdown-portability.md), nothing VitePress-specific.
 export const shared: UserConfig = {
   title: 'roots',
   lastUpdated: true,

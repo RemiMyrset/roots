@@ -1,6 +1,6 @@
 // PUBLIC SITE — publishable. Keep this site free of anything internal
 // (decisions, specs, infra, service topology). Deployment is a per-project
-// choice — see docs/internal/development/docs-toolchain.md.
+// choice — see docs/template/docs-toolchain.md.
 import { defineConfig } from 'vitepress'
 import llmstxt from 'vitepress-plugin-llms'
 import { withMermaid } from 'vitepress-plugin-mermaid'

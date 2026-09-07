@@ -2,7 +2,7 @@
 > [!IMPORTANT]
 > This repository is an **uninitialized copy of the roots template**. Before any
 > other work, run `node scripts/init.mts` (non-interactive: `--defaults`). It
-> renames the project, resets the decision log, strips these template-only
+> renames the project, clears the decision log, strips these template-only
 > banners, and deletes itself. This banner disappears once init has run.
 >
 > **Exception:** if you are working on the roots template itself (this repo is
@@ -33,13 +33,15 @@ canonical home and leave a link.
 | --- | --- |
 | Why a decision was made | [docs/internal/decisions/](./docs/internal/decisions/index.md) |
 | What the system does now | [docs/internal/specs/](./docs/internal/specs/index.md) |
-| One fact, one home, three-place sync | [spec-discipline](./docs/internal/development/spec-discipline.md) |
-| Markdown authoring rules | [markdown-portability](./docs/internal/development/markdown-portability.md) |
-| Docs toolchain, recipes, growth paths | [docs-toolchain](./docs/internal/development/docs-toolchain.md) |
+| One fact, one home, three-place sync | [spec-discipline](./docs/template/spec-discipline.md) |
+| Markdown authoring rules | [markdown-portability](./docs/template/markdown-portability.md) |
+| Docs toolchain, recipes, growth paths | [docs-toolchain](./docs/template/docs-toolchain.md) |
+| Why the conventions are what they are | [conventions](./docs/template/conventions.md) (template-owned, synced) |
 | Setup, install, quickstart | [README.md](./README.md) |
 | Machine-readable docs map | [llms.txt](./docs/llms.txt) (generated) |
-<!-- Add one row per fact as homes appear: ports, env vars, glossary, deploy
-     runbook, architecture overview. If a fact has no row, pick a home, add a row. -->
+<!-- This table is the canonical-home map. Add one row per fact as homes appear:
+     ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
+     design/. If a fact has no row, pick one home, add a row. -->
 
 ## Commands
 
@@ -72,7 +74,7 @@ clean after your last edit — when unsure which apply, run them all.
   `// eslint-disable-next-line no-restricted-syntax -- <reason>` when a dependency
   demands a subclass); and give relative imports explicit `.ts`/`.mts` extensions.
 - ALWAYS write docs as portable markdown (GitHub + VitePress + Obsidian). Rules:
-  [markdown-portability](./docs/internal/development/markdown-portability.md).
+  [markdown-portability](./docs/template/markdown-portability.md).
   Enforced by `pnpm docs:portability`.
 - ALWAYS write commits as Conventional Commits (`type(scope): subject`, subject
   ≤ 50 chars) — enforced by the commitlint `commit-msg` hook; `pnpm release`
@@ -90,12 +92,10 @@ clean after your last edit — when unsure which apply, run them all.
 - NEVER rewrite an accepted decision record. Supersede it with a new one and link
   both ways; only the old record's Status line changes.
 <!-- roots:template-only -->
-- EXCEPT in this repo: roots keeps one living ADR 0001 describing the template's own
-  conventions and edits it in place. That record documents what roots *is*, not a
-  decision roots once made, so it has nothing to supersede. The append-only rule is
-  what roots *ships*; `.claude/rules/decisions-and-specs.md` states it without this
-  exception deliberately, because that file syncs into children and this exception
-  must not travel with it.
+- EXCEPT for roots itself: the template records its rationale as a living page,
+  `docs/template/conventions.md`, not as a decision record. The decisions and
+  specs folders belong to the child; init leaves them holding only their index
+  and template files.
 <!-- /roots:template-only -->
 - NEVER run dependency build scripts (`pnpm approve-builds`) or add or change
   `allowBuilds` entries — supply-chain code-exec vector;
@@ -114,7 +114,7 @@ dependency, deleting user data or git history, or anything a hook blocks.
 
 When behavior changes, source, tests, and its spec change in the same PR. The
 full rules — spec kinds, canonical-home map, concrete triggers — live in
-[spec-discipline](./docs/internal/development/spec-discipline.md) and the
+[spec-discipline](./docs/template/spec-discipline.md) and the
 [specs index](./docs/internal/specs/index.md); read them before touching
 behavior.
 
@@ -154,5 +154,5 @@ Both files are required: Claude Code discovers nested `CLAUDE.md`, never nested
   region containing a warning comment.
 - The internal handbook is for the team: if you host it, gate it behind access
   control — recipe in
-  [docs-toolchain](./docs/internal/development/docs-toolchain.md). It ships
+  [docs-toolchain](./docs/template/docs-toolchain.md). It ships
   noindex + robots.txt as guards against accidental exposure.

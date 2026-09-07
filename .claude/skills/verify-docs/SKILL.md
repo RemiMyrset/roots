@@ -15,7 +15,7 @@ Run the same gates CI runs, in order, and fix failures at the source:
 2. `pnpm docs:check` — decision/spec format, Source/Tests paths resolving,
    staleness warnings. Fix the document or the path, never loosen the checker.
 3. `pnpm docs:portability` — trifecta rules. Fix violations per
-   `docs/internal/development/markdown-portability.md`; never suppress.
+   `docs/template/markdown-portability.md`; never suppress.
 4. If VitePress content or config changed: `pnpm docs:internal:build` and
    `pnpm docs:public:build` must both succeed.
 
