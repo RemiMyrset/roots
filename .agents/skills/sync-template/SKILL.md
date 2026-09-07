@@ -6,7 +6,7 @@ description: Pull the roots template's shared mechanics into this repository and
 # Sync from the template
 
 `pnpm sync:template` stages the template's version of the shared mechanics
-(CI workflows, labels, issue/PR templates, docs generators and checkers, the
+(CI workflows, labels, the agent-task issue and PR templates, docs generators and checkers, the
 guard and sync test-suites, agent hooks/rules/skills, `docs/template/`, and the
 script itself), records the sync point in `.template-sync.json`, and prints two
 things a file copy cannot carry: the template commits since the last sync
