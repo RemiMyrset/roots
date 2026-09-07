@@ -1,10 +1,9 @@
 # roots conventions
 
-What roots is, why it is shaped this way, and what that costs. This is the
-template's own rationale, kept as a living page rather than a decision record:
-it ships with every child under `docs/template/` and is updated by
-`pnpm sync:template`, while the child's decision log starts empty and holds only
-the child's own decisions.
+This page describes the roots template, not this project; a project's own
+rationale goes in `docs/internal/decisions/`. It is what roots is, why it is
+shaped this way, and what that costs — the template's living rationale, shipped
+with every child under `docs/template/` and updated by `pnpm sync:template`.
 
 ## Why roots exists
 
@@ -55,14 +54,15 @@ the portability requirement. Concretely:
   [llms.txt](https://llmstxt.org/) standard — "SEO for AI") plus a markdown
   copy of every page, via `vitepress-plugin-llms`; that is the web-facing
   artifact for crawlers and agents on a deployed site. No committed repo-wide
-  map: the one roots used to generate held repo-relative paths for a
-  private-repo docs chatbot the template no longer targets, and coding agents
-  inside a checkout have the rulebook, the indexes, and file search. No
-  concatenated `llms-full.txt` either — it is in no version of the standard.
+  map and no concatenated `llms-full.txt`: coding agents inside a checkout
+  have the rulebook, the indexes, and file search, and a corpus file is in no
+  version of the standard.
 * **Stack**: TypeScript-first pnpm + Turborepo monorepo, node 24 minimum, no
   JavaScript files (erasable-syntax TypeScript runs natively), and no `class` or
   `enum` — functions and plain objects/union types only, enforced by ESLint
-  `no-restricted-syntax` (enums also by `erasableSyntaxOnly`). Unit tests live in
+  `no-restricted-syntax` (enums also by `erasableSyntaxOnly`); when a dependency
+  demands a subclass, escape with
+  `// eslint-disable-next-line no-restricted-syntax -- <reason>`. Unit tests live in
   a sibling `test/` directory beside `src/`, never colocated — the unjs and antfu
   house layout. Every exported symbol carries a `/** */` block — presence
   enforced by ESLint `jsdoc/require-jsdoc`, content by review.
