@@ -141,11 +141,27 @@ changelogen for `changesets` the day packages need independent versions.
 
 ### Sandbox agents in a devcontainer
 
-Anthropic ships an official Dev Container feature —
-`ghcr.io/anthropics/devcontainer-features/claude-code:1.0` — plus a reference
-container with an egress-allowlist firewall (anthropics/claude-code
-`.devcontainer/`). Add it when the stack lands; never mount host secrets into
-the container.
+`.devcontainer/devcontainer.json` ships a minimal environment every tool can run
+in: the official TypeScript-and-node image at node 24, the Claude Code and
+GitHub CLI Dev Container features, `corepack enable && pnpm install` after
+creation (node 24 still bundles corepack; from node 25 install it with
+`npm install -g corepack` in the image or pin the feature's pnpm), and the
+editor extensions the repo already recommends. Open it with VS Code's "Reopen
+in Container", a GitHub Codespace, or the `devcontainer` CLI. Inside it an
+unattended agent run cannot reach your keys, your other repos, or anything
+outside the mounted workspace.
+
+Egress control is the opt-in second step, because it needs Linux container
+privileges: copy Anthropic's reference `init-firewall.sh` (the
+`.devcontainer/` folder of the anthropics/claude-code repository) into
+`.devcontainer/`, add `"runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"]`
+and `"postStartCommand": "sudo /usr/local/bin/init-firewall.sh"` to the JSON,
+and install `iptables` and `ipset` in a small Dockerfile. The script allows
+only the npm registry, GitHub, and the Anthropic API, so a prompt-injected agent
+has nowhere to send data. Claude Code itself does not need the firewall or the
+capabilities; leave them out if your own network controls cover it. Never mount
+host secrets into the container — pass what an agent needs as environment
+variables.
 
 ### More agent surfaces
 
