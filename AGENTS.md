@@ -79,7 +79,9 @@ clean after your last edit — when unsure which apply, run them all.
   Enforced by `pnpm docs:portability`.
 - ALWAYS write commits as Conventional Commits (`type(scope): subject`, subject
   ≤ 50 chars) — enforced by the commitlint `commit-msg` hook; `pnpm release`
-  builds the changelog from them.
+  builds the changelog from them. NEVER bypass a git hook (`--no-verify`, `-n`,
+  a `core.hooksPath` override, `SKIP_SIMPLE_GIT_HOOKS`): fix the failing check.
+  Guard-enforced.
 - ALWAYS give every exported symbol a `/** */` block saying what it is for and
   any constraint a caller cannot see from the signature — never a restatement of
   the code. Convention, not lint-enforced.

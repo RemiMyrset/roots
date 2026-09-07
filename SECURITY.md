@@ -16,10 +16,10 @@ will coordinate a fix and disclosure timeline with you.
 ## PreToolUse guards — what they are (and are not)
 
 The `.claude/hooks/` PreToolUse guards (`deny-non-pnpm`, `deny-build-scripts`,
-`deny-secret-reads`, `deny-push-protected`) are **best-effort footgun-preventers for a
+`deny-secret-reads`, `deny-push-protected`, `deny-hook-bypass`) are **best-effort footgun-preventers for a
 cooperative agent, not a sandbox.** They stop the common, accidental ways an agent would run
-a banned package manager, enable a dependency build script, read a secret file, or push to a
-protected branch — mistakes worth catching before they happen. `dispatch.mts` is the one hook
+a banned package manager, enable a dependency build script, read a secret file, push to a
+protected branch, or skip the git hooks — mistakes worth catching before they happen. `dispatch.mts` is the one hook
 registered, three times over: as a Claude Code PreToolUse hook (`.claude/settings.json`), a
 Codex PreToolUse hook (`.codex/hooks.json`), and a Gemini CLI BeforeTool hook
 (`.gemini/settings.json`). All three deliver the command as `tool_input.command` and treat
@@ -95,6 +95,19 @@ push and a PR creation run without a prompt. That convenience rests on this guar
 before allowed commands — and the guard's out-of-scope list above (nested interpreters first)
 is why the server-side ruleset is the boundary that matters. `gh pr merge` is deliberately
 not allow-listed: merging into a protected branch always asks.
+
+## Hook bypass
+
+`deny-hook-bypass` keeps the commit-time checks (commitlint, lint-staged, `docs:portability`)
+in force. Denied: `--no-verify` (and its unique abbreviations) on `git commit`, `git push`, and
+`git merge`; `-n` on `git commit` (its `--no-verify` alias — `git push -n` is dry-run and
+passes); a `core.hooksPath` override through `git -c` or `--config-env`; and the
+`SKIP_SIMPLE_GIT_HOOKS`, `HUSKY=0`, and `HUSKY_SKIP_HOOKS` environment prefixes, whether inline,
+via `env`, or as an `export` statement. Quoted mentions (`-m "no --no-verify here"`) pass.
+
+Out of scope, beyond the shared list: a `git config core.hooksPath` run as an earlier command,
+editing `.git/hooks` directly, and uninstalling `simple-git-hooks` — multi-step evasions the
+threat model already excludes. The backstop is the same CI that the hooks pre-run locally.
 
 ## Supported versions
 
