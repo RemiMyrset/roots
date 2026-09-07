@@ -1,6 +1,6 @@
 /**
  * On-demand template update — no cron, no bot, no token, just git. Pulls the roots
- * mechanics (the shared CI workflows, labels, the agent-task issue template, the PR
+ * mechanics (the CI, docs, labels, and pages workflows, the agent-task issue template, the PR
  * template, the docs generators
  * and checkers, the guard and sync test-suites, the verify gate, the agent hooks, rules,
  * skills and the Codex/Gemini registrations, and the template-owned docs under
@@ -56,6 +56,7 @@ const MECHANICS = [
   '.github/workflows/ci.yml',
   '.github/workflows/docs.yml',
   '.github/workflows/labels.yml',
+  '.github/workflows/pages.yml',
   '.github/labels.yml',
   '.github/ISSUE_TEMPLATE/agent-task.md',
   '.github/PULL_REQUEST_TEMPLATE.md',
