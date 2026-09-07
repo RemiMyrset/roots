@@ -71,6 +71,13 @@
       "Read(**/secrets/**)",
       "Read(**/*.pem)",
       "Read(**/*.key)",
+      "Read(**/*.p12)",
+      "Read(**/*.pfx)",
+      "Read(**/*.jks)",
+      "Read(**/.envrc)",
+      "Read(**/.netrc)",
+      "Read(**/_netrc)",
+      "Read(**/.npmrc)",
       "Bash(pnpm approve-builds:*)"
     ]
   },

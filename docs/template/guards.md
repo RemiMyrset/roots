@@ -19,7 +19,10 @@ Gemini CLI BeforeTool hook (`.gemini/settings.json`). All three deliver the
 command as `tool_input.command` and treat exit 2 with a reason on stderr as a
 block, so the guards are shared verbatim; the fixture suite pipes each tool's
 payload shape through the dispatcher. It runs every `deny-*.mts` in the
-directory, and any non-zero exit denies the call. Node builtins only, so they
+directory, and any non-zero exit denies the call; it also denies when the hook
+input is not a payload with a string `tool_input.command` (malformed JSON, a
+missing or null field) and when stdin never closes within five seconds. Node
+builtins only, so they
 work before `pnpm install` and in any repo they are synced into. Codex and Gemini
 load project-level hook config only after the user trusts the folder (Codex also
 asks to trust each hook via `/hooks`); their registrations run
@@ -53,12 +56,17 @@ reopens another.
 ## Secret-file protection
 
 Two layers keep secrets out of the agent. The `.claude/settings.json`
-`permissions.deny` Read-tool list enumerates common `.env*` / `secrets/` /
-`*.pem` / `*.key` names, and the Bash-path guard `deny-secret-reads` covers the
-common shell-read forms of an `.env` file (and `.envrc`, matched
-case-insensitively; `.environment` is not matched), anything under `secrets/`,
-and any `*.pem` / `*.key` — direct readers, `<` redirects (including `$(<file)`
-and `<>`), `pnpm exec` wrappers, and `find -exec`. `.env.example` is the one
+`permissions.deny` Read-tool list enumerates common `.env*` / `.envrc` /
+`.netrc` / `.npmrc` / `secrets/` / `*.pem` / `*.key` / `*.p12` / `*.pfx` /
+`*.jks` names, and the Bash-path guard `deny-secret-reads` covers the common
+shell-read forms of the same set (`.env` and `.envrc` matched
+case-insensitively; `.environment` is not matched) — direct readers, `<`
+redirects (including `$(<file)` and `<>`), `pnpm exec` wrappers, and
+`find -exec`. `.npmrc` is denied although a project copy is usually harmless: a
+filename cannot prove it holds no `_authToken`, and `pnpm config list` shows
+the effective config with tokens masked. `.gitignore` covers the same set
+except `.npmrc`, which a project may legitimately commit with `${VAR}`
+references (secretlint catches a literal token). `.env.example` is the one
 carve-out; other placeholder spellings (`.env.sample`, `.env.dist`) fail closed
 because a filename cannot prove it holds no secret. The guard is the broader of
 the two (the Read list stays a curated subset so `.env.example` remains
@@ -92,7 +100,9 @@ matches any run of characters, full match) from the `env` block of
 target is protected — the remote side of each refspec, the current branch when
 no refspec is given, or `HEAD` — and when a target cannot be resolved (detached
 HEAD, not a checkout). Also denied on any branch: bare `--force` / `-f` / a
-`+refspec`, and `--all` / `--branches` / `--mirror`. `--force-with-lease`,
+`+refspec`, `--all` / `--branches` / `--mirror`, and any wildcard refspec
+(`refs/heads/*`): the guard cannot evaluate a glob against the remote, so it
+does not try. `--force-with-lease`,
 `--delete`, and tag pushes pass on unprotected targets. `pnpm release` and
 `changelogen --push` are denied outright: their push happens inside changelogen
 where a `git push` rule cannot see it.
@@ -148,7 +158,9 @@ abbreviations) on `git commit`, `git push`, and `git merge`; `-n` on
 `core.hooksPath` override through `git -c` or `--config-env`; and the
 `SKIP_SIMPLE_GIT_HOOKS`, `HUSKY=0`, and `HUSKY_SKIP_HOOKS` environment prefixes,
 whether inline, via `env`, or as an `export` statement. Quoted mentions
-(`-m "no --no-verify here"`) pass.
+(`-m "no --no-verify here"`) pass; a quote the heuristic cannot balance (closed
+mid-token, or never) makes the whole command fail closed — every token is
+scanned.
 
 Out of scope, beyond the shared list: a `git config core.hooksPath` run as an
 earlier command, editing `.git/hooks` directly, and uninstalling

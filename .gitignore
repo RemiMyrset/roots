@@ -17,6 +17,12 @@ docs/**/.vitepress/cache/
 secrets/
 *.pem
 *.key
+*.p12
+*.pfx
+*.jks
+.envrc
+.netrc
+_netrc
 
 # Obsidian per-user state (the committed app.json enforces portable links)
 docs/.obsidian/*
