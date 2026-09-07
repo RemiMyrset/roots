@@ -12,6 +12,8 @@ material that every child of the template shares:
 - [docs-toolchain](./docs-toolchain.md) — how the docs machinery works, plus the
   recipes for everything roots deliberately does not ship wired.
 - [sync-template](./sync-template.md) — the contract behind `pnpm sync:template`.
+- [guards](./guards.md) — the agent guards' threat model: what they catch, what
+  they do not, and the server-side boundaries behind them.
 
 Three things follow from "template-owned":
 

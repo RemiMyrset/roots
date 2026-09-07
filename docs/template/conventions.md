@@ -74,7 +74,7 @@ the portability requirement. Concretely:
   dependencies) that block non-pnpm package managers, dependency build scripts,
   shell reads of secrets, pushes to protected branches (`PROTECTED_BRANCHES`,
   default `main`; feature-branch pushes are allowed), and git-hook bypasses
-  (`--no-verify`, hooks-path overrides, skip variables). Threat model and scope live in `SECURITY.md`; the fixture suite
+  (`--no-verify`, hooks-path overrides, skip variables). Threat model and scope live in [guards](./guards.md); the fixture suite
   (`pnpm test:hooks`) pins every covered case.
 * **Template updates**: pull-based and plain git. `pnpm sync:template` stages the
   template's version of an allow-list of mechanics paths (including
