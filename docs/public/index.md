@@ -1,6 +1,6 @@
-# roots
+# Public documentation
 
-Public documentation — the surface intended for the open web. The internal
+The surface intended for the open web. The internal
 handbook is a separate site, hosted only behind access control.
 
 Replace this stub with real user-facing docs: what the product does, how to

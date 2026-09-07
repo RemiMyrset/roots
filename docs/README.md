@@ -1,4 +1,4 @@
-# roots documentation
+# Documentation
 
 Two audiences, two directories: the public site build reads only `public/`, so
 internal content cannot leak into it.

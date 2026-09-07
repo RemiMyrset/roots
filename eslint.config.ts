@@ -10,7 +10,7 @@ export default antfu(
     ],
   },
   {
-    name: 'roots/ban-class-and-enum',
+    name: 'repo/ban-class-and-enum',
     // Flat config REPLACES a rule's options rather than merging them, so antfu's own
     // `no-restricted-syntax` array is discarded here: `TSExportAssignment` is re-listed,
     // and `TSEnumDeclaration` supersedes its const-enum-only selector. `ignores` keeps
@@ -30,7 +30,7 @@ export default antfu(
     },
   },
   {
-    name: 'roots/tests-live-in-test-dir',
+    name: 'repo/tests-live-in-test-dir',
     // Tests belong in `<package>/test/`, never beside the code they exercise. Vitest's
     // default glob is `**/`-anchored, so a stray colocated test still RUNS — it is caught
     // loudly here rather than skipped silently.

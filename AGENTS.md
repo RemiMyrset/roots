@@ -1,21 +1,7 @@
-<!-- roots:template-only -->
-> [!IMPORTANT]
-> This repository is an **uninitialized copy of the roots template**. Before any
-> other work, run `node scripts/init.mts` (non-interactive: `--defaults`). It
-> renames the project, clears the decision log, strips these template-only
-> banners, and deletes itself. This banner disappears once init has run.
->
-> **Exception:** if you are working on the roots template itself (this repo is
-> `RemiMyrset/roots`), do NOT run init — the banners and `scripts/init.mts` are
-> the product, not scaffolding to remove.
-<!-- /roots:template-only -->
+# Agent rulebook
 
-# roots agent rulebook
-
-Rapid Opinionated Onboarding — TypeScript. A template repository that seeds
-AI-agent-ready pnpm + Turborepo monorepos with a specs-and-decisions docs system.
-<!-- After init: replace the two lines above with one sentence saying what THIS
-     project is and does. Elevator pitch only — details live in docs/. -->
+What this project is and does lives in [README.md](./README.md); this file is
+the rulebook.
 
 ## How this file works
 
@@ -37,6 +23,7 @@ canonical home and leave a link.
 | Markdown authoring rules | [markdown-portability](./docs/template/markdown-portability.md) |
 | Docs toolchain, recipes, growth paths | [docs-toolchain](./docs/template/docs-toolchain.md) |
 | Why the conventions are what they are | [conventions](./docs/template/conventions.md) (template-owned, synced) |
+| Agent guard threat model | [guards](./docs/template/guards.md) |
 | Setup, install, quickstart | [README.md](./README.md) |
 <!-- This table is the canonical-home map. Add one row per fact as homes appear:
      ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
@@ -50,7 +37,7 @@ clean after your last edit — when unsure which apply, run them all.
 - Done gate: `pnpm verify` (everything below, in CI order; stops at the first failure)
 - Install: `pnpm install`
 - Build: `pnpm build` (turbo; packages that define `build`)
-- Test: `pnpm test` (turbo; single package: `pnpm --filter @roots/core test`)
+- Test: `pnpm test` (turbo; single package: `pnpm --filter @repo/example-package test`)
 - Test hooks: `pnpm test:hooks` (PreToolUse guard allow/deny fixtures)
 - Test sync: `pnpm test:sync` (template-sync fixtures)
 - Typecheck: `pnpm typecheck`
@@ -98,12 +85,6 @@ clean after your last edit — when unsure which apply, run them all.
   `pnpm docs:gen`.
 - NEVER rewrite an accepted decision record. Supersede it with a new one and link
   both ways; only the old record's Status line changes.
-<!-- roots:template-only -->
-- EXCEPT for roots itself: the template records its rationale as a living page,
-  `docs/template/conventions.md`, not as a decision record. The decisions and
-  specs folders belong to the child; init leaves them holding only their index
-  and template files.
-<!-- /roots:template-only -->
 - NEVER run dependency build scripts (`pnpm approve-builds`) or add or change
   `allowBuilds` entries — supply-chain code-exec vector;
   each entry is a human verdict. The entries already in `pnpm-workspace.yaml` are
@@ -127,11 +108,12 @@ behavior.
 
 ## Monorepo map
 
-- `packages/core` — `@roots/core` sample starter package; replace it with (or
-  rename it to) your first real package.
-- `apps/` — created when the first app lands; add the package to the workspace
-  by directory placement alone (globs cover it; scaffold with the
-  `new-package` skill).
+- `packages/example-package` — `@repo/example-package`, sample library; replace
+  it with (or rename it to) your first real package.
+- `apps/example-app` — `@repo/example-app`, sample CLI consuming the package over
+  `workspace:*` (`pnpm --filter @repo/example-app start`); replace it with your
+  first real app. Placement alone registers a package — the workspace globs cover
+  `apps/*` and `packages/*`; scaffold with the `new-package` skill.
 <!-- Keep this a map, not a manual: one line per package, its purpose, nothing
      else. A stale map is worse than none — agents follow it literally. -->
 

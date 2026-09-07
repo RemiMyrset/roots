@@ -8,7 +8,6 @@ import { shared } from '../../.shared/config.ts'
 
 export default withMermaid(defineConfig({
   ...shared,
-  title: 'roots',
   description: 'Public documentation.',
   vite: {
     // Emits llms.txt (the "SEO for AI" standard) plus a markdown copy of every page

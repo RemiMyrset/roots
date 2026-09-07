@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "pnpm -w --silent run guards",
-            "statusMessage": "roots guards"
+            "statusMessage": "guards"
           }
         ]
       }

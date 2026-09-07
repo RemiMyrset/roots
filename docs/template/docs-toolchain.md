@@ -44,7 +44,7 @@ pnpm sync:template --ref v0.1.0   # pin a template tag or branch (recorded for n
 It adds a `template` git remote (tags excluded, so the template's releases never
 leak into your changelog), fetches the ref, and stages the template's version of
 the mechanics paths: the CI, docs, and labels workflows, the label list, the
-issue and PR templates, the docs generators and checkers, the guard and sync
+agent-task issue template and the PR template, the docs generators and checkers, the guard and sync
 test-suites, the verify gate, the agent hooks, rules, and skills with their Codex
 and Gemini registrations, the generated `.agents/skills` mirror, the
 template-owned docs under `docs/template/`, and the sync script itself. Files

@@ -1,6 +1,6 @@
 {
-  // Typechecks the root-level TS that no package tsconfig covers: the init
-  // script and docs generators/checkers, the PreToolUse guard sources under
+  // Typechecks the root-level TS that no package tsconfig covers: the docs
+  // generators/checkers, the verify, sync, and test-suite scripts, the guard sources under
   // .claude/hooks, plus the flat configs. The VitePress
   // site configs are intentionally excluded — `vitepress build` transpiles them
   // with esbuild (it does not typecheck them),

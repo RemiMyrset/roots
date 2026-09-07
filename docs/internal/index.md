@@ -1,4 +1,4 @@
-# roots internal handbook
+# Internal handbook
 
 The engineering handbook, rendered locally with `pnpm docs:internal:dev`.
 Counts and lists on this page are links, never numbers — numbers drift.

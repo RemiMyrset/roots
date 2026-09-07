@@ -1,6 +1,7 @@
 /**
  * On-demand template update — no cron, no bot, no token, just git. Pulls the roots
- * mechanics (the shared CI workflows, labels, issue/PR templates, the docs generators
+ * mechanics (the shared CI workflows, labels, the agent-task issue template, the PR
+ * template, the docs generators
  * and checkers, the guard and sync test-suites, the verify gate, the agent hooks, rules,
  * skills and the Codex/Gemini registrations, and the template-owned docs under
  * docs/template) from the template repo into this one. Works for a repo made with
@@ -56,7 +57,7 @@ const MECHANICS = [
   '.github/workflows/docs.yml',
   '.github/workflows/labels.yml',
   '.github/labels.yml',
-  '.github/ISSUE_TEMPLATE',
+  '.github/ISSUE_TEMPLATE/agent-task.md',
   '.github/PULL_REQUEST_TEMPLATE.md',
   'docs/template',
   'scripts/docs',
@@ -276,11 +277,11 @@ function inferBaseline(head: string, label: string, paths: string[]): Baseline |
   const mergeBase = tryGit(['merge-base', 'HEAD', head])?.trim()
   if (mergeBase)
     return { commit: mergeBase, how: 'shared history', note: `git merge-base HEAD ${label}` }
-  const roots = lines(tryGit(['rev-list', '--max-parents=0', 'HEAD']))
-  if (roots.length === 0)
+  const rootCommits = lines(tryGit(['rev-list', '--max-parents=0', 'HEAD']))
+  if (rootCommits.length === 0)
     return undefined
   const ancestry = lines(tryGit(['log', '--format=%H %T', head]))
-  for (const root of roots) {
+  for (const root of rootCommits) {
     const tree = tryGit(['rev-parse', `${root}^{tree}`])?.trim()
     if (!tree)
       continue
@@ -288,7 +289,7 @@ function inferBaseline(head: string, label: string, paths: string[]): Baseline |
     if (hit)
       return { commit: hit.split(' ')[0]!, how: 'root tree', note: 'the root commit carries this template commit\'s tree (a "Use this template" copy)' }
   }
-  for (const root of roots) {
+  for (const root of rootCommits) {
     const when = tryGit(['show', '-s', '--format=%cI', root])?.trim()
     if (!when)
       continue

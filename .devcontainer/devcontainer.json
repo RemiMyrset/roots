@@ -1,5 +1,4 @@
 {
-  "name": "roots",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:24-bookworm",
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
