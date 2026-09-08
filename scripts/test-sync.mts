@@ -2,9 +2,10 @@
  * Regression suite for scripts/sync-template.mts. Builds a throwaway "template" repo
  * with a small, date-controlled commit history and several throwaway consumers — a
  * "Use this template" copy with no shared history, a pristine copy, a fork, a repo that
- * predates the script — runs the real script inside each against a file:// URL, and
- * asserts exit codes, the inferred baseline, staged paths, the state file, and the
- * printed follow-ups. Runs in CI on Ubuntu and Windows via `pnpm test:sync`. Node
+ * predates the script, two whose checkouts a required smudge filter makes git abort —
+ * runs the real script inside each against a file:// URL, and asserts exit codes, the
+ * inferred baseline, staged paths, skipped paths, the state file, and the printed
+ * follow-ups. Runs in CI on Ubuntu and Windows via `pnpm test:sync`. Node
  * builtins only; git is isolated from the developer's config so signing or hooks cannot
  * interfere. No symlinks anywhere, so no platform privileges are needed.
  */
@@ -411,6 +412,54 @@ git(template, 'tag', '-a', 'v1.0.0', '-m', 'v1.0.0', T2)
   const r = run(template, URL)
   check('template self-guard exits 1', r.status === 1, `status ${r.status}`)
   check('template self-guard explained', r.stderr.includes('template itself'))
+}
+
+// 17 and 18. A checkout git aborts (behavior 23, the abort case). A required smudge filter
+// that exits 1 makes git die on the first file it writes under the matching pattern. The
+// smudge command carries a space so git runs it through `sh -c`, where `exit` is a builtin
+// on every platform; the clean side is `cat` and required, so `git add`, `git rm`, and
+// `git status` on the consumer's own files keep working. The consumer is case 8's bootstrap
+// shape plus one committed file under scripts/docs, so a deletion gets staged.
+function bootstrapWithFilter(name: string, pattern: string): string {
+  const dir = join(tmp, name)
+  mkdirSync(dir)
+  git(dir, 'init', '-q', '-b', 'main')
+  write(dir, 'package.json', pkg({ build: 'tsc', lint: 'eslint .' }))
+  write(dir, 'scripts/docs/retired.mts', '// not on the template\n')
+  commit(dir, 'chore: init')
+  write(dir, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(dir, '.git/info/attributes', `${pattern} filter=boom\n`)
+  git(dir, 'config', 'filter.boom.smudge', 'exit 1')
+  git(dir, 'config', 'filter.boom.clean', 'cat')
+  git(dir, 'config', 'filter.boom.required', 'true')
+  return dir
+}
+
+// 17. One synced path fails: it is listed under Skipped, the rest is staged, exit 0.
+{
+  const dir = bootstrapWithFilter('boom-one', 'scripts/docs/**')
+  const r = run(dir, URL)
+  check('one failed checkout exits 0', r.status === 0, r.detail)
+  check('one failed checkout prints the Skipped header', r.stdout.includes('Skipped (git checkout failed — fix and re-run):'), r.stdout)
+  check('skipped line names the path and the git reason', r.stdout.includes('  scripts/docs  ') && r.stdout.includes('filter'), r.stdout)
+  const s = staged(dir)
+  for (const want of ['A .github/workflows/ci.yml', 'A .claude/skills/x/SKILL.md', 'A scripts/sync-template.mts', 'D scripts/docs/retired.mts', `A ${STATE}`])
+    check(`one failed checkout still stages ${want}`, s.includes(want), s.join(', '))
+  check('skipped path is neither staged nor written', !s.some(l => l.endsWith('scripts/docs/check-docs.mts')) && !existsSync(join(dir, 'scripts/docs/check-docs.mts')), s.join(', '))
+  check('one failed checkout records the head', readState(dir).commit === T4)
+}
+
+// 18. Every synced path fails: exit 1 with the list, no state file, and the retired file
+// already staged for deletion.
+{
+  const dir = bootstrapWithFilter('boom-all', '*')
+  const r = run(dir, URL)
+  check('every failed checkout exits 1', r.status === 1, r.detail)
+  check('every failed checkout explained', r.stderr.includes('Could not check out any synced path') && r.stderr.includes('scripts/docs  '), r.stderr)
+  const s = staged(dir)
+  check('retired file staged for deletion', s.includes('D scripts/docs/retired.mts'), s.join(', '))
+  check('nothing but deletions staged', s.every(l => l.startsWith('D ')), s.join(', '))
+  check('every failed checkout writes no state', !existsSync(join(dir, STATE)))
 }
 
 if (fails.length > 0) {

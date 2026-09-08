@@ -4,8 +4,9 @@
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
 - **Last reviewed:** 2026-09-08
 
-The contract for `pnpm sync:template`; the tests pin this page. The
-user-facing recipe is in [docs-toolchain](./docs-toolchain.md).
+The contract for `pnpm sync:template`. The tests pin behaviors 1 to 23; the
+per-file-error branch of behavior 23 is untested. The user-facing recipe is in
+[docs-toolchain](./docs-toolchain.md).
 
 ## Purpose
 
@@ -221,7 +222,7 @@ Warnings and errors go to stderr.
     staged, and exit is `0`; when every checkout fails, exit `1` with the list.
     Files git wrote before an abort stay in the worktree unstaged, new ones
     untracked, and the next run's dirty check refuses them until they are
-    restored or cleaned.
+    restored or cleaned. The tests cover the abort case only.
 
 ## Edge cases and gotchas
 

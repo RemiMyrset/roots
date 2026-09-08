@@ -1,22 +1,28 @@
 /**
  * Regression suite for the docs checkers (scripts/docs/check-docs.mts and
  * check-portability.mts) — the two densest regex files in the repo, whose comments each
- * record a past bug. Copies a fixture tree (scripts/docs/fixtures/clean, /broken) to a temp
- * dir, runs each checker with that cwd, and asserts the exit code and the messages. Also
- * pins the rulebook budget, the CI-annotation gating, a missing docs dir, the three-step
- * repo-root fallback, and the stale-region comparison (with a CRLF checkout). Runs in CI on
- * Ubuntu and Windows via `pnpm test:docs`. Node builtins only.
+ * record a past bug — plus the readers (readers.mts) called directly and the skills mirror
+ * generator (gen-skills.mts). Copies a fixture tree (scripts/docs/fixtures/clean, /broken)
+ * to a temp dir, runs each script with that cwd, and asserts the exit code and the messages.
+ * Also pins the rulebook budget, the CI-annotation gating, a missing docs dir, the
+ * three-step repo-root fallback, the stale-region comparison (with a CRLF checkout), and
+ * the skills mirror clean, drifted, generated, and absent. The skill trees are planted in
+ * the copy at test time: a fixture under `.claude/skills` would be listed as a live skill.
+ * Runs in CI on Ubuntu and Windows via `pnpm test:docs`. Node builtins only.
  */
 import { spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
+import { decisionsSidebar, escapeCell, readDecisions, readSpecs, specsSidebar } from './docs/readers.mts'
+import { SKILLS_SOURCE, SKILLS_TARGET } from './docs/skills.mts'
 
 const FIXTURES = join(import.meta.dirname, 'docs', 'fixtures')
 const CHECKERS = {
   'docs:check': join(import.meta.dirname, 'docs', 'check-docs.mts'),
   'docs:portability': join(import.meta.dirname, 'docs', 'check-portability.mts'),
+  'gen-skills': join(import.meta.dirname, 'docs', 'gen-skills.mts'),
 } as const
 type Checker = keyof typeof CHECKERS
 
@@ -29,6 +35,12 @@ function fixture(name: 'clean' | 'broken'): string {
   const dir = join(tmp, `${name}-${n++}`)
   cpSync(join(FIXTURES, name), dir, { recursive: true })
   return dir
+}
+
+/** One skill file in a copy's source or mirror tree; planted here, never checked in. */
+function plantSkill(dir: string, tree: typeof SKILLS_SOURCE | typeof SKILLS_TARGET, name: string, content: string): void {
+  mkdirSync(join(dir, tree, name), { recursive: true })
+  writeFileSync(join(dir, tree, name, 'SKILL.md'), content)
 }
 
 interface Run { status: number | null, out: string }
@@ -48,17 +60,24 @@ function expectAll(name: string, out: string, wants: string[]): void {
   for (const want of wants)
     check(`${name}: ${want}`, out.includes(want), out)
 }
+function same(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
 
 const today = new Date().toISOString().slice(0, 10)
 const CI_KEY = 'GITHUB_ACTIONS' // a const key: tsc refuses dot access on process.env, eslint refuses a bracketed literal
 const withoutCi = { ...process.env }
 delete withoutCi[CI_KEY]
 
-// 1. The clean tree passes both checkers with nothing on stderr.
+// 1. The clean tree passes both checkers with nothing on stderr; the mirror is current.
 {
   const dir = fixture('clean')
-  const spec = join(dir, 'docs/internal/specs/cli/hello.md')
-  writeFileSync(spec, readFileSync(spec, 'utf8').replace('2026-09-07', today))
+  for (const page of ['docs/internal/specs/cli/hello.md', 'docs/template/contract.md']) {
+    const file = join(dir, page)
+    writeFileSync(file, readFileSync(file, 'utf8').replace('2026-09-07', today))
+  }
+  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
+  plantSkill(dir, SKILLS_TARGET, 'x', '# x\n')
   const c = run('docs:check', dir, withoutCi)
   check('clean docs:check exits 0', c.status === 0, c.out)
   check('clean docs:check counts records', c.out.includes('✔ docs:check — 2 decision(s)'), c.out)
@@ -68,9 +87,14 @@ delete withoutCi[CI_KEY]
   check('clean docs:portability has no warnings', !p.out.includes('warning'), p.out)
 }
 
-// 2. The broken tree: every structural rule fires once, with its path.
+// 2. The broken tree: every structural rule fires once, with its path. The mirror drifts
+// in all three forms: a source without a copy, a copy that differs, a copy without a source.
 {
   const dir = fixture('broken')
+  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
+  plantSkill(dir, SKILLS_SOURCE, 'y', '# y\n')
+  plantSkill(dir, SKILLS_TARGET, 'x', '# x edited\n')
+  plantSkill(dir, SKILLS_TARGET, 'z', '# z\n')
   const c = run('docs:check', dir, withoutCi)
   check('broken docs:check exits 1', c.status === 1, `status ${c.status}`)
   expectAll('broken docs:check', c.out, [
@@ -80,6 +104,8 @@ delete withoutCi[CI_KEY]
     '0001-mismatch.md: missing or non-real "- **Date:** YYYY-MM-DD" bullet',
     '0002-superseded.md: superseded status must link the newer record',
     '0003-missing-target.md: superseded-by target ./0004-nope.md does not exist',
+    'docs/internal/decisions/0004-no-h1.md: H1 must be "# 0004. Title"',
+    'docs/internal/decisions/0005-no-status.md: missing "- **Status:** ..." bullet',
     'duplicate decision number 0002',
     'automd generator failed and wrote a warning comment',
     'docs/internal/stale.md: <!-- automd:decisionsIndex --> region is stale — run `pnpm docs:gen`',
@@ -93,6 +119,12 @@ delete withoutCi[CI_KEY]
     'Tests is (pending)',
     'last reviewed 2020-01-01 (> 180 days ago)',
     'last reviewed 2999-01-01 is in the future',
+    'docs/template/contract.md: Source path `scripts/nope.mts` does not exist',
+    'docs/template/contract.md: Tests path `scripts/test-nope.mts` does not exist',
+    'docs/template/contract.md: "- **Last reviewed:** 2026-02-30" is not a real calendar date',
+    '.agents/skills/y/SKILL.md: missing — run `pnpm docs:gen` to mirror .claude/skills',
+    '.agents/skills/x/SKILL.md: differs from .claude/skills/x/SKILL.md — never hand-edit the mirror',
+    '.agents/skills/z/SKILL.md: has no source under .claude/skills — run `pnpm docs:gen` to remove it',
   ])
 }
 
@@ -125,14 +157,20 @@ delete withoutCi[CI_KEY]
   ])
 }
 
-// 4. The rulebook budget applies to every AGENTS.md in the tree.
+// 4. The rulebook budget applies to every AGENTS.md in the tree: 200 lines pass, 201 fail.
 {
-  const dir = fixture('clean')
-  mkdirSync(join(dir, 'packages/x'), { recursive: true })
-  writeFileSync(join(dir, 'packages/x/AGENTS.md'), `# Big\n${'- line\n'.repeat(200)}`)
-  const c = run('docs:check', dir, withoutCi)
+  const over = fixture('clean')
+  mkdirSync(join(over, 'packages/x'), { recursive: true })
+  writeFileSync(join(over, 'packages/x/AGENTS.md'), `# Big\n${'- line\n'.repeat(200)}`)
+  const c = run('docs:check', over, withoutCi)
   check('over-budget rulebook exits 1', c.status === 1, c.out)
   check('over-budget rulebook named with a forward-slash path', c.out.includes('packages/x/AGENTS.md: 201 lines exceeds the 200-line rulebook budget'), c.out)
+
+  const exact = fixture('clean')
+  mkdirSync(join(exact, 'packages/x'), { recursive: true })
+  writeFileSync(join(exact, 'packages/x/AGENTS.md'), `# Big\n${'- line\n'.repeat(199)}`)
+  const ok = run('docs:check', exact, withoutCi)
+  check('rulebook of exactly 200 lines passes', ok.status === 0, ok.out)
 }
 
 // 5. Warnings are GitHub annotations only under GitHub Actions.
@@ -192,6 +230,66 @@ delete withoutCi[CI_KEY]
   writeFileSync(crlfIndex, readFileSync(crlfIndex, 'utf8').replace(/\n/g, '\r\n'))
   const c = run('docs:check', crlf, withoutCi)
   check('CRLF index region is current', c.status === 0, c.out)
+}
+
+// 9. The readers, called directly: what feeds the index regions and the sidebars.
+{
+  const dir = fixture('clean')
+  const decisions = readDecisions(dir).map(d => [d.num, d.title, d.status])
+  check('readDecisions reads both records past the fenced Status', same(decisions, [['0001', 'First', 'superseded by [0002](./0002-second.md)'], ['0002', 'Second', 'accepted']]), JSON.stringify(decisions))
+  const specs = readSpecs(dir)
+  check('readSpecs reads the one spec', same(specs, [{ area: 'cli', file: 'hello.md', title: 'Hello' }]), JSON.stringify(specs))
+  check('decisionsSidebar links each record', same(decisionsSidebar(dir), [{ text: '0001. First', link: '/decisions/0001-first' }, { text: '0002. Second', link: '/decisions/0002-second' }]), JSON.stringify(decisionsSidebar(dir)))
+  check('specsSidebar links each spec', same(specsSidebar(dir), [{ text: 'cli: Hello', link: '/specs/cli/hello' }]), JSON.stringify(specsSidebar(dir)))
+  check('escapeCell escapes a bare pipe', escapeCell('a | b') === 'a \\| b')
+  check('escapeCell leaves an escaped pipe alone', escapeCell('a \\| b') === 'a \\| b')
+
+  mkdirSync(join(dir, 'docs/internal/decisions/0003-dir.md'))
+  check('a directory named like a record is not one', readDecisions(dir).length === 2)
+  const c = run('docs:check', dir, withoutCi)
+  check('a directory named like a record passes docs:check', c.status === 0, c.out)
+
+  const empty = fixture('clean')
+  for (const sub of ['docs/internal/decisions', 'docs/internal/specs']) {
+    rmSync(join(empty, sub), { recursive: true, force: true })
+    mkdirSync(join(empty, sub))
+  }
+  check('empty dirs read as no records', readDecisions(empty).length === 0 && readSpecs(empty).length === 0)
+  rmSync(join(empty, 'docs'), { recursive: true, force: true })
+  check('absent dirs read as no records', readDecisions(empty).length === 0 && readSpecs(empty).length === 0)
+}
+
+// 10. A missing index page is an error, not a skipped directory.
+{
+  const dir = fixture('clean')
+  rmSync(join(dir, 'docs/internal/decisions/index.md'))
+  rmSync(join(dir, 'docs/internal/specs/index.md'))
+  const c = run('docs:check', dir, withoutCi)
+  check('missing index pages exit 1', c.status === 1, c.out)
+  expectAll('missing index pages', c.out, [
+    'docs/internal/decisions/index.md: missing index page',
+    'docs/internal/specs/index.md: missing index page',
+  ])
+}
+
+// 11. The mirror generator: copies a planted source; without one, removes a stale mirror
+// and exits 0, and docs:check passes with neither tree present.
+{
+  const dir = fixture('clean')
+  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
+  const g = run('gen-skills', dir, withoutCi)
+  check('gen-skills mirrors the source', g.status === 0 && g.out.includes('.agents/skills (1 files) mirrored from .claude/skills'), g.out)
+  check('mirror is byte-identical', readFileSync(join(dir, SKILLS_TARGET, 'x/SKILL.md'), 'utf8') === '# x\n')
+  const c = run('docs:check', dir, withoutCi)
+  check('generated mirror passes docs:check', c.status === 0, c.out)
+
+  const none = fixture('clean')
+  plantSkill(none, SKILLS_TARGET, 'z', '# stale\n')
+  const r = run('gen-skills', none, withoutCi)
+  check('gen-skills without a source exits 0', r.status === 0 && r.out.includes('(.claude/skills: not present, mirror removed)'), r.out)
+  check('stale mirror removed', !existsSync(join(none, SKILLS_TARGET)))
+  const n = run('docs:check', none, withoutCi)
+  check('no skills dirs: docs:check exits 0', n.status === 0, n.out)
 }
 
 if (fails.length > 0) {
