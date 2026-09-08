@@ -3,23 +3,22 @@
  * that enable dependency build/postinstall scripts. Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
  */
 import process from 'node:process'
-import { commandOf, resolveHead, segments, tokenize } from './_lexer.mts'
+import { commandOf, exit, resolveHead, run, segments, tokenize } from './_lexer.mts'
 
 const BUILD = /(approve-builds|--allow-build|dangerously[-_]?allow[-_]?all[-_]?builds|dangerouslyAllowAllBuilds)/i
 
-let s = ''
-process.stdin.on('data', (d) => { s += d }).on('end', () => {
+run((s) => {
   const cmd = commandOf(s)
   if (cmd === null) {
     process.stderr.write('build-scripts guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
-    process.exit(2)
+    exit(2)
   }
   for (const seg of segments(cmd)) {
     const toks = tokenize(seg)
     if (resolveHead(toks).head === 'pnpm' && BUILD.test(toks.join(' '))) {
       process.stderr.write('Blocked: enabling dependency build scripts (approve-builds / allow-build flags) is a supply-chain code-exec vector. Human-only: run it yourself in a terminal.\n')
-      process.exit(2)
+      exit(2)
     }
   }
-  process.exit(0)
+  exit(0)
 })

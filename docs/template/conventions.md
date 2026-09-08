@@ -32,7 +32,9 @@ the portability requirement. Concretely:
   Claude Code reads it through a one-line `CLAUDE.md` import, Codex reads it
   natively, and Gemini CLI is pointed at it by `.gemini/settings.json`. Skills
   live once under `.claude/skills/`, reached by Codex and Gemini through a
-  generated `.agents/skills/` copy (no symlinks: Windows is first-class).
+  generated `.agents/skills/` copy (no symlinks: Windows is first-class). The
+  writing rules live once under `.claude/output-styles/` and reach Codex and
+  Gemini through a SessionStart hook rather than a copy.
 * **Template-owned docs**: `docs/template/` holds the rules and agent material
   the template owns — this page, spec discipline, markdown portability, the docs
   toolchain and its recipes. It is synced into children, never rendered by

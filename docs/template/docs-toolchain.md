@@ -45,8 +45,8 @@ It adds a `template` git remote (tags excluded, so template tags never leak
 into your changelog), fetches the ref, and stages the template's version of
 the mechanics paths: the CI, docs, labels, and pages workflows, the label list, the
 agent-task issue template and the PR template, the docs generators and checkers, the guard, sync, docs, and
-gate test-suites, the verify gate, the agent hooks, rules, and skills with their Codex
-and Gemini registrations, the generated `.agents/skills` mirror, the
+gate test-suites, the verify gate, the agent hooks, rules, skills, and output styles
+with their Codex and Gemini registrations, the generated `.agents/skills` mirror, the
 template-owned docs under `docs/template/`, and the sync script itself. Files
 the template retired inside those paths — or a whole path it retired — are
 staged for deletion. Nothing is committed. Review with `git diff --cached`,
@@ -209,18 +209,23 @@ variables.
 ### More agent surfaces
 
 The rulebook is `AGENTS.md`; the guards are the `deny-*` scripts under
-`.claude/hooks/`; the skills live under `.claude/skills/`. Three tools read them:
+`.claude/hooks/`; the skills live under `.claude/skills/`; the writing rules for
+all prose are `.claude/output-styles/writing.md`. Three tools read them:
 
 - **Claude Code** reads `CLAUDE.md` (one line: `@AGENTS.md`), registers the
-  guard dispatcher as a PreToolUse hook in `.claude/settings.json`, and reads
-  skills from `.claude/skills/` only.
+  guard dispatcher as a PreToolUse hook in `.claude/settings.json`, reads
+  skills from `.claude/skills/` only, and applies the writing rules as its
+  output style (`outputStyle` in the same file; `/config` overrides it per
+  machine in the gitignored `settings.local.json`, and restores it).
 - **Codex** reads `AGENTS.md` natively (merged root-down, 32 KiB cap), registers
-  the same dispatcher as a PreToolUse hook in `.codex/hooks.json`, and reads
-  skills from `.agents/skills/`. Project-level `.codex/` config loads only
+  the same dispatcher as a PreToolUse hook and the session hook as a
+  SessionStart hook in `.codex/hooks.json`, and reads skills from
+  `.agents/skills/`. Project-level `.codex/` config loads only
   after you trust the folder, and each hook once via `/hooks`.
 - **Gemini CLI** is told to load `AGENTS.md` by `context.fileName` in
   `.gemini/settings.json`, which also registers the dispatcher as a BeforeTool
-  hook; skills come from the same `.agents/skills/`. Project settings load only
+  hook and the session hook as a SessionStart hook; skills come from the same
+  `.agents/skills/`. Project settings load only
   in a trusted folder.
 - `.agents/skills/` is a generated, committed copy of `.claude/skills/` —
   `pnpm docs:gen` rewrites it, the drift gate and `pnpm docs:check` refuse a
@@ -229,6 +234,18 @@ The rulebook is `AGENTS.md`; the guards are the `deny-*` scripts under
 - The Codex and Gemini registrations run `pnpm -w --silent run guards`, a
   workspace-root script that resolves from any subdirectory on every platform
   with no shell-specific syntax; Claude Code calls the dispatcher directly.
+- The writing rules load at every session start in all three tools from one
+  file. Claude Code carries them in its output style (part of the system
+  prompt, re-reminded during the session). Codex and Gemini run
+  `pnpm -w --silent run session` at SessionStart; `session-start.mts` prints
+  the file, frontmatter stripped, as `additionalContext` (`--silent` matters:
+  Gemini reads stdout as JSON). The hook ignores its payload, always exits 0,
+  and prints nothing when the file is missing, so it can never block a session.
+  Claude Code does not register it: that would inject the text twice. Neither
+  surface reaches Claude Code subagents. Codex caps injected context near
+  2,500 tokens, so `pnpm test:hooks` keeps the file under 4,000 characters.
+  Gemini fingerprints project hooks and asks once after any change to
+  `.gemini/settings.json`, a sync included.
 - The push guard reads `PROTECTED_BRANCHES` from the environment (Claude Code
   exports the `env` block of `.claude/settings.json`) or, when unset, from that
   file itself — so Codex and Gemini honour the same list with nothing to

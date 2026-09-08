@@ -17,8 +17,10 @@ canonical home and leave a link.
 
 Skills (procedures) live in `.claude/skills/` and are mirrored to `.agents/skills/`
 for Codex and Gemini CLI; path-scoped rules live in `.claude/rules/`; the guard
-threat model lives in `docs/template/guards.md`; the words every page uses are
-defined in the [vocabulary](./docs/template/README.md#vocabulary).
+threat model lives in `docs/template/guards.md`; the writing rules for all prose
+live in `.claude/output-styles/writing.md` and load at session start in all three
+tools; the words every page uses are defined in the
+[vocabulary](./docs/template/README.md#vocabulary).
 
 | Topic | Canonical source |
 | --- | --- |

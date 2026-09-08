@@ -1,12 +1,13 @@
 /**
- * Regression suite for the .claude/hooks agent guards. Pipes crafted tool-call
- * JSON to each guard (and to the dispatcher that Claude Code actually registers) and
- * asserts the exit code (2 = deny, 0 = allow). Runs in CI via `pnpm test:hooks` so a
+ * Regression suite for the .claude/hooks agent guards and the session-start hook. Pipes
+ * crafted tool-call JSON to each guard (and to the dispatcher that Claude Code actually
+ * registers) and asserts the exit code (2 = deny, 0 = allow); pipes session payloads to the
+ * session-start hook and asserts the context it prints. Runs in CI via `pnpm test:hooks` so a
  * guard bypass can never ship silently again — every case below is a line an agent might
  * plausibly type. Node builtins only; no deps. Node 24 runs this `.mts` natively.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -413,7 +414,77 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: 'if command -v npm', head: 'npm', probe: true },
 ]
 
+// The session-start hook prints the writing rules as SessionStart context for Codex and
+// Gemini. It never reads the payload, never blocks, and never exits non-zero; the style body
+// arrives without frontmatter or CR, and stays short (Codex caps injected context near
+// 2,500 tokens). SENTINEL is the file's last line, so prose edits do not break the suite.
+const SESSION = 'session-start.mts'
+const STYLE_TEXT = readFileSync(join(HOOKS, '..', 'output-styles', 'writing.md'), 'utf8')
+const SENTINEL = STYLE_TEXT.trim().split('\n').at(-1)!.trim()
+const NOSTYLE_CLAUDE = join(tmp, 'nostyle-claude')
+cpSync(join(HOOKS, '..'), NOSTYLE_CLAUDE, { recursive: true })
+rmSync(join(NOSTYLE_CLAUDE, 'output-styles', 'writing.md'))
+const CRLF_CLAUDE = join(tmp, 'crlf-claude')
+cpSync(join(HOOKS, '..'), CRLF_CLAUDE, { recursive: true })
+writeFileSync(join(CRLF_CLAUDE, 'output-styles', 'writing.md'), STYLE_TEXT.replace(/\r?\n/g, '\r\n'))
+
+interface SessionCase { name: string, raw: string, hooksDir?: string, context: boolean }
+const SESSION_CASES: SessionCase[] = [
+  { name: 'claude startup', raw: '{"hook_event_name":"SessionStart","source":"startup"}', context: true },
+  { name: 'codex resume', raw: JSON.stringify({ ...CODEX, hook_event_name: 'SessionStart', source: 'resume' }), context: true },
+  { name: 'gemini clear', raw: JSON.stringify({ ...GEMINI, hook_event_name: 'SessionStart', source: 'clear' }), context: true },
+  { name: 'empty stdin', raw: '', context: true },
+  { name: 'truncated json', raw: '{', context: true },
+  { name: 'pre-tool shape', raw: '{"tool_input":null}', context: true },
+  { name: 'style file missing', raw: '{"hook_event_name":"SessionStart"}', hooksDir: join(NOSTYLE_CLAUDE, 'hooks'), context: false },
+  { name: 'crlf style file', raw: '{"hook_event_name":"SessionStart"}', hooksDir: join(CRLF_CLAUDE, 'hooks'), context: true },
+]
+
+interface SessionOutput { hookSpecificOutput?: { hookEventName?: string, additionalContext?: string } }
+/** Problems with one session-hook run, empty when it printed the expected context (or none). */
+function sessionProblems(c: SessionCase, status: number | null, stdout: string, stderr: string): string[] {
+  if (status !== 0)
+    return [`exit ${status ?? 'null'}, want 0`]
+  if (!c.context) {
+    const out: string[] = []
+    if (stdout.trim() !== '')
+      out.push('stdout should be empty without a style file')
+    if (!stderr.includes('writing.md'))
+      out.push('stderr should name writing.md')
+    return out
+  }
+  let parsed: SessionOutput
+  try {
+    parsed = JSON.parse(stdout) as SessionOutput
+  }
+  catch {
+    return [`stdout is not JSON: ${stdout.slice(0, 80)}`]
+  }
+  const out: string[] = []
+  const ctx = parsed.hookSpecificOutput?.additionalContext
+  if (parsed.hookSpecificOutput?.hookEventName !== 'SessionStart')
+    out.push('hookEventName should be SessionStart')
+  if (typeof ctx !== 'string')
+    return [...out, 'additionalContext missing']
+  if (!ctx.includes(SENTINEL))
+    out.push('context should end with the style body')
+  if (ctx.startsWith('---') || ctx.includes('keep-coding-instructions'))
+    out.push('context should not carry the frontmatter')
+  if (ctx.includes('\r'))
+    out.push('context should not carry CR')
+  if (ctx.length > 4000)
+    out.push(`context is ${ctx.length} chars; keep the writing rules under 4000`)
+  if (stderr !== '')
+    out.push(`unexpected stderr: ${stderr.slice(0, 80)}`)
+  return out
+}
+
 const fails: string[] = []
+for (const c of SESSION_CASES) {
+  const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, SESSION)], { input: c.raw, encoding: 'utf8' })
+  for (const p of sessionProblems(c, r.status, r.stdout, r.stderr))
+    fails.push(`[${SESSION}] ${c.name}: ${p}`)
+}
 for (const c of LEXER_CASES) {
   const got = resolveHead(tokenize(c.cmd))
   if (got.head !== c.head || got.probe !== (c.probe ?? false))
@@ -430,17 +501,29 @@ for (const c of CASES) {
 }
 
 // A harness that opens stdin and never closes it must not hang the tool call: the dispatcher
-// denies after its timeout. Async on purpose — spawnSync would close the child's stdin.
+// denies after its timeout, the session hook still prints its context and exits 0. Async on
+// purpose — spawnSync would close the child's stdin. Both start before either is awaited, so
+// the suite waits once for the 5s backstop, not twice.
 const hung = spawn(process.execPath, [join(HOOKS, 'dispatch.mts')], { stdio: ['pipe', 'ignore', 'ignore'] })
-const hungStatus = await new Promise<number | null>(resolve => hung.on('exit', resolve))
+const hungSession = spawn(process.execPath, [join(HOOKS, SESSION)], { stdio: ['pipe', 'pipe', 'ignore'] })
+let hungSessionOut = ''
+hungSession.stdout.on('data', (d) => {
+  hungSessionOut += d
+})
+const [hungStatus, hungSessionStatus] = await Promise.all([
+  new Promise<number | null>(resolve => hung.on('exit', resolve)),
+  new Promise<number | null>(resolve => hungSession.on('close', resolve)),
+])
 if (hungStatus !== 2)
   fails.push(`[dispatch.mts] stdin never closed: got ${hungStatus ?? 'null'}, want 2 (timeout deny)`)
+for (const p of sessionProblems({ name: 'stdin never closed', raw: '', context: true }, hungSessionStatus, hungSessionOut, ''))
+  fails.push(`[${SESSION}] stdin never closed: ${p}`)
 
 if (fails.length > 0) {
-  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + 1} failed:\n`)
+  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + SESSION_CASES.length + 2} failed:\n`)
   for (const f of fails)
     console.error(`  ${f}`)
   console.error('')
   process.exit(1)
 }
-console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + the stdin timeout pass`)
+console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${SESSION_CASES.length} session cases + both stdin timeouts pass`)
