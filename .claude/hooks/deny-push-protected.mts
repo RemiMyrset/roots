@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
-import { base, commandOf, gitSubcommand, PNPM_VALUE_FLAG, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+import { base, commandOf, exit, gitSubcommand, PNPM_VALUE_FLAG, resolveHead, run, segments, tokenize, unquote } from './_lexer.mts'
 
 const ENV_VAR = 'PROTECTED_BRANCHES'
 
@@ -135,16 +135,15 @@ function pnpmScript(toks: string[], i: number): string {
   return ''
 }
 
-let s = ''
-process.stdin.on('data', (d) => { s += d }).on('end', () => {
+run((s) => {
   const cmd = commandOf(s)
   if (cmd === null) {
     process.stderr.write('push guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
-    process.exit(2)
+    exit(2)
   }
   const deny = (why: string): never => {
     process.stderr.write(`Blocked: ${why}.\n`)
-    process.exit(2)
+    exit(2)
   }
   for (const seg of segments(cmd)) {
     const toks = tokenize(seg)
@@ -166,5 +165,5 @@ process.stdin.on('data', (d) => { s += d }).on('end', () => {
     if (cl >= 0 && toks.slice(cl + 1).some(t => unquote(t) === '--push'))
       deny('`changelogen --push` pushes to the default branch. Human-only: run it yourself in a terminal')
   }
-  process.exit(0)
+  exit(0)
 })

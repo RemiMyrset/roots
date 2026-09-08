@@ -8,6 +8,8 @@
  * and are synced into arbitrary repos, so this module must never require an npm package.
  * Best-effort lexical detection, NOT a shell — scope and out-of-scope live in SECURITY.md.
  */
+import process from 'node:process'
+
 export const BANNED: ReadonlySet<string> = new Set(['npm', 'yarn', 'bun', 'bunx'])
 
 // Pass-through wrappers whose argv IS the real command: skip them to find the head. An
@@ -236,4 +238,31 @@ export function commandOf(raw: string): string | null {
   catch {
     return null
   }
+}
+
+// Guards run inside a stdin 'end' handler. On Windows, stdio pipes are asynchronous, and
+// process.exit() from inside that handler right after a stderr write aborts the process
+// (STATUS_STACK_BUFFER_OVERRUN, exit 3221226505) instead of returning the code. So a guard
+// never calls process.exit(): exit() records the code and unwinds the handler by throwing a
+// sentinel that run() swallows, and the loop drains on its own once stdin has ended.
+const EXIT: unique symbol = Symbol('exit')
+
+/** Records the guard's exit code and stops the handler; `never` so deny helpers keep their type. */
+export function exit(code: 0 | 2): never {
+  process.exitCode = code
+  throw EXIT
+}
+
+/** Reads all of stdin, then runs the guard body with it; exit() is the only way the body ends early. */
+export function run(body: (raw: string) => void): void {
+  let raw = ''
+  process.stdin.on('data', (d) => { raw += d }).on('end', () => {
+    try {
+      body(raw)
+    }
+    catch (e) {
+      if (e !== EXIT)
+        throw e
+    }
+  })
 }

@@ -7,7 +7,7 @@
  * Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
  */
 import process from 'node:process'
-import { commandOf, gitSubcommand, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+import { commandOf, exit, gitSubcommand, resolveHead, run, segments, tokenize, unquote } from './_lexer.mts'
 
 // Subcommands whose hooks matter here. `-n` means --no-verify only for commit (push: dry-run).
 const HOOKED: ReadonlySet<string> = new Set(['commit', 'push', 'merge'])
@@ -84,19 +84,18 @@ function verdict(toks: string[]): string | null {
   return null
 }
 
-let s = ''
-process.stdin.on('data', (d) => { s += d }).on('end', () => {
+run((s) => {
   const cmd = commandOf(s)
   if (cmd === null) {
     process.stderr.write('hook-bypass guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
-    process.exit(2)
+    exit(2)
   }
   for (const seg of segments(cmd)) {
     const why = verdict(tokenize(seg))
     if (why) {
       process.stderr.write(`Blocked: ${why}. Fix the failing check instead (AGENTS.md non-negotiable rules).\n`)
-      process.exit(2)
+      exit(2)
     }
   }
-  process.exit(0)
+  exit(0)
 })

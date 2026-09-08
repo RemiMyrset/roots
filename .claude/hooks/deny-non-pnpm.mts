@@ -3,14 +3,13 @@
  * command head. Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
  */
 import process from 'node:process'
-import { commandOf, BANNED, resolveHead, segments, tokenize } from './_lexer.mts'
+import { BANNED, commandOf, exit, resolveHead, run, segments, tokenize } from './_lexer.mts'
 
-let s = ''
-process.stdin.on('data', (d) => { s += d }).on('end', () => {
+run((s) => {
   const cmd = commandOf(s)
   if (cmd === null) {
     process.stderr.write('pnpm guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
-    process.exit(2)
+    exit(2)
   }
   const heads: string[] = []
   for (const seg of segments(cmd)) {
@@ -22,7 +21,7 @@ process.stdin.on('data', (d) => { s += d }).on('end', () => {
   }
   if (heads.some(h => BANNED.has(h))) {
     process.stderr.write('Blocked: this repo uses pnpm exclusively (AGENTS.md non-negotiable rules). Re-run with pnpm.\n')
-    process.exit(2)
+    exit(2)
   }
-  process.exit(0)
+  exit(0)
 })

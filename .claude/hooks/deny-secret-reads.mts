@@ -6,7 +6,7 @@
  * SECURITY.md. exit 2 = deny.
  */
 import process from 'node:process'
-import { commandOf, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+import { commandOf, exit, resolveHead, run, segments, tokenize, unquote } from './_lexer.mts'
 
 const READERS: ReadonlySet<string> = new Set([
   'cat', 'head', 'tail', 'less', 'more', 'bat', 'nl', 'tac', 'grep', 'egrep', 'fgrep', 'rg',
@@ -49,16 +49,15 @@ function braceMembers(a: string): string[] {
   return m ? m[2]!.split(',').map(x => m[1]! + x + m[3]!) : [a]
 }
 
-let s = ''
-process.stdin.on('data', (d) => { s += d }).on('end', () => {
+run((s) => {
   const cmd = commandOf(s)
   if (cmd === null) {
     process.stderr.write('secret-read guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
-    process.exit(2)
+    exit(2)
   }
   const deny = (): never => {
     process.stderr.write('Blocked: reading secrets (.env*, .envrc, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks) via the shell is denied — same policy as the Read tool.\n')
-    process.exit(2)
+    exit(2)
   }
   for (const seg of segments(cmd)) {
     const toks = tokenize(seg)
@@ -90,5 +89,5 @@ process.stdin.on('data', (d) => { s += d }).on('end', () => {
     if (args.flatMap(braceMembers).some(isSecret))
       deny()
   }
-  process.exit(0)
+  exit(0)
 })
