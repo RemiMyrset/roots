@@ -3,7 +3,7 @@
  * secret files (.env*, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks) — direct readers, `<` redirects, pnpm-exec
  * wrappers, and `find -exec` at a secret literal. `.env.example` is the one carve-out; other
  * placeholder spellings fail closed. Shared lexing in ./_lexer.mts. Scope and out-of-scope:
- * SECURITY.md. exit 2 = deny.
+ * docs/template/guards.md. exit 2 = deny.
  */
 import process from 'node:process'
 import { commandOf, exit, resolveHead, run, segments, tokenize, unquote } from './_lexer.mts'
@@ -40,7 +40,7 @@ function isSecret(arg: string): boolean {
   // so a backup/copy spelling can never slip a byte-identical secret. `.env.example` is the ONE
   // deliberate carve-out; other placeholder spellings (.env.sample/.template/.dist) fail closed
   // ON PURPOSE — a filename guard cannot verify they hold no real secret, so they are denied
-  // (safe direction, documented in SECURITY.md; never a bypass).
+  // (safe direction, documented in docs/template/guards.md; never a bypass).
   return /^\.env(?:rc)?(?:$|[.\-_~])/.test(b) && b !== '.env.example'
 }
 

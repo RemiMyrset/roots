@@ -14,8 +14,8 @@ internal content cannot leak into it.
   Read it, do not edit it.
 
 The public site build emits its own `llms.txt` (the "SEO for AI" standard) plus
-a markdown copy of every public page into its `dist/`, for web agents on the
-deployed site; the AI discoverability recipe is in
+a markdown copy of every public page but the index into its `dist/`, for web
+agents on the deployed site; the AI discoverability recipe is in
 [docs-toolchain](./template/docs-toolchain.md). Nothing indexes the internal
 handbook for machines; coding agents work from `AGENTS.md` and the indexes.
 

@@ -1,22 +1,17 @@
 /**
  * On-demand template update — no cron, no bot, no token, just git. Pulls the roots
- * mechanics (the CI, docs, labels, and pages workflows, the agent-task issue template, the PR
- * template, the docs generators
- * and checkers, the guard, sync, docs, and gate test-suites, the verify gate, the agent hooks, rules,
- * skills, output styles and the Codex/Gemini registrations, and the template-owned docs under
- * docs/template) from the template repo into this one. Works for a repo made with
- * "Use this template" (no shared git history), a fork or clone (shared history), or one
- * that predates the template.
+ * mechanics (the paths in `MECHANICS` below) from the template repo into this one. Works
+ * for a repo made with "Use this template" (no shared git history), a fork or clone
+ * (shared history), or one that predates the template.
  *
  *   pnpm sync:template                # URL and ref from .template-sync.json, else the defaults
  *   pnpm sync:template <git-url>      # or point at your own fork (recorded for next time)
  *   pnpm sync:template --ref v0.1.0   # pin a template tag or branch (recorded for next time)
  *
- * It stages the template's version of the mechanics paths; nothing is committed.
- * Review `git diff --cached`, keep what you want, discard the rest. Your app code
- * (package.json, src/, packages/, apps/, docs/internal, docs/public, .claude/settings.json)
- * is never touched — only the paths in MECHANICS below, minus `exclude` plus
- * `include` from .template-sync.json.
+ * It stages the template's version of the synced paths; nothing is committed.
+ * Review `git diff --cached`, keep what you want, discard the rest. Nothing else is
+ * touched — only the paths in `MECHANICS` below, minus `exclude` plus `include` from
+ * .template-sync.json.
  *
  * After staging it prints what a file copy cannot carry: the template commits since
  * the last sync (breaking ones marked `!` with their BREAKING CHANGE paragraph) and
@@ -45,13 +40,13 @@ const SELF = 'scripts/sync-template.mts'
 const LOG_CAP = 40
 
 // Shared mechanics worth keeping current across repos. Rarely customized, so a
-// take-theirs-then-review is the right default. Never add package.json, src/,
-// packages/, apps/, docs/internal, docs/public, or .claude/settings.json: those are
-// yours. To pull the shared configs too (tsconfig.base.json, eslint.config.ts,
-// turbo.json, automd.config.ts, .editorconfig), list them under `include` in
-// .template-sync.json; to skip an entry (say .gemini/settings.json once you have
-// customized it), list it under `exclude`. Do not edit this list in a child — the file
-// is synced, and the edit would be staged for revert on the next run.
+// take-theirs-then-review is the right default. The sync touches only the paths in
+// this list; what stays a child's own is in docs/template/sync-template.md (Non-goals).
+// To pull the shared configs too (tsconfig.base.json, eslint.config.ts, turbo.json,
+// automd.config.ts, .editorconfig), list them under `include` in .template-sync.json;
+// to skip an entry (say .gemini/settings.json once you have customized it), list it
+// under `exclude`. Do not edit this list in a child — the file is synced, and the edit
+// would be staged for revert on the next run.
 const MECHANICS = [
   '.github/workflows/ci.yml',
   '.github/workflows/docs.yml',
@@ -229,7 +224,7 @@ function readState(): { state?: SyncState, warning?: string } {
 function writeState(state: SyncState): void {
   // Field order in the file: url, ref, commit, exclude, include.
   const out: StateFile = {
-    $comment: 'Written by scripts/sync-template.mts: the template URL, the branch or tag it tracks ("ref", absent means main), and the last template commit synced into this repo. Commit it together with the sync. "exclude" (mechanics paths to skip) and "include" (extra paths to pull) are yours to edit.',
+    $comment: 'Written by scripts/sync-template.mts: the template URL, the branch or tag it tracks ("ref", absent means main), and the last template commit synced into this repo. Commit it together with the sync. "exclude" (synced paths to skip) and "include" (extra paths to pull) are yours to edit.',
     url: state.url,
     ...(state.ref !== undefined ? { ref: state.ref } : {}),
     commit: state.commit,

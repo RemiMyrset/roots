@@ -59,18 +59,18 @@ defense-in-depth on top of that, never a replacement for it.
 
 What they cover reliably is the direct and common wrapped forms: bare and
 path-prefixed commands, standard wrappers (`sudo`, `env`, `nice`, `timeout`,
-`flock`, `xargs`, …) with their ordinary flags, `pnpm exec` / `dlx` unwrapping,
-`;` / `&&` / `|` / `$()` separators, and glued redirects. A regression suite
-(`pnpm test:hooks`) pins every covered case so a fix for one form never
-silently reopens another.
+`flock`, `xargs`, …) with their ordinary flags, `pnpm exec` / `dlx` / `x`
+unwrapping, `;` / `&&` / `|` / `$()` separators, and glued redirects. A
+regression suite (`pnpm test:hooks`) pins every covered case so a fix for one
+form never silently reopens another.
 
 ## Secret-file protection
 
 Two layers keep secrets out of the agent. The `.claude/settings.json`
 `permissions.deny` Read-tool list enumerates common `.env*` / `.envrc` /
-`.netrc` / `.npmrc` / `secrets/` / `*.pem` / `*.key` / `*.p12` / `*.pfx` /
-`*.jks` names. The Bash-path guard `deny-secret-reads` covers the common
-shell-read forms of the same set (`.env` and `.envrc` matched
+`.netrc` / `_netrc` / `.npmrc` / `secrets/` / `*.pem` / `*.key` / `*.p12` /
+`*.pfx` / `*.jks` names. The Bash-path guard `deny-secret-reads` covers the
+common shell-read forms of the same set (`.env` and `.envrc` matched
 case-insensitively; `.environment` is not matched): direct readers, `<`
 redirects (including `$(<file)` and `<>`), `pnpm exec` wrappers, and
 `find -exec`.
@@ -81,9 +81,9 @@ placeholder spellings (`.env.sample`, `.env.dist`) fail closed because a
 filename cannot prove it holds no secret. Both layers are best-effort per the
 threat model above.
 
-`.npmrc` is denied although a project copy is usually harmless: a filename
-cannot prove it holds no `_authToken`, and `pnpm config list` shows the
-effective config with tokens masked. `.gitignore` covers the same set except
+`.npmrc` is denied: a filename cannot prove it holds no `_authToken`, and
+`pnpm config list` shows the effective config with tokens masked. `.gitignore`
+covers the same set except
 `.npmrc`, which a project may legitimately commit with `${VAR}` references
 (secretlint catches a literal token).
 
@@ -102,9 +102,10 @@ a terminal.
 The deny rules above stop the agent from reading secret files; `secretlint`
 stops a secret already in the working tree from reaching git.
 `pnpm lint:secrets` scans every tracked file with the recommended preset (cloud
-credentials, private keys, tokens; `.gitignore` is honoured), lint-staged runs
-it on every staged file at commit time, and `pnpm verify` and CI run it after
-ESLint. A finding is fixed by removing the secret and rotating it, never by
+credentials, private keys, tokens; `.gitignore` is honoured), the pre-commit
+hook runs it on every staged file ([Hook bypass](#hook-bypass) lists the
+hooks), and `pnpm verify` and CI run it after ESLint. A finding is fixed by
+removing the secret and rotating it, never by
 loosening `.secretlintrc.json`; a deliberate false positive in a test fixture
 gets an inline `secretlint-disable` comment with a reason.
 
@@ -139,7 +140,7 @@ branch pushes to work.
 `git push` and the read-only `gh` commands (`pr create/view/list/checks/diff`,
 `run list/view/watch`, `issue view/list`) are on the Claude Code allowlist, so
 a feature-branch push and a PR creation run without a prompt. That convenience
-rests on this guard (hooks run before allowed commands), and the guard's
+rests on this guard (the guard runs before an allowed command), and the guard's
 out-of-scope list above (nested interpreters first) is why the server-side
 ruleset is the boundary that matters. `gh pr merge` is not allow-listed:
 merging into a protected branch always asks.
@@ -172,13 +173,16 @@ JSON
 
 ## Hook bypass
 
-`deny-hook-bypass` keeps the commit-time checks (commitlint, lint-staged,
-`docs:portability`) in force. It denies `--no-verify` (and its unique
-abbreviations) on `git commit`, `git push`, and `git merge`; `-n` on
-`git commit` (its `--no-verify` alias; `git push -n` is dry-run and passes); a
-`core.hooksPath` override through `git -c` or `--config-env`; and the
-`SKIP_SIMPLE_GIT_HOOKS`, `HUSKY=0`, and `HUSKY_SKIP_HOOKS` environment
-prefixes, whether inline, via `env`, or as an `export` statement.
+The git hooks are installed by `scripts/prepare.mts` at `pnpm install` through
+simple-git-hooks: pre-commit runs lint-staged (ESLint on staged TypeScript,
+secretlint on every staged file) and then `pnpm docs:portability`; commit-msg
+runs commitlint. `deny-hook-bypass` keeps them in force. It denies
+`--no-verify` (and its unique abbreviations) on `git commit`, `git push`, and
+`git merge`; `-n` on `git commit` (its `--no-verify` alias; `git push -n` is
+dry-run and passes); a `core.hooksPath` override through `git -c` or
+`--config-env`; and the `SKIP_SIMPLE_GIT_HOOKS`, `HUSKY=0`, and
+`HUSKY_SKIP_HOOKS` environment prefixes, whether inline, via `env`, or as an
+`export` statement.
 
 Quoted mentions (`-m "no --no-verify here"`) pass. A quote the heuristic cannot
 balance (closed mid-token, or never) makes the whole command fail closed; every

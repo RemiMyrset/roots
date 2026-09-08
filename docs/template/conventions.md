@@ -57,12 +57,12 @@ checks this and blocks.
 automd plus repo generators produce the decisions and specs indexes; CI
 diff-gates the output so generated sections cannot drift.
 
-A synced GitHub Pages workflow publishes `docs/public/` on every push to `main`,
-deploying only where Pages is enabled; the template's own public site is the
-live demo.
+A synced GitHub Pages workflow publishes `docs/public/` on a push to `main`
+that touches its inputs, deploying only where Pages is enabled; the template's
+own public site is the live demo.
 
 The public site build emits `llms.txt` (the [llms.txt](https://llmstxt.org/)
-standard, "SEO for AI") plus a markdown copy of every page, via
+standard, "SEO for AI") plus a markdown copy of every page but the index, via
 `vitepress-plugin-llms`; that is the web-facing artifact for crawlers and agents
 on a deployed site. There is no committed repo-wide map and no concatenated
 `llms-full.txt`: coding agents inside a checkout have the rulebook, the indexes,

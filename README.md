@@ -118,7 +118,8 @@ flowchart LR
    on public repositories, GitHub Pro on private ones.
 8. **Publish the public docs (optional).** Enable GitHub Pages with
    `gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow`; the `pages`
-   workflow deploys `docs/public/` on every push to `main` from then on. Then
+   workflow deploys `docs/public/` on each push to `main` that touches its
+   inputs from then on. Then
    `gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/`.
    **(skill)**
 
@@ -145,7 +146,7 @@ pnpm install
 | `pnpm --filter @repo/example-package test` | One package's tests (`test:watch` for watch mode) |
 | `pnpm --filter @repo/example-app start` | Runs the sample CLI (`node src/main.ts`) against the sample package |
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
-| `pnpm lint:secrets` | secretlint over every tracked file (also runs on staged files at commit) |
+| `pnpm lint:secrets` | secretlint over every tracked file |
 | `pnpm test:hooks` | Agent guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm test:docs` | Docs checker fixtures (a clean tree and a broken one, node only) |

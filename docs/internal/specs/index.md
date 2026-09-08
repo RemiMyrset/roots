@@ -22,8 +22,8 @@ are in `docs/template/spec-discipline.md` (template-owned, outside this site).
    the `new-spec` skill). Create an `<area>` folder when the first spec in a
    domain appears (for example `api/`, `cli/`, `domain/`); the index and
    sidebar discover new areas automatically.
-2. Fill the Source, Tests, and Last-reviewed bullets. `pnpm docs:check`
-   verifies the paths resolve and warns on stale review dates.
+2. Fill the Source, Tests, and `- **Last reviewed:**` bullets.
+   `pnpm docs:check` verifies the paths resolve and warns on stale review dates.
 3. Number the Behavior branches; every branch is binary pass/fail.
 4. Run `pnpm docs:gen`. The index below is generated; never hand-edit it.
 

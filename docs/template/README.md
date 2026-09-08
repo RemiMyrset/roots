@@ -17,8 +17,8 @@ of the template shares.
 
 `pnpm sync:template` pulls the template's version of this folder like any other
 mechanic. Do not add or edit files here; extend `AGENTS.md` or `docs/internal/`
-instead. To diverge on one page deliberately, list it under `exclude` in
-`.template-sync.json`.
+instead. `exclude` in `.template-sync.json` takes whole synced paths, so this
+folder can only be excluded as a unit (`docs/template`), never one page of it.
 
 Neither VitePress site renders this folder; it is read on GitHub and in
 Obsidian. Pages inside the internal site name these files as paths, because
@@ -41,8 +41,8 @@ One word per concept, used the same way in every page, skill, and script.
 - The **writing rules** are `.claude/output-styles/writing.md`, the one prose
   rulebook, loaded at session start in all three tools.
 - The **guards** are the agent pre-tool guards under `.claude/hooks/` that deny
-  a command before it runs. Never "hooks": the **git hooks** are commitlint,
-  lint-staged, and secretlint running through simple-git-hooks at commit time.
+  a command before it runs. Never "hooks": the **git hooks** are the commit-time
+  checks listed under [Hook bypass](./guards.md#hook-bypass) in guards.
 - The **done gate** is `pnpm verify`, singular: every CI check in CI order.
 - The **sync point** is the template commit recorded in `.template-sync.json`.
 - A **decision** is a record of why, under `docs/internal/decisions/`. A

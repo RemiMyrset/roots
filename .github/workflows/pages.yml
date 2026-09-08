@@ -3,8 +3,9 @@
 # its own) and deploys only when Pages is enabled for the repository: Settings →
 # Pages → Source: GitHub Actions, or
 #   gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow
-# A repository that never enables Pages sees a green run that says "built, not
-# deployed". Recipe: docs/template/docs-toolchain.md, "Publish the public site".
+# A repository that never enables Pages sees a green run whose notice says "the
+# site was built but not deployed". Recipe: docs/template/docs-toolchain.md,
+# "Publish the public site".
 # Action pinning: GitHub-owned actions/* by major tag; third-party by full SHA.
 name: pages
 

@@ -46,10 +46,10 @@ and overview docs link to both without restating them.
 
 ## Generated vs hand-written
 
-`pnpm docs:gen` generates the decisions index and the specs index. The
-VitePress sidebars are derived at build time from the same readers, so they
-cannot drift either. Never hand-edit generated output; change the source files
-and re-run.
+`pnpm docs:gen` generates the decisions index and the specs index, and
+rewrites the `.agents/skills` mirror. The VitePress sidebars are derived at
+build time from the same readers, so they cannot drift either. Never hand-edit
+generated output; change the source files and re-run.
 
 `pnpm docs:check` enforces the couplings generation cannot: Source and Tests
 paths resolve, formats hold, and stale review dates surface as warnings for a

@@ -25,8 +25,9 @@ export default withMermaid(defineConfig({
   ...(url ? { sitemap: { hostname: url } } : {}),
   vite: {
     // Emits llms.txt (the "SEO for AI" standard) plus a markdown copy of every page
-    // into THIS site's build output (dist), for crawlers and agents on the deployed
-    // site; `domain` makes its links absolute once the workflow supplies the URL.
+    // but the index into THIS site's build output (dist), for crawlers and agents on
+    // the deployed site; `domain` makes its links absolute once the workflow supplies
+    // the URL.
     // generateLLMsFullTxt is off deliberately: a concatenated corpus is in no version
     // of the llms.txt spec, and v2 is a search-the-map-then-follow-links model.
     // The plugin needs at least one page beside index.md to emit llms.txt at all —

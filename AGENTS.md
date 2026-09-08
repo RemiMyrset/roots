@@ -130,8 +130,7 @@ relative to the file holding it.
      would repeat, add a one-line entry in the same PR; delete entries that stop
      being true. -->
 
-- `pnpm docs:gen` mutates files; never run it inside a pre-commit hook (the
-  pre-commit hook runs the read-only `docs:portability` instead).
+- `pnpm docs:gen` mutates files; never run it inside a pre-commit hook.
 - automd swallows generator failures: it writes the error into the marker region
   as a comment, exits 0, and re-runs byte-identical, so the drift gate stays
   green. `pnpm docs:check` catches it; never commit a generated region containing

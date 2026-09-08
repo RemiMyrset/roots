@@ -2,7 +2,7 @@
 
 - **Source:** `scripts/sync-template.mts`
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
-- **Last reviewed:** 2026-09-07
+- **Last reviewed:** 2026-09-08
 
 The contract for `pnpm sync:template`; the tests pin this page. The
 user-facing recipe is in [docs-toolchain](./docs-toolchain.md).
@@ -28,10 +28,10 @@ scripts that now differ).
 
 ## Contract
 
-Invocation is `node scripts/sync-template.mts [git-url] [--ref <ref>]`, as
-`pnpm sync:template`. It runs from any directory inside the repository and
-changes to the git top level first. Any other option, or a second bare
-argument, is refused.
+Invocation is `node scripts/sync-template.mts [git-url] [--ref <ref>]`
+(`--ref=<ref>` also works), as `pnpm sync:template`. It runs from any
+directory inside the repository and changes to the git top level first. Any
+other option, or a second bare argument, is refused.
 
 The template URL is the first match of: the argument; `url` in
 `.template-sync.json`; the existing `template` remote; the built-in roots URL.
@@ -47,9 +47,11 @@ changelogen in this repository cannot see template tags). A name that is both
 resolves as the branch.
 
 The synced paths are the `MECHANICS` list in the script, minus `exclude`, plus
-`include` from the state file. Entries are files or directories, and a
-directory means every tracked file under it. `.agents/skills` is a generated
-copy of `.claude/skills` (no symlinks anywhere), so it syncs as plain files.
+`include` from the state file. An `exclude` entry matches a whole `MECHANICS`
+entry, never a file inside one; an `include` entry already in the list is
+ignored. Entries are files or directories, and a directory means every tracked
+file under it. `.agents/skills` is a generated copy of `.claude/skills` (no
+symlinks anywhere), so it syncs as plain files.
 
 The state file `.template-sync.json` at the repo root is written with LF and
 staged whenever it changes:
@@ -60,7 +62,7 @@ staged whenever it changes:
   "url": "https://github.com/RemiMyrset/roots.git",
   "ref": "<branch or tag; absent means main>",
   "commit": "<40 hex, the template commit whose mechanics are staged>",
-  "exclude": ["<mechanics path to skip>"],
+  "exclude": ["<synced path to skip>"],
   "include": ["<extra path to pull>"]
 }
 ```
@@ -82,28 +84,42 @@ accepted only when at least one synced path is identical between the two; else
 none. Later syncs use the recorded commit.
 
 Exit `0` means the sync staged changes or was already up to date. Exit `1`
-means one of: not inside a git repository; an unknown option; a refused URL or
-ref; the repository's `origin` is the template URL; a synced path has
-uncommitted changes; the ref cannot be fetched as a branch or a tag; none of
-the synced paths exist on the template; no synced path could be checked out.
-On exit `1` nothing has been staged, the state file is untouched, and the
-failure is printed on stderr with a leading `✖`.
+means one of: not inside a git repository; an unknown option or a second bare
+argument; a refused URL or ref; the repository's `origin` is the template URL;
+a synced path has uncommitted changes; the ref cannot be fetched as a branch or
+a tag; none of the synced paths exist on the template; no synced path could be
+checked out. On exit `1` the state file is untouched, the script stages nothing
+further, and the failure is printed on stderr with a leading `✖`. The
+`template` remote may already be set, since it is added before the fetch.
+
+A skipped path is in one of two states. When git aborted (a required filter
+failed), the file being written is gone, the files git wrote earlier in the
+same directory stay in the worktree unstaged (new ones untracked), and nothing
+is staged. When git reported a per-file error and went on (a locked or
+read-only file), the path is staged from the template while the file keeps its
+old bytes. When every checkout fails, the files the template retired are
+already staged for deletion. `git restore --staged --worktree -- <path>`
+returns the staged and modified files to HEAD; an untracked leftover needs
+`git clean -n -- <path>` first, then the same command without `-n`. The next
+sync's dirty check refuses untracked files under the synced paths.
 
 stdout, in order:
 
 1. `Template: <url>`.
-2. `Fetched template/<ref> at <sha>`, with a `(tag)` suffix when pinned to a
-   tag, ending in one of "first sync", "unchanged since last sync", "N commits
-   since last sync" followed by the commit list, "is ahead of it" (the recorded
-   commit is newer than the ref being synced to), or "not in its history".
+2. `Fetched template/<ref> at <sha>` (`Fetched template/<ref> (tag) at <sha>`
+   when pinned to a tag), ending in one of "first sync", "unchanged since last
+   sync", "N commits since last sync" followed by the commit list, "is ahead of
+   it" (the recorded commit is newer than the ref being synced to), or "not in
+   its history".
 3. On a first sync, exactly one `Baseline:` line: `<sha> (shared history)`,
    `<sha> (root tree)`, `<sha> (root time)`, or `none`, each with a note; then
    `No template commits since the baseline.` or "N commits since the baseline"
    followed by the commit list.
 4. Either `Already up to date — nothing staged.` or a `Staged` header followed
    by one line per staged entry: the status letter (`M`, `A`, `D`, `R`), two
-   spaces, the path. Then, only when a checkout failed, a `Skipped` header with
-   one `<path>  <reason>` line each.
+   spaces, the path, and for the script itself the suffix
+   `(this script — the new version runs next time)`. Then, only when a checkout
+   failed, a `Skipped` header with one `<path>  <reason>` line each.
 5. `Follow-ups: none new.`, `Follow-ups: skipped` with a reason, or a
    `Follow-ups` header followed by one block per script (the key, its label,
    `template:`, `yours:`, and an optional `note:` line), then an optional
@@ -113,8 +129,9 @@ stdout, in order:
 
 Commit lines are `  ! <sha> <subject>` for breaking commits and
 `    <sha> <subject>` otherwise, newest first, capped at 40, with the
-`BREAKING CHANGE` paragraph indented beneath its commit. Warnings and errors go
-to stderr.
+`BREAKING CHANGE` paragraph indented beneath its commit. Past 40 the list ends
+with `… and N more`; every list ends with `Full log: git log <from>..<head>`.
+Warnings and errors go to stderr.
 
 ## Behavior
 
@@ -153,7 +170,7 @@ to stderr.
 10. Given no `package.json` in the repository, when run, then follow-ups are
     skipped with "no package.json here" and the sync otherwise proceeds.
 11. Given `exclude` and `include` lists in the state, when run, then excluded
-    mechanics paths are not staged, included paths are, and both lists survive
+    synced paths are not staged, included paths are, and both lists survive
     the state rewrite.
 12. Given no URL argument and no `template` remote, when a state file exists,
     then its `url` is used and the remote is re-added.
@@ -202,6 +219,9 @@ to stderr.
 23. Given a synced path whose checkout fails, when run, then the path and the
     first line of git's reason appear under `Skipped`, the other paths are still
     staged, and exit is `0`; when every checkout fails, exit `1` with the list.
+    Files git wrote before an abort stay in the worktree unstaged, new ones
+    untracked, and the next run's dirty check refuses them until they are
+    restored or cleaned.
 
 ## Edge cases and gotchas
 

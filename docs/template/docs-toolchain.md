@@ -7,13 +7,13 @@ purpose.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm docs:gen` | automd indexes: decisions and specs (mutates files) |
+| `pnpm docs:gen` | automd indexes (decisions and specs) and the `.agents/skills` mirror (mutates files) |
 | `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness |
 | `pnpm docs:portability` | trifecta lint (GitHub + VitePress + Obsidian), blocking |
-| `pnpm docs:internal:dev` / `docs:internal:build` | internal handbook site |
-| `pnpm docs:public:dev` / `docs:public:build` | public site |
+| `pnpm docs:internal:dev` / `docs:internal:build` | internal handbook site: preview / build |
+| `pnpm docs:public:dev` / `docs:public:build` | public site: preview / build |
 
-All of them run inside the done gate, `pnpm verify`. CI
+All but the two `dev` previews run inside the done gate, `pnpm verify`. CI
 (`.github/workflows/docs.yml`) runs gen (diff-gated), check, portability, and
 both site builds, all blocking, plus an advisory spec-discipline nudge on PRs.
 
@@ -48,11 +48,11 @@ into your changelog), fetches the ref, and stages the template's version of
 the mechanics paths. Those are the CI, docs, labels, and pages workflows,
 the label list, the agent-task issue template and the PR template, the docs
 generators and checkers, the guard, sync, docs, and gate test-suites, the
-verify gate, the agent hooks, rules, skills, and output styles with their
-Codex and Gemini registrations, the generated `.agents/skills` mirror, the
-template-owned docs under `docs/template/`, and the sync script itself. A file
-the template retired inside those paths, or a whole path it retired, is staged
-for deletion.
+verify gate, the git-hook installer `scripts/prepare.mts`, the agent hooks,
+rules, skills, and output styles with their Codex and Gemini registrations, the
+generated `.agents/skills` mirror, the template-owned docs under
+`docs/template/`, and the sync script itself. A file the template retired
+inside those paths, or a whole path it retired, is staged for deletion.
 
 Nothing is committed. Review with `git diff --cached`, keep what applies, and
 discard the rest with `git restore --staged --worktree <path>`. Your
@@ -91,12 +91,14 @@ The sync point lives in `.template-sync.json` at the repo root: the template
 URL, the ref it tracks, and the last synced commit. The script writes it and
 stages it with the sync, so commit them together.
 
-The same file customizes the sync. List a mechanics path under `exclude` to
-stop pulling it (say `.gemini/settings.json` once you have local Gemini
-settings), or an extra path under `include` (for example `tsconfig.base.json`
-or `eslint.config.ts`) to pull it too. Never edit the `MECHANICS` list in the
-script itself: the script is synced, and the edit would be staged for revert
-on the next run.
+The same file customizes the sync. List a synced path under `exclude` to stop
+pulling it (say `.gemini/settings.json` once you have local Gemini settings),
+or an extra path under `include` (for example `tsconfig.base.json` or
+`eslint.config.ts`) to pull it too. An `exclude` entry must be a whole
+`MECHANICS` entry: one file inside a synced directory such as `docs/template`
+cannot be excluded on its own. Never edit the `MECHANICS` list in the script
+itself: the script is synced, and the edit would be staged for revert on the
+next run.
 
 `--ref` pins a template tag or branch and remembers it in the state file. Tags
 are fetched into `refs/template-tags/`, never `refs/tags/`, so `pnpm release`
@@ -140,12 +142,13 @@ human decision. The full contract, exit codes, and behavior branches are in
 
 ### Publish the public site on GitHub Pages
 
-`.github/workflows/pages.yml` is the standard, and it is synced. On every push
-to `main` that touches `docs/public/`, the shared VitePress fragment, or the
-lockfile (and on manual dispatch) it builds the public site, and when GitHub
-Pages is enabled for the repository it also deploys it. Until then the run is
-green and says "built, not deployed", so a repository that never wants a
-public site pays nothing and sees no red.
+`.github/workflows/pages.yml` is the standard, and it is synced. On a push to
+`main` that touches `docs/public/`, `docs/.shared/`, `package.json`, the
+lockfile, or the workflow file itself (and on manual dispatch) it builds the
+public site, and when GitHub Pages is enabled for the repository it also
+deploys it. Until then the run is green and says "the site was built but not
+deployed", so a repository that never wants a public site pays nothing and
+sees no red.
 
 Enable it once, either under Settings → Pages → Build and deployment → Source:
 GitHub Actions, or:
@@ -169,9 +172,10 @@ and keep relative links.
 
 The public build emits `/llms.txt`, the [llms.txt](https://llmstxt.org/)
 standard that crawlers and agents fetch first, plus a clean markdown copy of
-every page next to its HTML, via `vitepress-plugin-llms`. Published through
-the workflow, its links are absolute and a sitemap sits beside it. The public
-site ships no `robots.txt`, so AI crawlers are allowed by default.
+every page but the index next to its HTML, via `vitepress-plugin-llms`; the
+template's own `dist/` holds `llms.txt` and `getting-started.md`. Published
+through the workflow, its links are absolute and a sitemap sits beside it. The
+public site ships no `robots.txt`, so AI crawlers are allowed by default.
 
 `generateLLMsFullTxt` stays off: a concatenated corpus is in no version of the
 standard, which is a search-the-map-then-follow-links model. The internal site

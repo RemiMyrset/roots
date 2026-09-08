@@ -1,6 +1,6 @@
 /**
  * deny-build-scripts guard body (run via dispatch.mts). Blocks pnpm invocations
- * that enable dependency build/postinstall scripts. Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
+ * that enable dependency build/postinstall scripts. Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md. exit 2 = deny.
  */
 import process from 'node:process'
 import { commandOf, exit, resolveHead, run, segments, tokenize } from './_lexer.mts'
