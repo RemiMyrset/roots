@@ -1,53 +1,51 @@
 # Template-owned docs
 
-Everything in this folder is owned by the [roots](https://github.com/RemiMyrset/roots)
-template, not by this repository. It holds the repository-level rules and agent
-material that every child of the template shares:
+The [roots](https://github.com/RemiMyrset/roots) template owns every file in
+this folder. They are the repository-level rules and agent material every child
+of the template shares.
 
-- [conventions](./conventions.md) — what roots is, why it is shaped this way, and
+- [conventions](./conventions.md): what roots is, why it is shaped this way, and
   what that costs.
-- [spec-discipline](./spec-discipline.md) — one fact, one home; three-place sync.
-- [markdown-portability](./markdown-portability.md) — the authoring rules every
+- [spec-discipline](./spec-discipline.md): one fact, one home; three-place sync.
+- [markdown-portability](./markdown-portability.md): the authoring rules every
   doc follows.
-- [docs-toolchain](./docs-toolchain.md) — how the docs mechanics work, plus the
+- [docs-toolchain](./docs-toolchain.md): how the docs mechanics work, plus the
   recipes for everything roots deliberately does not ship wired.
-- [sync-template](./sync-template.md) — the contract behind `pnpm sync:template`.
-- [guards](./guards.md) — the agent guards' threat model: what they catch, what
+- [sync-template](./sync-template.md): the contract behind `pnpm sync:template`.
+- [guards](./guards.md): the agent guards' threat model, what they catch, what
   they do not, and the server-side boundaries behind them.
 
-Three things follow from "template-owned":
+`pnpm sync:template` pulls the template's version of this folder like any other
+mechanic. Do not add or edit files here; extend `AGENTS.md` or `docs/internal/`
+instead. To diverge on one page deliberately, list it under `exclude` in
+`.template-sync.json`.
 
-1. **It is synced.** `pnpm sync:template` pulls the template's version of this
-   folder like any other mechanic. Do not add or edit files here — extend
-   `AGENTS.md` or `docs/internal/` instead. To diverge on one page deliberately,
-   list it under `exclude` in `.template-sync.json`.
-2. **It is never rendered.** Neither VitePress site reads this folder; it is read
-   on GitHub and in Obsidian. Pages inside the internal site name these files as
-   paths rather than linking to them, because VitePress rejects links to pages
-   it does not build.
-3. **It follows the same rules.** `pnpm docs:portability` lints it with the rest
-   of `docs/`.
+Neither VitePress site renders this folder; it is read on GitHub and in
+Obsidian. Pages inside the internal site name these files as paths, because
+VitePress rejects links to pages it does not build.
+
+`pnpm docs:portability` lints it with the rest of `docs/`.
 
 ## Vocabulary
 
-One word per concept, used the same way in every page, skill, and script:
+One word per concept, used the same way in every page, skill, and script.
 
-- **template** — roots, the repository these files come from. **child** — a
-  repository made from it, whether by "Use this template", fork, or clone.
-- **mechanics** — the paths `pnpm sync:template` keeps current (the synced
-  paths); **template-owned** — a file the template maintains and a child never
-  edits.
-- **rulebook** — `AGENTS.md`, the one agent-instruction file; **skills** — the
-  procedures under `.claude/skills/` (mirrored to `.agents/skills/` for Codex
-  and Gemini CLI).
-- **writing rules** — `.claude/output-styles/writing.md`, the one prose
+- The **template** is roots, the repository these files come from. A **child**
+  is a repository made from it, whether by "Use this template", fork, or clone.
+- The **mechanics** are the paths `pnpm sync:template` keeps current (the
+  synced paths). A **template-owned** file is one the template maintains and a
+  child never edits.
+- The **rulebook** is `AGENTS.md`, the one agent-instruction file. The
+  **skills** are the procedures under `.claude/skills/`, mirrored to
+  `.agents/skills/` for Codex and Gemini CLI.
+- The **writing rules** are `.claude/output-styles/writing.md`, the one prose
   rulebook, loaded at session start in all three tools.
-- **guards** — the agent pre-tool guards under `.claude/hooks/` that deny a
-  command before it runs. Never "hooks": **git hooks** are commitlint,
+- The **guards** are the agent pre-tool guards under `.claude/hooks/` that deny
+  a command before it runs. Never "hooks": the **git hooks** are commitlint,
   lint-staged, and secretlint running through simple-git-hooks at commit time.
-- **done gate** — `pnpm verify`, singular: every CI check in CI order.
-- **sync point** — the template commit recorded in `.template-sync.json`.
-- **decision** — a record of why, under `docs/internal/decisions/`; **spec** —
-  a contract of what, under `docs/internal/specs/`.
-- **handbook** — the internal VitePress site (`docs/internal/`); **public
-  site** — `docs/public/`, the surface for the open web.
+- The **done gate** is `pnpm verify`, singular: every CI check in CI order.
+- The **sync point** is the template commit recorded in `.template-sync.json`.
+- A **decision** is a record of why, under `docs/internal/decisions/`. A
+  **spec** is a contract of what, under `docs/internal/specs/`.
+- The **handbook** is the internal VitePress site (`docs/internal/`). The
+  **public site** is `docs/public/`, the surface for the open web.

@@ -1,8 +1,7 @@
 # Contributing
 
-Thanks for helping. This repository is opinionated on purpose; the rules below
-are enforced by tooling, so following them is mostly a matter of running the
-commands.
+This repository is opinionated on purpose. Tooling enforces the rules below, so
+following them is a matter of running the commands.
 
 1. **Read the rulebook.** [AGENTS.md](./AGENTS.md) is the contract for humans and
    AI agents alike: pnpm only, TypeScript only, no classes, a doc block on every
@@ -19,7 +18,7 @@ commands.
    characters; commitlint enforces it and the changelog is built from them. A
    change that requires downstream hand-edits carries a `BREAKING CHANGE` footer.
 6. **Behavior changes travel together.** Source, tests, and the spec change in
-   the same PR; a load-bearing choice gets a decision record. The rules:
+   the same PR; a load-bearing choice gets a decision record. The rules are in
    [spec-discipline](./docs/template/spec-discipline.md).
 7. **Where docs go.** Decisions and specs under `docs/internal/`, user-facing
    pages under `docs/public/`. `docs/template/` is synced from the template and

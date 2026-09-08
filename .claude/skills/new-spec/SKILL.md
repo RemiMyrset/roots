@@ -7,12 +7,12 @@ description: Create a new specification (capability or entity spec) in the right
 
 Create a spec under `docs/internal/specs/<area>/`.
 
-1. Decide the kind: a **capability spec** covers one route/command/observable
-   behavior; an **entity spec** covers one entity's cross-cutting invariants
-   (uniqueness, casing, limits). Capability specs LINK to entity specs for
-   shared invariants — never restate them.
+1. Decide the kind: a capability spec covers one route, command, or observable
+   behavior; an entity spec covers one entity's cross-cutting invariants
+   (uniqueness, casing, limits). Capability specs link to entity specs for
+   shared invariants, never restate them.
 2. Pick or create the `<area>` folder (for example `api/`, `cli/`, `domain/`).
-   New areas are discovered automatically by the index and sidebar.
+   The index and sidebar discover new areas automatically.
 3. Copy `docs/internal/specs/_template.md` to `<area>/<name>.md` and fill it:
    Source and Tests bullets as backticked repo-relative paths (`(pending)` is
    legal spec-first), `- **Last reviewed:**` today. Purpose, Non-goals, Contract
@@ -20,8 +20,8 @@ Create a spec under `docs/internal/specs/<area>/`.
    Given/When/Then branches, Edge cases.
 4. A reader of the spec must be able to write the tests without seeing the
    source. If a branch cannot be phrased as pass/fail, it is not specified yet.
-5. Run `pnpm docs:gen`, then `pnpm docs:check` — both must pass before you are
-   done. If this spec ships with a behavior change, source and tests move in the
-   same PR (three-place sync).
+5. Run `pnpm docs:gen`, then `pnpm docs:check`; both must pass. If this spec
+   ships with a behavior change, source and tests move in the same PR
+   (three-place sync).
 
 $ARGUMENTS is the capability or entity to spec if provided.
