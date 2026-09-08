@@ -114,6 +114,14 @@ delete withoutCi[CI_KEY]
     'README.md:18  duplicate heading "Broken fixture" (also line 4)',
     'README.md:20  VitePress @include',
     'README.md:22  heading with backticks',
+    'README.md:24  root-absolute inline link "/"',
+    'README.md:26  absolute link "[abs]: /abs.md"',
+    'README.md:28  broken anchor: ./AGENTS.md#nope (rule 1)',
+    'README.md:31  second H1 "Second H1" (first at line 4)',
+    'README.md:33  callout type "[!tip]"',
+    'docs/internal/README.md  no H1',
+    'docs/internal/README.md  README.md inside a site directory',
+    'docs/index.md  index.md outside a site directory',
   ])
 }
 
