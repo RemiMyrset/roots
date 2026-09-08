@@ -1,6 +1,6 @@
 ---
 name: release
-description: Prepare a release with changelogen. Pre-flight gates, changelog preview, and the exact command for the human to run. Use only when the user explicitly asks, with "release", "cut a release", "ship a version", "tag a release". Never unprompted. The release itself (pnpm release) pushes commits and tags to the default branch, so the push guard denies it to agents; the human runs it.
+description: Prepare a release with changelogen. Pre-flight checks, changelog preview, and the exact command for the human to run. Use only when the user explicitly asks, with "release", "cut a release", "ship a version", "tag a release". Never unprompted. The release itself (pnpm release) pushes commits and tags to the default branch, so the push guard denies it to agents; the human runs it.
 ---
 
 # Release
@@ -17,10 +17,8 @@ The push happens inside changelogen, so the `deny-push-protected` guard denies
 handing over the command; never work around the guard.
 
 1. Pre-flight: working tree clean, on the default branch, in sync with origin.
-   Then `pnpm build && pnpm test && pnpm typecheck && pnpm lint`, plus the docs
-   gate (verify-docs skill, or `pnpm docs:gen` with `git status --porcelain`
-   quiet afterward, then `pnpm docs:check && pnpm docs:portability`). Fix
-   failures first; never prepare a release over a red gate.
+   Then `pnpm verify`. Fix failures first; never prepare a release over a red
+   gate.
 2. Preview: `pnpm exec changelogen` (no flags) prints the pending changelog
    entries without writing anything or computing a version. The human chooses
    the bump: `pnpm release --patch|--minor|--major`, or `pnpm release -r <version>`

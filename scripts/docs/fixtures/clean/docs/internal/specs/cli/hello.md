@@ -1,7 +1,7 @@
 # Hello
 
 - **Source:** `src/hello.txt`
-- **Tests:** `test/hello.txt` — fixture
+- **Tests:** `test/hello.txt` (`add`)
 - **Last reviewed:** 2026-09-07
 
 ## Behavior

@@ -5,7 +5,7 @@
  * PROTECTED_BRANCHES (comma-separated globs, `*` matches any run of characters) in the
  * `env` block of .claude/settings.json; unset means `main`. Implicit targets (`git push`,
  * `HEAD`) resolve through `git symbolic-ref` in the cwd; an unresolvable target is denied.
- * Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
+ * Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md. exit 2 = deny.
  */
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'

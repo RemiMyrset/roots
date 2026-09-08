@@ -1,10 +1,6 @@
 # Getting started
 
-In your repository, replace this page with real onboarding for your product:
-installation, first use, and a minimal working example. Keep at least one page
-beside the index.
-
-For the roots template itself, getting started is three steps:
+Three steps:
 
 1. **Use this template** on
    [github.com/RemiMyrset/roots](https://github.com/RemiMyrset/roots) and clone

@@ -1,26 +1,29 @@
 /**
  * Structural lint for the decisions/specs system — enforces the couplings that
- * generation cannot: record format, metadata bullets, supersede links, spec
- * Source/Tests paths resolving on disk, review-date freshness, index pages
- * carrying their automd markers, the template-owned contract pages that follow
- * the spec shape, the agent-skills mirror, and the AGENTS.md line budget.
+ * generation cannot: record format, metadata bullets, supersede links and the record
+ * they point at, spec Source/Tests paths resolving on disk, review-date freshness, index
+ * pages carrying their automd markers, every automd region under docs/ closed, free of
+ * automd's warning comment, and current with the generators, the template-owned contract
+ * pages that follow the spec shape, the agent-skills mirror, and the AGENTS.md line budget.
  *
  * Blocking errors exit 1; warnings print but pass (GitHub annotations in CI). A
- * missing decisions, specs, or template directory is skipped with a note, so the
+ * missing docs, decisions, specs, or template directory is skipped with a note, so the
  * checker also runs in a repo that synced scripts/docs without the docs layout.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
-import { DECISION_FILE_RE, repoRoot, SKIP_DIRS, STATUS_BULLET_RE, WARN } from './root.mts'
+import { readDecisions, readSpecs, renderDecisionsIndex, renderSpecIndex } from './readers.mts'
+import { AUTOMD_CLOSE_RE, AUTOMD_OPEN_RE, AUTOMD_WARNING, byCodeUnit, DECISION_FILE_RE, DECISION_H1_RE, DECISIONS_DIR, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
 import { posixRelative, skillDrift, SKILLS_SOURCE, SKILLS_TARGET } from './skills.mts'
 
 const STALE_DAYS = 180
 // Prefix-anchored on purpose: a "superseded by [NNNN](./…)" status carries a trailing
 // markdown link, so the vocabulary matches the leading keyword only, not the whole line.
 const STATUS_VOCAB = /^(?:proposed|accepted|rejected|deprecated|superseded by \[?\d{4}\]?)/
-const DECISION_H1_RE = /^# (\d{4})\. \S/m
-const SUPERSEDED_LINK_RE = /superseded by \[\d{4}\]\(\.\/\d{4}-[a-z0-9-]+\.md\)/
+// Prefix-anchored like STATUS_VOCAB, so trailing text stays accepted; group 2 is the link
+// target, whose number must repeat the displayed one.
+const SUPERSEDED_LINK_RE = /^superseded by \[(\d{4})\]\((\.\/\1-[a-z0-9-]+\.md)\)/
 const DATE_BULLET_RE = /^- \*\*Date:\*\*(.*)$/m
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -32,38 +35,15 @@ function isRealIsoDate(s: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
 }
 const BACKTICK_PATH_RE = /`([^`]+)`/g
+const PATH_CHARS_RE = /^[\w@./-]+$/
+const EXTENSION_RE = /\.\w+$/
 const REVIEWED_BULLET_RE = /^- \*\*Last reviewed:\*\*\s*(\d{4}-\d{2}-\d{2})/m
-// automd turns a generator throw into document CONTENT rather than a failure: it writes
-// `<!-- U+26A0 (generatorName) message -->` into the marker region and still exits 0. Once
-// that comment is committed, regeneration is byte-identical, so the CI drift gate (docs:gen then
-// `git status --porcelain`) can never see it, and check-portability strips HTML comments
-// before scanning. This is the only check that catches it.
-// Escaped, never pasted: automd's sentinel is U+26A0 followed by U+FE0F and two spaces, and
-// a hand-typed bare emoji would silently fail to match. Matching the comment opener rather
-// than the bare character also keeps legitimate emoji in prose from tripping it.
-const AUTOMD_WARNING = '<!-- \u26A0'
-const AUTOMD_CLOSE = '<!-- /automd -->'
+const SOURCE_BULLET_RE = /^- \*\*Source:\*\*/m
+const CRLF_RE = /\r\n/g
 
 const root = repoRoot()
 const errors: string[] = []
 const warnings: string[] = []
-
-/**
- * Errors when automd left a warning comment inside a generated region. `open` is the
- * generator's opening marker; the region runs to the next `<!-- /automd -->`, or to
- * end-of-file when the closing marker is absent — over-scanning is the safe direction,
- * since a missing close means the region is already malformed.
- */
-function checkAutomdRegion(where: string, text: string, open: string): void {
-  const start = text.indexOf(open)
-  if (start === -1)
-    return
-  const from = start + open.length
-  const closeAt = text.indexOf(AUTOMD_CLOSE, from)
-  const region = text.slice(from, closeAt === -1 ? undefined : closeAt)
-  if (region.includes(AUTOMD_WARNING))
-    errors.push(`${where}: automd generator failed and wrote a warning comment into the ${open} region. Fix the generator, re-run \`pnpm docs:gen\`, and never commit the warning — once committed it regenerates identically and the drift gate goes green.`)
-}
 
 /**
  * Markdown specs found below a directory (recursive), area-relative. Ignores
@@ -81,7 +61,8 @@ function nestedMarkdown(dir: string): string[] {
 }
 
 /** The Source, Tests, and Last reviewed bullets of a spec-shaped page: paths resolve, the date is real and fresh. */
-function checkSpecPage(where: string, text: string): void {
+function checkSpecPage(where: string, raw: string): void {
+  const text = stripFences(raw)
   for (const bullet of ['Source', 'Tests'] as const) {
     const line = text.match(new RegExp(`^- \\*\\*${bullet}:\\*\\*\\s*(.+)$`, 'm'))?.[1]
     if (!line) {
@@ -93,10 +74,10 @@ function checkSpecPage(where: string, text: string): void {
       continue
     }
     for (const [, p] of line.matchAll(BACKTICK_PATH_RE)) {
-      // A Source/Tests line may cite a test name alongside its path, e.g.
-      // `src/foo.ts` (`describe('add')`). Only existence-check path-shaped
-      // tokens; skip anything with spaces, quotes, or parens.
-      if (!/^[\w@./-]+$/.test(p!))
+      // A Source/Tests line may cite a test name beside its path, e.g. `src/foo.ts` (`add`).
+      // Only a path-shaped token is existence-checked: path characters throughout, and
+      // either a `/` or an extension; a bare identifier is a name, not a path.
+      if (!PATH_CHARS_RE.test(p!) || !(p!.includes('/') || EXTENSION_RE.test(p!)))
         continue
       if (!existsSync(join(root, p!)))
         errors.push(`${where}: ${bullet} path \`${p}\` does not exist`)
@@ -124,16 +105,19 @@ function checkSpecPage(where: string, text: string): void {
 // --- decisions -------------------------------------------------------------
 /** Validates every decision record and the decisions index; returns the record count (0 when the directory is absent). */
 function checkDecisions(): number {
-  const decisionsDir = join(root, 'docs/internal/decisions')
+  const decisionsDir = join(root, DECISIONS_DIR)
   if (!existsSync(decisionsDir)) {
-    console.log('  (docs/internal/decisions: not present, skipped)')
+    console.log(`  (${DECISIONS_DIR}: not present, skipped)`)
     return 0
   }
-  const decisionFiles = readdirSync(decisionsDir).filter(f => f.endsWith('.md') && !f.startsWith('_') && f !== 'index.md')
+  const decisionFiles = readdirSync(decisionsDir, { withFileTypes: true })
+    .filter(e => e.isFile() && e.name.endsWith('.md') && !e.name.startsWith('_') && e.name !== 'index.md')
+    .map(e => e.name)
+    .sort(byCodeUnit)
   const seenNums = new Map<string, string>()
 
   for (const file of decisionFiles) {
-    const where = `docs/internal/decisions/${file}`
+    const where = `${DECISIONS_DIR}/${file}`
     if (!DECISION_FILE_RE.test(file)) {
       errors.push(`${where}: filename must be NNNN-kebab-title.md`)
       continue
@@ -143,7 +127,8 @@ function checkDecisions(): number {
       errors.push(`${where}: duplicate decision number ${num} (also ${seenNums.get(num)})`)
     seenNums.set(num, file)
 
-    const text = readFileSync(join(decisionsDir, file), 'utf8')
+    // Fences blanked, as the readers do, so a fenced example cannot pose as the H1 or Status.
+    const text = stripFences(readFileSync(join(decisionsDir, file), 'utf8'))
     const h1 = text.match(DECISION_H1_RE)
     if (!h1)
       errors.push(`${where}: H1 must be "# ${num}. Title"`)
@@ -151,15 +136,22 @@ function checkDecisions(): number {
       errors.push(`${where}: H1 number ${h1[1]} does not match filename ${num}`)
 
     const status = text.match(STATUS_BULLET_RE)?.[1]?.trim()
-    if (!status)
+    if (!status) {
       errors.push(`${where}: missing "- **Status:** ..." bullet`)
-    else if (!STATUS_VOCAB.test(status))
+    }
+    else if (!STATUS_VOCAB.test(status)) {
       errors.push(`${where}: status "${status}" not in vocabulary: proposed | accepted | rejected | deprecated | superseded by NNNN`)
-    // A bare "superseded" (no "by NNNN") already fails the vocabulary check above;
-    // only demand the markdown link once the status is otherwise well-formed, so
-    // one underlying problem is not reported twice.
-    else if (status.startsWith('superseded') && !SUPERSEDED_LINK_RE.test(status))
-      errors.push(`${where}: superseded status must link the newer record: "superseded by [NNNN](./NNNN-slug.md)"`)
+    }
+    else if (status.startsWith('superseded')) {
+      // A bare "superseded" (no "by NNNN") already failed the vocabulary check above; the
+      // link is demanded once the status is otherwise well-formed, and its target once the
+      // link is, so one underlying problem is reported once.
+      const link = status.match(SUPERSEDED_LINK_RE)
+      if (!link)
+        errors.push(`${where}: superseded status must link the newer record: "superseded by [NNNN](./NNNN-slug.md)"`)
+      else if (!existsSync(join(decisionsDir, link[2]!)))
+        errors.push(`${where}: superseded-by target ${link[2]} does not exist`)
+    }
 
     const date = text.match(DATE_BULLET_RE)?.[1]?.trim()
     if (!date || !isRealIsoDate(date))
@@ -167,24 +159,19 @@ function checkDecisions(): number {
   }
 
   const indexPath = join(decisionsDir, 'index.md')
-  if (!existsSync(indexPath)) {
-    errors.push('docs/internal/decisions/index.md: missing index page')
-  }
-  else {
-    const indexText = readFileSync(indexPath, 'utf8')
-    if (!indexText.includes('<!-- automd:decisionsIndex -->'))
-      errors.push('docs/internal/decisions/index.md: missing <!-- automd:decisionsIndex --> marker')
-    checkAutomdRegion('docs/internal/decisions/index.md', indexText, '<!-- automd:decisionsIndex -->')
-  }
+  if (!existsSync(indexPath))
+    errors.push(`${DECISIONS_DIR}/index.md: missing index page`)
+  else if (!readFileSync(indexPath, 'utf8').includes('<!-- automd:decisionsIndex -->'))
+    errors.push(`${DECISIONS_DIR}/index.md: missing <!-- automd:decisionsIndex --> marker`)
   return decisionFiles.length
 }
 
 // --- specs -------------------------------------------------------------------
 /** Validates the specs layout (areas, flatness), every spec page, and the specs index. */
 function checkSpecs(): void {
-  const specsDir = join(root, 'docs/internal/specs')
+  const specsDir = join(root, SPECS_DIR)
   if (!existsSync(specsDir)) {
-    console.log('  (docs/internal/specs: not present, skipped)')
+    console.log(`  (${SPECS_DIR}: not present, skipped)`)
     return
   }
   for (const area of readdirSync(specsDir, { withFileTypes: true })) {
@@ -192,7 +179,7 @@ function checkSpecs(): void {
       // A stray top-level spec would be invisible to the index, the sidebar, and
       // every check below — reject it instead of silently ignoring it.
       if (area.name.endsWith('.md') && area.name !== 'index.md' && !area.name.startsWith('_'))
-        errors.push(`docs/internal/specs/${area.name}: specs must live in an area directory (specs/<area>/<name>.md)`)
+        errors.push(`${SPECS_DIR}/${area.name}: specs must live in an area directory (specs/<area>/<name>.md)`)
       continue
     }
     for (const entry of readdirSync(join(specsDir, area.name), { withFileTypes: true })) {
@@ -201,25 +188,108 @@ function checkSpecs(): void {
         // to the index, sidebar, and every check here — reject it. Asset folders
         // (e.g. images/) hold no markdown and pass silently.
         for (const nested of nestedMarkdown(join(specsDir, area.name, entry.name)))
-          errors.push(`docs/internal/specs/${area.name}/${entry.name}/${nested}: specs must be flat within an area (specs/<area>/<name>.md); nested specs are invisible to the index`)
+          errors.push(`${SPECS_DIR}/${area.name}/${entry.name}/${nested}: specs must be flat within an area (specs/<area>/<name>.md); nested specs are invisible to the index`)
         continue
       }
       const file = entry.name
       if (!file.endsWith('.md') || file.startsWith('_'))
         continue
-      checkSpecPage(`docs/internal/specs/${area.name}/${file}`, readFileSync(join(specsDir, area.name, file), 'utf8'))
+      checkSpecPage(`${SPECS_DIR}/${area.name}/${file}`, readFileSync(join(specsDir, area.name, file), 'utf8'))
     }
   }
 
   const indexPath = join(specsDir, 'index.md')
-  if (!existsSync(indexPath)) {
-    errors.push('docs/internal/specs/index.md: missing index page')
+  if (!existsSync(indexPath))
+    errors.push(`${SPECS_DIR}/index.md: missing index page`)
+  else if (!readFileSync(indexPath, 'utf8').includes('<!-- automd:specIndex -->'))
+    errors.push(`${SPECS_DIR}/index.md: missing <!-- automd:specIndex --> marker`)
+}
+
+// --- automd regions ------------------------------------------------------------
+// The regions `pnpm docs:gen` writes, rendered on demand from the same readers automd
+// uses. Any other generator name is checked for shape only.
+const RENDERERS: Record<string, () => string> = {
+  decisionsIndex: () => renderDecisionsIndex(readDecisions(root)),
+  specIndex: () => renderSpecIndex(readSpecs(root)),
+}
+const rendered = new Map<string, string>()
+
+/** Region text as compared: trailing whitespace off every line, the blank lines automd pads with dropped. */
+function normalizeRegion(s: string): string {
+  const lines = s.split('\n').map(l => l.trimEnd())
+  while (lines.length > 0 && lines[0] === '')
+    lines.shift()
+  while (lines.length > 0 && lines.at(-1) === '')
+    lines.pop()
+  return lines.join('\n')
+}
+
+function renderedRegion(name: string): string | undefined {
+  const render = RENDERERS[name]
+  if (!render)
+    return undefined
+  let out = rendered.get(name)
+  if (out === undefined) {
+    out = normalizeRegion(render())
+    rendered.set(name, out)
   }
-  else {
-    const indexText = readFileSync(indexPath, 'utf8')
-    if (!indexText.includes('<!-- automd:specIndex -->'))
-      errors.push('docs/internal/specs/index.md: missing <!-- automd:specIndex --> marker')
-    checkAutomdRegion('docs/internal/specs/index.md', indexText, '<!-- automd:specIndex -->')
+  return out
+}
+
+function markdownFiles(dir: string): string[] {
+  const out: string[] = []
+  for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => byCodeUnit(a.name, b.name))) {
+    if (e.isDirectory() && !SKIP_DIRS.has(e.name))
+      out.push(...markdownFiles(join(dir, e.name)))
+    else if (e.isFile() && e.name.endsWith('.md'))
+      out.push(join(dir, e.name))
+  }
+  return out
+}
+
+/**
+ * Every automd region under docs/: closed, free of automd's warning comment, and for the
+ * two index generators equal to what the generator renders now. The stale comparison is
+ * the only check that sees a hand-edited or forgotten region outside the git drift gate:
+ * automd rewrites a warning comment byte-identically, and a marker outside automd's
+ * `input` is never rewritten at all. Line endings are normalized first, so a CRLF checkout
+ * compares equal.
+ */
+function checkAutomdMarkers(): void {
+  const docsDir = join(root, 'docs')
+  if (!existsSync(docsDir)) {
+    console.log('  (docs/: not present, skipped)')
+    return
+  }
+  for (const file of markdownFiles(docsDir)) {
+    const where = posixRelative(root, file)
+    const text = readFileSync(file, 'utf8').replace(CRLF_RE, '\n')
+    const close = new RegExp(AUTOMD_CLOSE_RE.source, AUTOMD_CLOSE_RE.flags)
+    let pos = 0
+    for (const open of text.matchAll(AUTOMD_OPEN_RE)) {
+      // An opener inside an earlier region's body belongs to that region, as automd reads it.
+      if (open.index < pos)
+        continue
+      const marker = `<!-- automd:${open[1]} -->`
+      const from = open.index + open[0].length
+      close.lastIndex = from
+      const closed = close.exec(text)
+      // Without a close the region runs to end-of-file: over-scanning is the safe direction
+      // for the sentinel, and the region is already malformed.
+      const body = text.slice(from, closed?.index)
+      pos = closed ? closed.index + closed[0].length : text.length
+      if (!closed)
+        errors.push(`${where}: missing <!-- /automd --> after ${marker} (line ${text.slice(0, open.index).split('\n').length})`)
+      if (body.includes(AUTOMD_WARNING)) {
+        errors.push(`${where}: automd generator failed and wrote a warning comment into the ${marker} region. Fix the generator, re-run \`pnpm docs:gen\`, and never commit the warning — once committed it regenerates identically and the drift gate goes green.`)
+        continue
+      }
+      if (!closed)
+        continue
+      const want = renderedRegion(open[1]!)
+      if (want !== undefined && normalizeRegion(body) !== want)
+        errors.push(`${where}: ${marker} region is stale — run \`pnpm docs:gen\``)
+    }
   }
 }
 
@@ -230,9 +300,9 @@ function checkTemplateContracts(): void {
   const dir = join(root, 'docs/template')
   if (!existsSync(dir))
     return
-  for (const file of readdirSync(dir).filter(f => f.endsWith('.md')).sort()) {
+  for (const file of readdirSync(dir).filter(f => f.endsWith('.md')).sort(byCodeUnit)) {
     const text = readFileSync(join(dir, file), 'utf8')
-    if (/^- \*\*Source:\*\*/m.test(text))
+    if (SOURCE_BULLET_RE.test(stripFences(text)))
       checkSpecPage(`docs/template/${file}`, text)
   }
 }
@@ -273,6 +343,7 @@ function checkSkillsMirror(): void {
 
 const decisionCount = checkDecisions()
 checkSpecs()
+checkAutomdMarkers()
 checkTemplateContracts()
 checkRulebooks()
 checkSkillsMirror()

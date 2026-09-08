@@ -7,12 +7,18 @@
  * Scope: docs/** plus root README.md and AGENTS.md. Never .claude/ or .github/
  * (their files require YAML frontmatter, which is banned in docs/).
  *
+ * Beyond the banned-token scan: a relative link target must exist and a `#fragment` into
+ * a markdown page (the page's own included) must be the GitHub slug of one of its ATX
+ * headings; a page has exactly one H1; a callout is one of the five uppercase GitHub
+ * alerts, unfolded; and an index page is named for where it lives (rule 6).
+ *
  * Adapted from an earlier internal docs-portability checker.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import process from 'node:process'
-import { repoRoot, SKIP_DIRS, WARN } from './root.mts'
+import { githubSlug, repoRoot, SKIP_DIRS, slugsOf, WARN } from './root.mts'
+import { posixRelative } from './skills.mts'
 
 const RULES_DOC = 'docs/template/markdown-portability.md'
 
@@ -39,6 +45,11 @@ const BLOCKQUOTE_RE = /^ {0,3}(?:> ?)+/
 // A block-level previous line (blockquote/list) turns a following `---`/`===` into a
 // thematic break, not a setext heading underline.
 const BLOCK_PREFIX_RE = /^ {0,3}(?:>|[-*+] |\d+[.)] )/
+// A callout opener: the type inside `> [!TYPE]` is group 1; Obsidian's fold marker, when
+// one follows the bracket, is group 2. Matched with the blockquote prefix in place so a
+// backticked example (`> `[!tip]``) is not one.
+const ALERT_RE = /^ {0,3}(?:> ?)+\[!([^\]\n]*)\]([+-]?)/
+const ALERT_TYPES: ReadonlySet<string> = new Set(['NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION'])
 const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g
 // Backtick runs must match in length (CommonMark), so ``a `b` c`` parses as one
 // span. The body is [^\n]+? (min 1, single line): bounding it to one line stops
@@ -46,13 +57,17 @@ const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g
 // and blanking every real link in between. A zero-length body could never
 // satisfy the trailing (?<!`) anyway, since the char before it is the opener.
 const INLINE_CODE_RE = /(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)/g
-const HEADING_RE = /^#{1,6}\s+(\S.*)$/
+// Group 1 is the hash run (its length is the level), group 2 the heading text.
+const HEADING_RE = /^(#{1,6})\s+(\S.*)$/
 const HEADING_BACKTICK_RE = /`/
 const NON_ASCII_RE = /[^\x20-\x7E]/
 const LINK_TARGET_RE = /\]\(([^)\n]+)\)/g
 const REF_DEF_RE = /^ {0,3}\[(?!\^)[^\]]+\]:\s*(\S+)/
 const LINK_TITLE_RE = /\s+("[^"]*"|'[^']*')$/
-const NON_FILE_TARGET_RE = /^(?:https?:|mailto:|#)/
+const EXTERNAL_TARGET_RE = /^(?:https?:|mailto:)/
+// The two VitePress sites, whose index page is index.md; everywhere else GitHub shows
+// README.md. Tested on the posix-relative path, so the same on every platform.
+const SITE_DIR_RE = /^docs\/(?:internal|public)\//
 
 function walk(dir: string): string[] {
   const out: string[] = []
@@ -78,17 +93,39 @@ const files = [join(root, 'README.md'), join(root, 'AGENTS.md'), ...(existsSync(
 const problems: string[] = []
 const warns: string[] = []
 
-interface HeadingHit { line: number }
+// Per-page heading state: slug -> first line, plus the line of the first H1.
+interface Page { where: string, headings: Map<string, number>, h1Line: number | undefined }
 
-function recordHeading(headings: Map<string, HeadingHit>, where: string, headingText: string, lineNo: number): void {
-  const key = headingText.toLowerCase()
-  const prev = headings.get(key)
+function recordHeading(page: Page, headingText: string, level: number, lineNo: number): void {
+  // Keyed on the GitHub slug, so two headings that differ only in punctuation or case
+  // collide here as their anchors would.
+  const key = githubSlug(headingText)
+  const prev = page.headings.get(key)
   if (prev !== undefined)
-    problems.push(`${where}:${lineNo}  duplicate heading "${headingText}" (also line ${prev.line}) — slug dedupe differs per renderer (rule 5)`)
+    problems.push(`${page.where}:${lineNo}  duplicate heading "${headingText}" (also line ${prev}) — slug dedupe differs per renderer (rule 5)`)
   else
-    headings.set(key, { line: lineNo })
+    page.headings.set(key, lineNo)
+  if (level === 1) {
+    if (page.h1Line === undefined)
+      page.h1Line = lineNo
+    else
+      problems.push(`${page.where}:${lineNo}  second H1 "${headingText}" (first at line ${page.h1Line}) — one H1 per page (rule 5)`)
+  }
   if (HEADING_BACKTICK_RE.test(headingText) || NON_ASCII_RE.test(headingText))
-    warns.push(`${where}:${lineNo}  heading with backticks or non-ASCII — slug algorithms diverge (rule 5)`)
+    warns.push(`${page.where}:${lineNo}  heading with backticks or non-ASCII — slug algorithms diverge (rule 5)`)
+}
+
+// GitHub anchors per markdown file, read once: a page is a link target many times over.
+const slugCache = new Map<string, ReadonlySet<string>>()
+
+function anchorsOf(file: string): ReadonlySet<string> {
+  const key = resolve(file)
+  let slugs = slugCache.get(key)
+  if (!slugs) {
+    slugs = new Set(slugsOf(readFileSync(key, 'utf8')))
+    slugCache.set(key, slugs)
+  }
+  return slugs
 }
 
 function checkLinkTarget(where: string, file: string, raw: string, display: string, kind: 'inline' | 'ref'): void {
@@ -97,11 +134,11 @@ function checkLinkTarget(where: string, file: string, raw: string, display: stri
   let target = raw.trim().replace(LINK_TITLE_RE, '')
   if (target.startsWith('<') && target.endsWith('>'))
     target = target.slice(1, -1)
-  if (NON_FILE_TARGET_RE.test(target))
+  if (EXTERNAL_TARGET_RE.test(target))
     return
-  const rel = target.split('#')[0]!
-  if (!rel)
-    return
+  const hash = target.indexOf('#')
+  const rel = hash === -1 ? target : target.slice(0, hash)
+  const fragment = hash === -1 ? '' : target.slice(hash + 1)
   if (rel.startsWith('/')) {
     // Inline absolute links "](/path)" are already reported by the BANNED scan,
     // but its regex needs a char after the slash, so the bare root link "](/)"
@@ -113,17 +150,32 @@ function checkLinkTarget(where: string, file: string, raw: string, display: stri
       problems.push(`${where}  root-absolute inline link "${display}" — use a relative path (rule 1)`)
     return
   }
-  if (!existsSync(resolve(dirname(file), rel)))
+  // A bare "#fragment" anchors into this page; a path with one anchors into that page.
+  const dest = rel ? resolve(dirname(file), rel) : file
+  if (rel && !existsSync(dest)) {
     problems.push(`${where}  broken relative link: ${display}`)
+    return
+  }
+  // Only markdown pages have headings to anchor into; a fragment on an image or a
+  // directory is left to the renderer.
+  if (fragment && dest.endsWith('.md') && !anchorsOf(dest).has(fragment))
+    problems.push(`${where}  broken anchor: ${target} (rule 1)`)
 }
 
 for (const file of files) {
-  const where = relative(root, file).split(sep).join('/')
+  const where = posixRelative(root, file)
   const text = readFileSync(file, 'utf8')
   const lines = text.split('\n')
 
   if (lines[0]?.trim() === '---')
     problems.push(`${where}:1  YAML frontmatter — metadata goes in visible bold bullets (rule 3)`)
+
+  const name = basename(file)
+  const inSite = SITE_DIR_RE.test(where)
+  if (name === 'README.md' && inSite)
+    problems.push(`${where}  README.md inside a site directory — VitePress serves index.md, name it that (rule 6)`)
+  else if (name === 'index.md' && !inSite)
+    problems.push(`${where}  index.md outside a site directory — GitHub shows README.md, name it that (rule 6)`)
 
   // Track fenced blocks and multi-line HTML comments, and keep the rendered
   // ("visible") text of every line so link scanning below sees exactly what a
@@ -133,7 +185,7 @@ for (const file of files) {
   let inComment = false
   let prevVisible = ''
   const visibleLines: string[] = []
-  const headings = new Map<string, HeadingHit>()
+  const page: Page = { where, headings: new Map(), h1Line: undefined }
 
   lines.forEach((line, i) => {
     // Inside a fence nothing renders as markup. Only a fence of the SAME
@@ -199,17 +251,27 @@ for (const file of files) {
       if (re.test(scrubbed))
         problems.push(`${where}:${i + 1}  ${msg}\n    ${line.trim()}`)
     }
-    // Headings: ATX (# ...) here, or setext (prose line underlined by === / ---).
+    // GitHub renders exactly five alert types, uppercase, and nothing after the bracket;
+    // Obsidian's other types and its `]+`/`]-` fold markers render as plain quotes there.
+    const alert = visible.match(ALERT_RE)
+    if (alert && !(ALERT_TYPES.has(alert[1]!) && alert[2] === ''))
+      problems.push(`${where}:${i + 1}  callout type "[!${alert[1]}]${alert[2]}" — use one of the five uppercase GitHub alerts, never foldable (rule 2)\n    ${line.trim()}`)
+    // Headings: ATX (# ...) here, or setext (prose line underlined by === / ---). A
+    // setext `===` is an H1 and `---` an H2, so a frontmatter block's closing `---`
+    // counts as an H2 and cannot double as the page's H1.
     const h = visible.match(HEADING_RE)
     if (h) {
-      recordHeading(headings, where, h[1]!.trim(), i + 1)
+      recordHeading(page, h[2]!.trim(), h[1]!.length, i + 1)
     }
     else if (SETEXT_RE.test(visible) && prevVisible.trim() !== '' && !HEADING_RE.test(prevVisible) && !BLOCK_PREFIX_RE.test(prevVisible)) {
-      recordHeading(headings, where, prevVisible.trim(), i)
+      recordHeading(page, prevVisible.trim(), visible.trim().startsWith('=') ? 1 : 2, i)
     }
     visibleLines.push(visible)
     prevVisible = visible
   })
+
+  if (page.h1Line === undefined)
+    problems.push(`${where}  no H1 — every page opens with one (rule 5)`)
 
   // Link targets must resolve. Scan the visible text (fence + comment lines
   // already blanked) line by line with inline code dropped, so links shown as

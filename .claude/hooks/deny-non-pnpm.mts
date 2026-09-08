@@ -1,6 +1,6 @@
 /**
  * deny-non-pnpm guard body (run via dispatch.mts). Blocks npm/yarn/bun/bunx at a
- * command head. Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
+ * command head. Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md. exit 2 = deny.
  */
 import process from 'node:process'
 import { BANNED, commandOf, exit, resolveHead, run, segments, tokenize } from './_lexer.mts'

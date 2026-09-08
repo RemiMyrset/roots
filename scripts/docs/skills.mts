@@ -6,30 +6,37 @@
  * `pnpm docs:gen` and check-docs.mts refuses drift, both in repos that synced scripts/docs
  * but never installed the docs toolchain.
  */
+import type { Dirent } from 'node:fs'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
+import { byCodeUnit } from './root.mts'
 
 /** Source of truth for skills; edit these. */
 export const SKILLS_SOURCE = '.claude/skills'
 /** Generated mirror; never hand-edit — `pnpm docs:gen` rewrites it. */
 export const SKILLS_TARGET = '.agents/skills'
 
-/** Every file under `dir`, as forward-slash paths relative to it, sorted; empty when `dir` is absent. */
+/**
+ * Every file under `dir`, as forward-slash paths relative to it, sorted; empty when `dir`
+ * is absent. A symlink counts as what it points at, so a linked skill directory lists,
+ * mirrors, and compares like a real one.
+ */
 export function listFiles(dir: string): string[] {
-  let entries: string[]
+  let entries: Dirent[]
   try {
-    entries = readdirSync(dir)
+    entries = readdirSync(dir, { withFileTypes: true })
   }
   catch {
     return []
   }
   const out: string[] = []
-  for (const name of entries.sort()) {
-    const abs = join(dir, name)
-    if (statSync(abs).isDirectory())
-      out.push(...listFiles(abs).map(f => `${name}/${f}`))
+  for (const entry of entries.sort((a, b) => byCodeUnit(a.name, b.name))) {
+    const abs = join(dir, entry.name)
+    const isDirectory = entry.isSymbolicLink() ? statSync(abs).isDirectory() : entry.isDirectory()
+    if (isDirectory)
+      out.push(...listFiles(abs).map(f => `${entry.name}/${f}`))
     else
-      out.push(name)
+      out.push(entry.name)
   }
   return out
 }

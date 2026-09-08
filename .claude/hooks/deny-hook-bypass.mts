@@ -1,10 +1,10 @@
 /**
  * deny-hook-bypass guard body (run via dispatch.mts). Blocks the common ways an agent skips
- * this repo's git hooks (commitlint, lint-staged, docs:portability): `--no-verify` on
+ * this repo's git hooks (listed in docs/template/guards.md, Hook bypass): `--no-verify` on
  * `git commit|push|merge` and `-n` on `git commit`, a `core.hooksPath` override through
  * `git -c` / `--config-env`, and the SKIP_SIMPLE_GIT_HOOKS / HUSKY environment prefixes.
  * The rulebook's answer to a failing hook is to fix the check, never to bypass it.
- * Shared lexing in ./_lexer.mts. Scope and out-of-scope: SECURITY.md. exit 2 = deny.
+ * Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md. exit 2 = deny.
  */
 import process from 'node:process'
 import { commandOf, exit, gitSubcommand, resolveHead, run, segments, tokenize, unquote } from './_lexer.mts'

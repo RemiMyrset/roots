@@ -4,11 +4,8 @@
 - **Tests:** `path/to/test` — name of the suite or describe block <!-- "(pending)" allowed, warned -->
 - **Last reviewed:** YYYY-MM-DD
 
-<!-- Two spec kinds share this template:
-     CAPABILITY spec: one route, command, or observable behavior.
-     ENTITY spec: one entity's cross-cutting invariants (e.g. "player name is
-     unique"). Capability specs LINK to entity specs for shared invariants,
-     never restate them. -->
+<!-- Capability and entity specs share this template; the two kinds are under
+     "Spec kinds" in docs/template/spec-discipline.md. -->
 
 ## Purpose
 
@@ -28,9 +25,8 @@ Machine-readable shapes (schemas, types) beat prose.
 
 ## Behavior
 
-Numbered branches; every branch is a binary pass/fail check. A reader of this
-section can write the tests without seeing the source, and a reader of the
-source can predict this section.
+Numbered branches, each a binary check. The test this section must pass is
+under "Spec kinds" in `docs/template/spec-discipline.md`.
 
 1. Given X, when Y, then Z.
 2. ...

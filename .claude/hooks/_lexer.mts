@@ -6,7 +6,7 @@
  *
  * ZERO external dependencies (node builtins only): the guards run before `pnpm install`
  * and are synced into arbitrary repos, so this module must never require an npm package.
- * Best-effort lexical detection, NOT a shell — scope and out-of-scope live in SECURITY.md.
+ * Best-effort lexical detection, NOT a shell — scope and out-of-scope live in docs/template/guards.md.
  */
 import process from 'node:process'
 
@@ -14,7 +14,7 @@ export const BANNED: ReadonlySet<string> = new Set(['npm', 'yarn', 'bun', 'bunx'
 
 // Pass-through wrappers whose argv IS the real command: skip them to find the head. An
 // allowlist can never be exhaustive (proxychains/firejail/setarch/catchsegv/...); unknown
-// wrapper words are documented out-of-scope in SECURITY.md.
+// wrapper words are documented out-of-scope in docs/template/guards.md.
 export const WRAP: ReadonlySet<string> = new Set([
   'sudo', 'doas', 'runuser', 'env', 'command', 'exec', 'eval', 'time', 'timeout', 'nice',
   'ionice', 'taskset', 'chrt', 'nohup', 'setsid', 'stdbuf', 'unbuffer', 'flock', 'xargs',
