@@ -1,11 +1,18 @@
 {
   // Typechecks the root-level TS that no package tsconfig covers: the docs
   // generators/checkers, the verify, sync, and test-suite scripts, the guard sources under
-  // .claude/hooks, plus the flat configs. The VitePress
-  // site configs are intentionally excluded — `vitepress build` transpiles them
-  // with esbuild (it does not typecheck them),
-  // and pulling them into this `tsc` run drags VitePress's bundled vite type
-  // surface in, which strictest rejects.
+  // .claude/hooks, the flat configs, the shared docs fragment, and the internal site
+  // config. `vitepress build` transpiles the site configs with esbuild and never
+  // typechecks them, so this run is their only check. The public site config stays
+  // out: vitepress-plugin-llms is typed against vite 7 while VitePress 1 bundles
+  // vite 5, so its plugin type does not fit `vite.plugins` under strictest.
   "extends": "./tsconfig.base.json",
-  "include": ["scripts", ".claude/hooks", "automd.config.ts", "eslint.config.ts"]
+  "include": [
+    "scripts",
+    ".claude/hooks",
+    "automd.config.ts",
+    "eslint.config.ts",
+    "docs/.shared/config.ts",
+    "docs/internal/.vitepress/config.ts"
+  ]
 }

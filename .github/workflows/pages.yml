@@ -70,9 +70,10 @@ jobs:
       - name: Build the public site
         env:
           # Set by configure-pages when Pages is enabled; empty otherwise, so a local
-          # or unpublished build keeps relative links and the default base.
+          # or unpublished build keeps relative links and the default base. The site
+          # config normalizes the slashes of base_path (`/REPO`, or empty).
           DOCS_URL: ${{ steps.pages.outputs.base_url }}
-          DOCS_BASE: ${{ steps.pages.outputs.base_path && format('{0}/', steps.pages.outputs.base_path) || '' }}
+          DOCS_BASE: ${{ steps.pages.outputs.base_path }}
         run: pnpm docs:public:build
 
       - name: Upload the site

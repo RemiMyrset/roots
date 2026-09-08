@@ -16,3 +16,13 @@ export const shared: UserConfig = {
   title: siteName,
   lastUpdated: true,
 }
+
+/**
+ * The VitePress `base` for a raw path such as the Pages workflow's `base_path`
+ * (`/REPO`, `REPO`, `/`, or empty): `/` when it has no segments, else `/a/b/`.
+ * A doubled or missing slash here would land in every asset URL.
+ */
+export function normalizeBase(raw: string | undefined): string {
+  const segments = (raw ?? '').split('/').filter(segment => segment !== '')
+  return segments.length === 0 ? '/' : `/${segments.join('/')}/`
+}

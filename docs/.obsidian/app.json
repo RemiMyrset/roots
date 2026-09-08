@@ -5,5 +5,5 @@
   "strictLineBreaks": true,
   "readableLineLength": true,
   "showLineNumber": true,
-  "attachmentFolderPath": "./attachments"
+  "attachmentFolderPath": "./images"
 }

@@ -7,6 +7,8 @@ import { withMermaid } from 'vitepress-plugin-mermaid'
 import { decisionsSidebar, specsSidebar } from '../../../scripts/docs/readers.mts'
 import { shared, siteName } from '../../.shared/config.ts'
 
+// withMermaid stays with no diagram on the site yet: a future page adds one without a config change.
+// The _template.md pages build on purpose: srcExclude would leave the index links dead and fail the build.
 export default withMermaid(defineConfig({
   ...shared,
   title: `${siteName} — internal handbook`,
