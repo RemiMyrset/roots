@@ -11,15 +11,15 @@ Create a decision record under `docs/internal/decisions/`.
    highest `NNNN` prefix, add 1, zero-pad to 4 digits.
 2. Copy `docs/internal/decisions/_template.md` to `NNNN-kebab-title.md` (short,
    declarative kebab title).
-3. Fill it in: H1 must be `# NNNN. Title`; set `- **Status:**` (a decision being
+3. Fill it in: the H1 is `# NNNN. Title`; set `- **Status:**` (a decision being
    adopted now is `accepted`) and `- **Date:**` (today, YYYY-MM-DD). Write
    Context and Problem Statement, Considered Options, Decision Outcome
-   ("Chosen option: X, because Y"), and Consequences (good AND bad).
+   ("Chosen option: X, because Y"), and Consequences (good and bad).
 4. If it replaces or amends an earlier record: add a
-   `- **Supersedes:** [NNNN](./NNNN-slug.md)` bullet here, and edit ONLY the old
+   `- **Supersedes:** [NNNN](./NNNN-slug.md)` bullet here, and edit only the old
    record's Status line to `superseded by [NNNN](./NNNN-slug.md)`. Never touch
    an old accepted record's body.
-5. Run `pnpm docs:gen` (regenerates the index), then
-   `pnpm docs:check` — both must pass before you are done.
+5. Run `pnpm docs:gen` (regenerates the index), then `pnpm docs:check`; both
+   must pass.
 
 $ARGUMENTS is the decision topic if provided.

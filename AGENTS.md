@@ -1,25 +1,25 @@
 # Agent rulebook
 
-What this project is and does lives in [README.md](./README.md); this file is
-the rulebook.
+What this project is and does lives in [README.md](./README.md).
 
 ## How this file works
 
-This file is the **rulebook**: non-negotiable conventions, the commands that define
-"done", and pointers to where facts live. It is **not** the architecture handbook.
-Every fact has exactly one canonical home; this file links to it, never restates it.
-The one deliberate exception is the Commands list below: it restates the done gate
-verbatim because it is the contract for "done" — keep it in sync when a gate
-command changes. When this file and a spec or decision record disagree, the
-spec/decision wins — fix the loser in the same PR. Hard budget: **200 lines**, enforced
-by `pnpm docs:check`. When a section outgrows its space, move the content to its
-canonical home and leave a link.
+This file holds the non-negotiable conventions, the commands that define "done",
+and pointers to where facts live. It is not the architecture handbook.
 
-Skills (procedures) live in `.claude/skills/` and are mirrored to `.agents/skills/`
-for Codex and Gemini CLI; path-scoped rules live in `.claude/rules/`; the guard
-threat model lives in `docs/template/guards.md`; the writing rules for all prose
-live in `.claude/output-styles/writing.md` and load at session start in all three
-tools; the words every page uses are defined in the
+Every fact has one canonical home; this file links to it and never restates it.
+The one exception is the Commands list below: it restates the done gate verbatim
+because it is the contract for "done", so keep it in sync when a gate command
+changes. When this file and a spec or decision record disagree, the spec or
+decision wins; fix the loser in the same PR.
+
+The budget is 200 lines, enforced by `pnpm docs:check`. When a section outgrows
+its space, move the content to its canonical home and leave a link.
+
+Skills (procedures) live in `.claude/skills/`, mirrored to `.agents/skills/` for
+Codex and Gemini CLI, and path-scoped rules in `.claude/rules/`. The writing
+rules for all prose live in `.claude/output-styles/writing.md` and load at
+session start in all three tools. The words every page uses are defined in the
 [vocabulary](./docs/template/README.md#vocabulary).
 
 | Topic | Canonical source |
@@ -34,14 +34,14 @@ tools; the words every page uses are defined in the
 | Agent guard threat model | [guards](./docs/template/guards.md) |
 | Template sync contract | [sync-template](./docs/template/sync-template.md) |
 | Setup, install, quickstart | [README.md](./README.md) |
-<!-- This table is the canonical-home map. Add one row per fact as homes appear:
-     ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
-     design/. If a fact has no row, pick one home, add a row. -->
+<!-- This table is the canonical-home map. Add one row per fact as homes appear
+     (ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
+     design/). A fact with no row gets one home and one row. -->
 
 ## Commands
 
-A task is complete only when every command below that your change can affect passes
-clean after your last edit — when unsure which apply, run them all.
+A task is complete only when every command below that your change can affect
+passes clean after your last edit. When unsure which apply, run them all.
 
 - Done gate: `pnpm verify` (everything below, in CI order; stops at the first failure;
   `pnpm verify <gate>` resumes there)
@@ -63,8 +63,8 @@ clean after your last edit — when unsure which apply, run them all.
 ## Non-negotiable rules
 
 <!-- ALWAYS/NEVER imperatives, one or two lines each, mechanism in parentheses, a
-     pointer for the rest. Add a rule only after an agent actually got it wrong —
-     every rule you add dilutes every other rule. Prune rules that stop being true. -->
+     pointer for the rest. Add a rule only after an agent got it wrong; every rule
+     dilutes every other rule. Prune rules that stop being true. -->
 
 - ALWAYS use `pnpm`, never npm, yarn, or bun (guard-enforced in Claude Code, Codex,
   and Gemini CLI; `npx` passes as a one-off runner, prefer `pnpm dlx`).
@@ -80,7 +80,7 @@ clean after your last edit — when unsure which apply, run them all.
 - NEVER push to a protected branch: `PROTECTED_BRANCHES` in the `env` block of
   `.claude/settings.json`, default `main` (guard-enforced; the GitHub ruleset is the
   server-side boundary). Feature branches push and open PRs freely; merging is a
-  human action. Details in [guards](./docs/template/guards.md).
+  human action; details in [guards](./docs/template/guards.md).
 - NEVER hand-edit generated content: automd marker regions and the `.agents/skills`
   mirror (run `pnpm docs:gen`).
 - NEVER rewrite an accepted decision record; supersede it and link both ways.
@@ -89,15 +89,15 @@ clean after your last edit — when unsure which apply, run them all.
 
 ## Judgment calls
 
-For minor implementation choices — naming, file placement, the shape of a refactor,
-which of two equivalent approaches — pick a reasonable option and note it in the PR
-description rather than asking. Ask first only for: a change in scope, a new
+For minor implementation choices such as naming, file placement, the shape of a
+refactor, or which of two equivalent approaches, pick a reasonable option and
+note it in the PR description. Ask first only for a change in scope, a new
 dependency, deleting user data or git history, or anything a hook blocks.
 
 ## Spec discipline
 
-When behavior changes, source, tests, and its spec change in the same PR. The
-full rules — spec kinds, concrete triggers, generated versus hand-written — live in
+When behavior changes, source, tests, and its spec change in the same PR. Spec
+kinds, concrete triggers, and generated versus hand-written are in
 [spec-discipline](./docs/template/spec-discipline.md) and the
 [specs index](./docs/internal/specs/index.md); read them before touching
 behavior.
@@ -108,33 +108,37 @@ behavior.
   it with (or rename it to) your first real package.
 - `apps/example-app` — `@repo/example-app`, sample CLI consuming the package over
   `workspace:*` (`pnpm --filter @repo/example-app start`); replace it with your
-  first real app. Placement alone registers a package — the workspace globs cover
-  `apps/*` and `packages/*`; scaffold with the `new-package` skill.
-<!-- Keep this a map, not a manual: one line per package, its purpose, nothing
-     else. A stale map is worse than none — agents follow it literally. -->
+  first real app.
+<!-- One line per package and its purpose, nothing else. A stale map is worse
+     than none; agents follow it literally. -->
 
-Unit tests live in `<package>/test/`, never colocated in `src/` (a colocated test is
-a lint error). A package with its own conventions gets a scoped `AGENTS.md` (same
-200-line budget) plus a sibling `CLAUDE.md` holding only `@AGENTS.md`: Claude Code
+Placement alone registers a package: the workspace globs cover `apps/*` and
+`packages/*`. Scaffold with the `new-package` skill.
+
+Unit tests live in `<package>/test/`, never colocated in `src/` (a colocated test
+is a lint error).
+
+A package with its own conventions gets a scoped `AGENTS.md` (same 200-line
+budget) plus a sibling `CLAUDE.md` holding only `@AGENTS.md`. Claude Code
 discovers nested `CLAUDE.md`, never nested `AGENTS.md`, and the import resolves
 relative to the file holding it.
 
 ## Gotchas
 
-<!-- The non-obvious things an agent gets wrong on first contact: naming traps,
-     ordering constraints, things tests cannot catch. Add entries as they are
-     discovered; delete entries that stop being true. When you hit a non-obvious
-     failure a future agent would repeat, add a one-line entry here in the same PR. -->
+<!-- What an agent gets wrong on first contact: naming traps, ordering
+     constraints, things tests cannot catch. When you hit a failure a future agent
+     would repeat, add a one-line entry in the same PR; delete entries that stop
+     being true. -->
 
 - `pnpm docs:gen` mutates files; never run it inside a pre-commit hook (the
   pre-commit hook runs the read-only `docs:portability` instead).
-- automd swallows generator failures: it writes the error into the marker region as
-  a comment and still exits 0, and the re-run is byte-identical so the drift gate
-  stays green. `pnpm docs:check` is what catches it — never commit a generated
-  region containing a warning comment.
+- automd swallows generator failures: it writes the error into the marker region
+  as a comment, exits 0, and re-runs byte-identical, so the drift gate stays
+  green. `pnpm docs:check` catches it; never commit a generated region containing
+  a warning comment.
 - The internal handbook is for the team: if you host it, gate it behind access
-  control — recipe in [docs-toolchain](./docs/template/docs-toolchain.md). It ships
-  noindex + robots.txt as guards against accidental exposure.
+  control (recipe in [docs-toolchain](./docs/template/docs-toolchain.md)). It
+  ships noindex and robots.txt against accidental exposure.
 - `pnpm install` refuses any dependency version published in the last 48 hours
-  (`minimumReleaseAge` in `pnpm-workspace.yaml`); a fresh release is not a broken
-  registry, wait or pin the previous version.
+  (`minimumReleaseAge` in `pnpm-workspace.yaml`); the registry is not broken,
+  wait or pin the previous version.

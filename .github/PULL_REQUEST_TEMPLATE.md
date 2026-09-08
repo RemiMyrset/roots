@@ -4,7 +4,7 @@
 
 ## Three-place sync
 
-Behavior lives in three places. All that apply changed in this PR — or say why not:
+Behavior lives in three places. Tick every one this PR changed, or say why not:
 
 - [ ] Source changed → tests updated
 - [ ] Externally observable behavior changed → spec under `docs/internal/specs/` updated

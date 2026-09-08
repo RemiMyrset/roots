@@ -6,11 +6,11 @@ labels: agent-task
 
 ## Goal
 
-<!-- One sentence: the outcome, not the implementation. -->
+<!-- One sentence naming the outcome. -->
 
 ## Context
 
-<!-- Why this matters; links to the relevant spec/decision/docs. -->
+<!-- Why this matters; links to the relevant spec, decision, or docs. -->
 
 ## Requirements
 
@@ -35,13 +35,13 @@ labels: agent-task
 - Follow `AGENTS.md` (conventions, commands, spec discipline).
 - Behavior change → source + tests + spec in the same PR.
 - No new dependencies unless a requirement names them; if one seems necessary,
-  stop and comment on the issue with the candidate and why, instead of adding it.
+  stop and comment on the issue with the candidate and why.
 - Do not modify unrelated functionality.
 
 ## Testing requirements
 
-<!-- New tests expected. The exact gate commands live in the Commands section of
-     AGENTS.md — they define "done" — so run those (`pnpm verify` runs them all). -->
+<!-- New tests expected. The Commands section of AGENTS.md defines "done";
+     `pnpm verify` runs it all. -->
 
 - Every non-interactive command in the `AGENTS.md` Commands section passes clean
-  (skip the `docs:*:dev` previews — they are dev servers, not gates).
+  (skip the `docs:*:dev` previews, which are dev servers).

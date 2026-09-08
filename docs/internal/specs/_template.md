@@ -5,8 +5,8 @@
 - **Last reviewed:** YYYY-MM-DD
 
 <!-- Two spec kinds share this template:
-     CAPABILITY spec — one route, command, or observable behavior.
-     ENTITY spec — one entity's cross-cutting invariants (e.g. "player name is
+     CAPABILITY spec: one route, command, or observable behavior.
+     ENTITY spec: one entity's cross-cutting invariants (e.g. "player name is
      unique"). Capability specs LINK to entity specs for shared invariants,
      never restate them. -->
 
@@ -16,14 +16,14 @@ One paragraph: what this capability or entity is for and who depends on it.
 
 ## Non-goals
 
-- What this deliberately does NOT do — the single biggest lever against scope
-  creep, by humans or agents. Delete the section only if truly empty.
+- What this deliberately does NOT do, so neither humans nor agents grow the
+  scope. Delete the section only if truly empty.
 
 ## Contract
 
-Inputs and outputs, precisely. For an API: method, path, params, body, every
-response code. For a CLI: flags, exit codes, stdout/stderr shape. For an entity:
-its invariants — uniqueness scope, casing, normalization, limits.
+Inputs and outputs, precisely: for an API, method, path, params, body, and
+every response code; for a CLI, flags, exit codes, and stdout/stderr shape; for
+an entity, its invariants (uniqueness scope, casing, normalization, limits).
 Machine-readable shapes (schemas, types) beat prose.
 
 ## Behavior
@@ -38,4 +38,4 @@ source can predict this section.
 ## Edge cases and gotchas
 
 The traps: in-flight windows, ordering constraints, things tests cannot easily
-catch. Link the decision record that explains any why — never restate it.
+catch. Link the decision record that explains any why; never restate it.
