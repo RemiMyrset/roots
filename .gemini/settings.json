@@ -1,6 +1,8 @@
 {
   "context": {
-    "fileName": ["AGENTS.md"]
+    "fileName": [
+      "AGENTS.md"
+    ]
   },
   "hooks": {
     "BeforeTool": [
@@ -11,6 +13,19 @@
             "name": "guards",
             "type": "command",
             "command": "pnpm -w --silent run guards",
+            "timeout": 10000
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "name": "writing-rules",
+            "type": "command",
+            "command": "pnpm -w --silent run session",
             "timeout": 10000
           }
         ]

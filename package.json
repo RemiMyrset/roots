@@ -12,6 +12,7 @@
     "build": "turbo run build",
     "verify": "node scripts/verify.mts",
     "guards": "node .claude/hooks/dispatch.mts",
+    "session": "node .claude/hooks/session-start.mts",
     "test": "turbo run test",
     "test:hooks": "node scripts/test-hooks.mts",
     "test:sync": "node scripts/test-sync.mts",

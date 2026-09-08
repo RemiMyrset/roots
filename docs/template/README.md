@@ -40,6 +40,8 @@ One word per concept, used the same way in every page, skill, and script:
 - **rulebook** — `AGENTS.md`, the one agent-instruction file; **skills** — the
   procedures under `.claude/skills/` (mirrored to `.agents/skills/` for Codex
   and Gemini CLI).
+- **writing rules** — `.claude/output-styles/writing.md`, the one prose
+  rulebook, loaded at session start in all three tools.
 - **guards** — the agent pre-tool guards under `.claude/hooks/` that deny a
   command before it runs. Never "hooks": **git hooks** are commitlint,
   lint-staged, and secretlint running through simple-git-hooks at commit time.

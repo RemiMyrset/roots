@@ -11,6 +11,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm -w --silent run session",
+            "statusMessage": "writing rules"
+          }
+        ]
+      }
     ]
   }
 }

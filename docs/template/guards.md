@@ -12,13 +12,16 @@ The `.claude/hooks/` guards (`deny-non-pnpm`, `deny-build-scripts`,
 footgun-preventers for a cooperative agent, not a sandbox.** They stop the common,
 accidental ways an agent would run a banned package manager, enable a dependency
 build script, read a secret file, push to a protected branch, or skip the git
-hooks — mistakes worth catching before they happen. `dispatch.mts` is the one hook
+hooks — mistakes worth catching before they happen. `dispatch.mts` is the one pre-tool hook
 registered, three times over: as a Claude Code PreToolUse hook
 (`.claude/settings.json`), a Codex PreToolUse hook (`.codex/hooks.json`), and a
 Gemini CLI BeforeTool hook (`.gemini/settings.json`). All three deliver the
 command as `tool_input.command` and treat exit 2 with a reason on stderr as a
 block, so the guards are shared verbatim; the fixture suite pipes each tool's
-payload shape through the dispatcher. It runs every `deny-*.mts` in the
+payload shape through the dispatcher. The session hook beside it,
+`session-start.mts`, is not a guard: it prints the writing rules at session
+start, never blocks, and is described in [docs-toolchain](./docs-toolchain.md).
+The dispatcher runs every `deny-*.mts` in the
 directory, and any non-zero exit denies the call; it also denies when the hook
 input is not a payload with a string `tool_input.command` (malformed JSON, a
 missing or null field) and when stdin never closes within five seconds. Node

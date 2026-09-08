@@ -3,7 +3,7 @@
  * mechanics (the CI, docs, labels, and pages workflows, the agent-task issue template, the PR
  * template, the docs generators
  * and checkers, the guard, sync, docs, and gate test-suites, the verify gate, the agent hooks, rules,
- * skills and the Codex/Gemini registrations, and the template-owned docs under
+ * skills, output styles and the Codex/Gemini registrations, and the template-owned docs under
  * docs/template) from the template repo into this one. Works for a repo made with
  * "Use this template" (no shared git history), a fork or clone (shared history), or one
  * that predates the template.
@@ -71,6 +71,7 @@ const MECHANICS = [
   'scripts/verify.mts',
   '.claude/hooks',
   '.claude/rules',
+  '.claude/output-styles',
   '.claude/skills',
   '.codex/hooks.json',
   '.gemini/settings.json',

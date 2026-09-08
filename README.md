@@ -46,8 +46,8 @@ anyone who wants an unopinionated starter. The rules are the product.
 
 ```text
 AGENTS.md          the rulebook; CLAUDE.md is one line importing it
-.claude/           guards (hooks/), path-scoped rules, skills, Claude Code settings
-.codex/ .gemini/   the same guards registered for Codex and Gemini CLI
+.claude/           guards (hooks/), rules, skills, writing rules (output-styles/), settings
+.codex/ .gemini/   the same guards and writing rules registered for Codex and Gemini CLI
 .agents/skills/    generated mirror of .claude/skills for Codex and Gemini
 apps/ packages/    the workspace; example-app consumes example-package
 docs/internal/     the handbook: decisions/ and specs/ (yours)
@@ -163,6 +163,9 @@ guards and project settings stay off.
   three tools: a non-pnpm package manager, enabling a dependency build script,
   reading a secret file, pushing to a protected branch, and bypassing a git
   hook. Threat model and scope: [guards](./docs/template/guards.md).
+- **Writing rules.** One short rulebook for prose,
+  `.claude/output-styles/writing.md`, loads at every session start in all three
+  tools: Claude Code's output style, a SessionStart hook in Codex and Gemini.
 - **Push flow.** Feature-branch pushes and PR creation run without prompts;
   `main` (or `PROTECTED_BRANCHES`) is only reachable through a PR a human
   merges. The `pr` skill does the whole thing the house way.
