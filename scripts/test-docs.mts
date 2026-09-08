@@ -3,9 +3,9 @@
  * check-portability.mts) — the two densest regex files in the repo, whose comments each
  * record a past bug. Copies a fixture tree (scripts/docs/fixtures/clean, /broken) to a temp
  * dir, runs each checker with that cwd, and asserts the exit code and the messages. Also
- * pins the rulebook budget, the CI-annotation gating, a missing docs dir, and the three-step
- * repo-root fallback. Runs in CI on Ubuntu and Windows via `pnpm test:docs`. Node builtins
- * only.
+ * pins the rulebook budget, the CI-annotation gating, a missing docs dir, the three-step
+ * repo-root fallback, and the stale-region comparison (with a CRLF checkout). Runs in CI on
+ * Ubuntu and Windows via `pnpm test:docs`. Node builtins only.
  */
 import { spawnSync } from 'node:child_process'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -79,9 +79,13 @@ delete withoutCi[CI_KEY]
     'status "unknown" not in vocabulary',
     '0001-mismatch.md: missing or non-real "- **Date:** YYYY-MM-DD" bullet',
     '0002-superseded.md: superseded status must link the newer record',
+    '0003-missing-target.md: superseded-by target ./0004-nope.md does not exist',
     'duplicate decision number 0002',
     'automd generator failed and wrote a warning comment',
+    'docs/internal/stale.md: <!-- automd:decisionsIndex --> region is stale — run `pnpm docs:gen`',
+    'docs/internal/unclosed.md: missing <!-- /automd --> after <!-- automd:custom --> (line 3)',
     'docs/internal/specs/index.md: missing <!-- automd:specIndex --> marker',
+    'docs/internal/specs/cli/no-source.md: missing "- **Source:** ..." bullet',
     'docs/internal/specs/stray.md: specs must live in an area directory',
     'docs/internal/specs/cli/stale.md: Source path `src/nope.txt` does not exist',
     'docs/internal/specs/cli/nested/deep.md: specs must be flat within an area',
@@ -164,6 +168,22 @@ delete withoutCi[CI_KEY]
   mkdirSync(nowhere)
   const x = run('docs:portability', nowhere, withoutCi)
   check('no root: non-zero with a clear message', x.status !== 0 && x.out.includes('repo root not found'), x.out)
+}
+
+// 8. A generated region is compared to the generator, whatever the line endings.
+{
+  const edited = fixture('clean')
+  const index = join(edited, 'docs/internal/decisions/index.md')
+  writeFileSync(index, readFileSync(index, 'utf8').replace('| Second | accepted |', '| Second | proposed |'))
+  const e = run('docs:check', edited, withoutCi)
+  check('stale index region exits 1', e.status === 1, e.out)
+  check('stale index region named', e.out.includes('docs/internal/decisions/index.md: <!-- automd:decisionsIndex --> region is stale'), e.out)
+
+  const crlf = fixture('clean')
+  const crlfIndex = join(crlf, 'docs/internal/decisions/index.md')
+  writeFileSync(crlfIndex, readFileSync(crlfIndex, 'utf8').replace(/\n/g, '\r\n'))
+  const c = run('docs:check', crlf, withoutCi)
+  check('CRLF index region is current', c.status === 0, c.out)
 }
 
 if (fails.length > 0) {

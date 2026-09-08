@@ -51,9 +51,20 @@ rewrites the `.agents/skills` mirror. The VitePress sidebars are derived at
 build time from the same readers, so they cannot drift either. Never hand-edit
 generated output; change the source files and re-run.
 
-`pnpm docs:check` enforces the couplings generation cannot: Source and Tests
-paths resolve, formats hold, and stale review dates surface as warnings for a
-human re-read. CI runs both and fails on drift.
+`pnpm docs:check` enforces the couplings generation cannot. CI runs both and
+fails on drift. The checks:
+
+- a decision's filename, H1, and number match, its Status is in the vocabulary,
+  a superseded status links the newer record and that record exists, and its
+  Date is real
+- a spec's Source and Tests paths resolve, and its Last reviewed date is real
+  (a warning after 180 days)
+- specs sit one level below an area, never at the top or nested deeper
+- a template page with a Source bullet meets the spec rules above
+- no committed automd warning comment, and every automd region under `docs/`
+  is closed and current with its generator
+- every `AGENTS.md` is within the 200-line budget
+- `.agents/skills` matches `.claude/skills` byte for byte
 
 ## In-flight planning
 

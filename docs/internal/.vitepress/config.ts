@@ -4,7 +4,7 @@
 // exposure.
 import { defineConfig } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
-import { decisionsSidebar, specsSidebar } from '../../../scripts/docs/generators.mts'
+import { decisionsSidebar, specsSidebar } from '../../../scripts/docs/readers.mts'
 import { shared, siteName } from '../../.shared/config.ts'
 
 export default withMermaid(defineConfig({
