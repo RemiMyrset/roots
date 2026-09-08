@@ -6,10 +6,10 @@ description: Push the current feature branch and open a pull request. Verify fir
 # Open a pull request
 
 The push flow runs unattended: `git push` and the read-only `gh` commands are
-allow-listed, and the `deny-push-protected` guard keeps every push off
-`PROTECTED_BRANCHES` (the `env` block of `.claude/settings.json`; default
-`main`). Merging is a human decision; `gh pr merge` always prompts, and this
-skill never runs it.
+allow-listed, and the `deny-push-protected` guard keeps every push off a
+protected branch. What counts as protected, and what else the guard denies, is
+under "Push protection" in `docs/template/guards.md`. Merging is a human
+decision; `gh pr merge` always prompts, and this skill never runs it.
 
 1. Branch check. `git branch --show-current` must not match a protected
    pattern. If it does, stop and suggest a branch: `feat/`, `fix/`, `docs/`,

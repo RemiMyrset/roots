@@ -12,6 +12,20 @@ Behavior lives in source code, tests, and one spec file under
 PR.** If you cannot describe the change in plain prose in its spec, you do not
 understand it well enough to merge.
 
+## Spec kinds
+
+A capability spec covers one route, command, or observable behavior. An entity
+spec covers one entity's cross-cutting invariants: "player name is unique" (its
+scope, casing, and normalization) lives in the player entity spec, and the
+create and rename capability specs link to it and state only their own outcome,
+such as a `duplicate_name` rejection.
+
+Either kind describes the contract between caller and implementation, never a
+rephrasing of the source or a list of functions called. A spec passes one test:
+a reader of the spec can write the tests without seeing the source, and a
+reader of the source can predict the spec. When they disagree, the spec lagged
+a code change; fix it in the same PR.
+
 ## Canonical-home map
 
 The table at the top of `/AGENTS.md` maps concerns to canonical homes, and the
@@ -30,7 +44,8 @@ codebase has shape.
 - Swapping a load-bearing dependency or reversing a decision → a new record
   that supersedes; edit only the old record's Status line.
 - New or renamed developer-facing command → README, plus the AGENTS.md
-  Commands list when it gates done (the one sanctioned restatement).
+  Commands list when it is part of the done gate (the one sanctioned
+  restatement).
 
 When you catch yourself updating a second doc to keep it consistent, stop and
 link to the canonical home instead. That second doc is derived.

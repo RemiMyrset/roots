@@ -5,8 +5,8 @@
 - **Last reviewed:** 2026-09-08
 
 The contract for `pnpm sync:template`. The tests pin behaviors 1 to 23; the
-per-file-error branch of behavior 23 is untested. The user-facing recipe is in
-[docs-toolchain](./docs-toolchain.md).
+per-file-error branch of behavior 23 is untested. The user-facing recipe is the
+[Recipe](#recipe) section below.
 
 ## Purpose
 
@@ -26,6 +26,60 @@ scripts that now differ).
   review-and-discard is the merge.
 - No push-based or scheduled sync, no tokens, no bots.
 - Never runs inside the template itself.
+
+## Recipe
+
+The sync works the same for a repository made with **Use this template**,
+forked or cloned from roots, or older than roots. There is no bot, cron, or
+token:
+
+```sh
+pnpm sync:template                # URL and ref from .template-sync.json, else the defaults
+pnpm sync:template <fork-url>     # or point at your own fork (recorded for next time)
+pnpm sync:template --ref <name>   # pin a template branch or tag (recorded for next time)
+```
+
+Nothing is committed. Review with `git diff --cached`, keep what applies, and
+discard the rest with `git restore --staged --worktree <path>`. Apply each
+`BREAKING CHANGE` footer by hand (it names an edit outside the synced paths)
+and the printed follow-ups, then run the done gate and commit
+`.template-sync.json` with the rest.
+
+The synced paths, grouped: the CI, docs, labels, and Pages workflows with the
+label list, the agent-task issue template, and the PR template; the docs
+generators and checkers, the verify gate, the git-hook installer, the four test
+suites, and the sync script itself; the guards, rules, skills, and writing
+rules under `.claude/`, the Codex and Gemini registrations, and the generated
+`.agents/` mirror; and `docs/template/`. The exact list is `MECHANICS` in the
+script.
+
+The synced scripts are `.mts` on purpose. `.mts` runs as ESM whatever the
+repository's `package.json` `"type"` says, whereas a `.ts` file is read as
+CommonJS in a repo that sets `"type": "commonjs"`, which breaks its
+`import`/`export`.
+
+`.template-sync.json` customizes the sync. List a synced path under `exclude`
+to stop pulling it (say `.gemini/settings.json` once you have local Gemini
+settings), or an extra path under `include` (for example `tsconfig.base.json`
+or `eslint.config.ts`) to pull it too. Never edit `MECHANICS` in the script
+itself: the script is synced, and the edit would be staged for revert on the
+next run.
+
+A repo that predates the script, or holds an older copy that never recorded a
+sync point, bootstraps with plain git, so a private fork works with whatever
+auth git already has. Overwrite an older copy; behavior 7 says why. In Claude
+Code the `sync-template` skill drives the whole flow.
+
+```sh
+mkdir -p scripts && git fetch --no-tags https://github.com/RemiMyrset/roots.git main && git show FETCH_HEAD:scripts/sync-template.mts > scripts/sync-template.mts && node scripts/sync-template.mts
+```
+
+Sync stages deletions only inside the synced paths. An artifact the template
+retired elsewhere (a doc, a config line) stays behind as an orphan; the
+breaking-commit footer names it, so sweep it by hand. A file of your own under
+a synced directory (say `.claude/skills/my-skill/`) is staged for deletion on
+every run because it is not upstream: discard that hunk, move the file, or
+`exclude` the directory.
 
 ## Contract
 

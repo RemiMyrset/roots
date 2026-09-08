@@ -1,6 +1,6 @@
 ---
 name: first-run
-description: Initialize a repository just created from the template by running the README "First run" checklist. Prove the gates, name the project, fill the owner placeholders, apply the GitHub settings with gh, delete the section, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when README.md still contains a "## First run" section and this checkout is not the template itself. Never pushes.
+description: Initialize a repository just created from the template by running the README "First run" checklist. Prove the done gate, name the project, fill the owner placeholders, apply the GitHub settings with gh, delete the section, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when README.md still contains a "## First run" section and this checkout is not the template itself. Never pushes.
 ---
 
 # First run
@@ -17,23 +17,25 @@ calls. Ask before any step whose input you would otherwise have to invent.
    name and must match `^[\w.-]+$`. The licence holder is `gh api user -q .name`,
    else `git config user.name`. Ask for the one-line pitch, never invent it;
    offer `gh repo view --json description -q .description` if it is set.
-2. Gates: `pnpm install && pnpm verify`. Red here is a template defect; stop and
-   report it, never work around it.
+2. Done gate: `pnpm install && pnpm verify`. Red here is a template defect; stop
+   and report it, never work around it.
 3. Rename, exact edits:
    - `package.json`: `"name": "<slug>"`, `"description": "<pitch>"`.
    - `README.md`: the H1 becomes `# <slug>` (or the title the user gives); the
-     paragraphs between the H1 and `## First run` become the pitch. Keep the
-     provenance line under "Where things live".
+     first paragraph under the H1 becomes the pitch. The sections between it
+     and `## First run` are not the pitch; leave them. Keep the provenance line
+     under "Where things live".
    - `LICENSE`: `Copyright (c) <year> <holder>`.
    - `.github/CODEOWNERS`: `@OWNER` becomes `@<owner>`.
    - `.github/ISSUE_TEMPLATE/config.yml`: `OWNER/REPO` becomes `<owner>/<repo>`.
    - `CODE_OF_CONDUCT.md`: `[INSERT CONTACT METHOD]` becomes the contact the
      user names.
    - Package scope, only if the user wants something other than `@repo/`:
-     replace it in `packages/*/package.json`, `apps/*/package.json`,
-     `apps/*/src/*.ts`, `AGENTS.md`, `README.md`, and
-     `.claude/skills/new-package/SKILL.md`, then `pnpm install` (the lockfile's
-     importer names change).
+     `grep -rl '@repo/' --exclude-dir=node_modules .` (the README's command)
+     lists every file. Edit each except `pnpm-lock.yaml` and the
+     `.agents/skills` copies, then `pnpm install` (the lockfile is regenerated,
+     never hand-edited; CI installs with `--frozen-lockfile`) and
+     `pnpm docs:gen` (the mirror rewrites the copies).
 4. Protected branches: ask whether `main` is the only one; if not, set
    `PROTECTED_BRANCHES` (comma-separated globs) in the `env` block of
    `.claude/settings.json`. The Codex and Gemini trust prompts are the human's;
@@ -51,10 +53,9 @@ calls. Ask before any step whose input you would otherwise have to invent.
    `pnpm verify` once more.
 7. Hand off: summarize the edits and propose
    `git commit -am "chore: initialize from roots"` (run it only if asked; never
-   push). Print the two things that wait on the first push: the branch-ruleset
-   command under "Push protection" in `docs/template/guards.md`, to run once
-   `ci` and `docs` have reported on `main`, and the reminder that
-   `packages/example-package`, `apps/example-app`, and the `docs/public/` pages
-   are still placeholders.
+   push). Print the two things that wait: the branch ruleset, whose command and
+   timing are under "Push protection" in `docs/template/guards.md`, and the
+   reminder that `packages/example-package`, `apps/example-app`, and the
+   `docs/public/` pages are still placeholders.
 
 $ARGUMENTS may carry the pitch or a package scope.

@@ -3,11 +3,11 @@
 A GitHub template for pnpm + Turborepo TypeScript monorepos that AI coding
 agents can work in safely from day one.
 
-Tooling enforces the rules: one agent rulebook read by Claude Code, Codex, and
-Gemini CLI; guards that stop the common agent mistakes before they run; a done
-gate that is the same locally and in CI; a docs system with decisions, specs,
-and portable markdown; and a sync that keeps the shared mechanics current after
-you have made the template your own.
+Tooling enforces the rules. One rulebook is read by Claude Code, Codex, and
+Gemini CLI, guards stop the common agent mistakes before they run, and one done
+gate is the same locally and in CI. Decisions, specs, and portable markdown
+live in a docs system, and a sync keeps the shared mechanics current after you
+have made the template your own.
 
 ## Who it is for, and not for
 
@@ -15,40 +15,38 @@ Solo developers and small teams starting a TypeScript monorepo where Claude
 Code, Codex, or Gemini CLI do a large share of the work, on Linux, macOS, or
 Windows.
 
-Not for stacks other than TypeScript on node (the docs tooling needs node 24
-and pnpm either way), teams that want an external spec framework such as
-Spec-Kit (the built-in decisions-and-specs flow is deliberately small),
-publishing npm libraries out of the box (a recipe exists, nothing is wired), or
-anyone who wants an unopinionated starter. The rules are the product.
+Not for stacks other than TypeScript on node; the docs tooling needs node 24
+and pnpm either way. Not for teams that want an external spec framework such
+as Spec-Kit, or for publishing npm libraries out of the box: the built-in
+decisions-and-specs flow is deliberately small, and the library recipe under
+[Growth paths](./docs/template/docs-toolchain.md#growth-paths) ships unwired.
+Not for anyone who wants an unopinionated starter.
 
 ## What is in the box
 
-The agent layer is `AGENTS.md` as the single rulebook (`CLAUDE.md` imports it,
-Codex reads it natively, Gemini CLI is pointed at it), pre-tool guards
-registered in all three tools, and skills for the recurring procedures: first
-run, new package, new spec, new decision, PR, template sync, release, docs
-check.
+- One agent rulebook, [AGENTS.md](./AGENTS.md), read by Claude Code, Codex,
+  and Gemini CLI. How each tool reads it, the guards, the skills, and the
+  writing rules is in [agent-surfaces](./docs/template/agent-surfaces.md).
+- Pre-tool guards in all three tools, threat model in
+  [guards](./docs/template/guards.md), and skills under `.claude/skills/` for
+  the recurring procedures.
+- One done gate, `pnpm verify`: every CI check in CI order, stopping at the
+  first failure, the same on Ubuntu and Windows ([Commands](#commands)).
+- A docs system: decisions (why) and specs (what) with generated indexes, in
+  portable markdown, built into an internal handbook and a public site that a
+  shipped workflow publishes to GitHub Pages with `llms.txt`. Start at
+  [docs/README.md](./docs/README.md); the mechanics are in
+  [docs-toolchain](./docs/template/docs-toolchain.md).
+- Template sync, `pnpm sync:template`, which pulls the shared mechanics into
+  any child and reports what a file copy cannot carry; recipe and contract in
+  [sync-template](./docs/template/sync-template.md).
+- Supply-chain defaults and a sandbox: dependency build scripts off, a 48-hour
+  release cooldown, pinned actions, secrets scanned at commit and in CI
+  ([guards](./docs/template/guards.md#secrets-in-commits)), and a devcontainer
+  for unattended runs
+  ([docs-toolchain](./docs/template/docs-toolchain.md#sandbox-agents-in-a-devcontainer)).
 
-The done gate is `pnpm verify`. It runs every CI check in CI order and stops at
-the first failure; CI runs the same on Ubuntu and Windows.
-
-The docs system holds decisions (why) and specs (what) with generated indexes
-that cannot drift, in portable markdown that renders in GitHub, VitePress, and
-Obsidian. It builds an internal handbook site and a public site; a shipped
-workflow publishes the public one to GitHub Pages with `llms.txt` and a sitemap
-for AI crawlers.
-
-Template sync, `pnpm sync:template`, pulls the shared mechanics into any child
-(copy, fork, or clone) and reports what a file copy cannot carry.
-
-Dependency build scripts are off by default and dependency releases get a
-48-hour cooldown; actions are pinned, and secrets are scanned at commit and in
-CI.
-
-A devcontainer with node 24, pnpm, and Claude Code is the sandbox for
-unattended runs and Codespaces.
-
-## Sixty-second tour
+## Layout
 
 ```text
 AGENTS.md          the rulebook; CLAUDE.md is one line importing it
@@ -78,8 +76,8 @@ flowchart LR
 > through this list once, then delete the section. In Claude Code the
 > `first-run` skill does every step marked **(skill)** and hands you the rest.
 
-1. **Prove the gates.** `pnpm install && pnpm verify`, green before you touch
-   anything. **(skill)**
+1. **Prove the done gate.** `pnpm install && pnpm verify`, green before you
+   touch anything. **(skill)**
 2. **Name it.** **(skill; it asks you for the one-line pitch)**
    - `package.json`: `name` (your repo slug) and `description`.
    - This file: the H1 and the pitch paragraph above. Keep the provenance line
@@ -91,15 +89,17 @@ flowchart LR
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
      Bash on Windows), `grep -rl '@repo/' --exclude-dir=node_modules .` lists
      every file.
-3. **Agent tools.** The first time you open the folder, Codex and Gemini CLI ask
-   you to trust it (Codex also trusts each hook once via `/hooks`); say yes or
-   the guards stay off. If `main` is not your only protected branch, set
-   `PROTECTED_BRANCHES` in the `env` block of `.claude/settings.json`
-   (comma-separated globs). **(skill; the branch list only)**
+3. **Agent tools.** Trust the folder when Codex and Gemini CLI ask, or the
+   guards stay off; the prompts are described in
+   [agent-surfaces](./docs/template/agent-surfaces.md#trust-and-registration).
+   If `main` is not your only protected branch, set `PROTECTED_BRANCHES` as
+   [Push protection](./docs/template/guards.md#push-protection) in guards
+   says. **(skill; the branch list only)**
 4. **Samples and stubs.** `packages/example-package` and `apps/example-app`
-   keep the gates honest; replace them when real code lands (the `new-package`
-   skill scaffolds the house shape). Same for the pages under `docs/public/`.
-   Not today.
+   keep the done gate honest; replace them when real code lands (the
+   `new-package` skill scaffolds the house shape). Same for the pages under
+   `docs/public/`, but keep one page beside `docs/public/index.md` or the build
+   emits no `llms.txt`. Not today.
 5. **GitHub settings.** Needs `gh auth login`; `OWNER/REPO` is your repository.
    **(skill)**
 
@@ -112,10 +112,9 @@ flowchart LR
    `git commit -am "chore: initialize from roots"` and push `main`. This is the
    one direct push; everything after lands through a PR. **(skill proposes the
    commit; it never pushes)**
-7. **Branch ruleset.** After `ci` and `docs` have reported on `main` at least
-   once (a required check that never reports blocks every PR), run the ruleset
-   command under "Push protection" in [guards](./docs/template/guards.md). Free
-   on public repositories, GitHub Pro on private ones.
+7. **Branch ruleset.** Run the command under
+   [Push protection](./docs/template/guards.md#push-protection) in guards; it
+   says when the ruleset can be created and what it costs.
 8. **Publish the public docs (optional).** Enable GitHub Pages with
    `gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow`; the `pages`
    workflow deploys `docs/public/` on each push to `main` that touches its
@@ -161,32 +160,25 @@ pnpm install
 
 ## Working with AI agents
 
-The rulebook is [AGENTS.md](./AGENTS.md). Claude Code reads it through the
-one-line `CLAUDE.md`, Codex reads it natively, and Gemini CLI is pointed at it
-by `.gemini/settings.json`. The first time you open the folder, Codex and
-Gemini ask you to trust it (Codex also asks to trust each hook once via
-`/hooks`); say yes, or the guards and project settings stay off.
-
-A shared set of pre-tool guards denies the common mistakes in all three tools:
-a non-pnpm package manager, enabling a dependency build script, reading a
-secret file, pushing to a protected branch, and bypassing a git hook. The
-threat model and scope are in [guards](./docs/template/guards.md).
-
-One short rulebook for prose, `.claude/output-styles/writing.md`, loads at
-every session start in all three tools: Claude Code's output style, a
-SessionStart hook in Codex and Gemini.
-
-Feature-branch pushes and PR creation run without prompts; `main` (or
-`PROTECTED_BRANCHES`) is only reachable through a PR a human merges. The `pr`
-skill does the whole thing the house way.
-
-`pnpm sync:template` pulls the shared mechanics; the `sync-template` skill
-drives it end to end. Recipe and contract are in
-[docs/template/](./docs/template/README.md).
-
-`.devcontainer/` gives every tool the same node 24 + pnpm environment inside a
-container, for unattended runs and Codespaces. The egress firewall is an opt-in
-recipe in [docs-toolchain](./docs/template/docs-toolchain.md).
+- The rulebook is [AGENTS.md](./AGENTS.md). How Claude Code, Codex, and Gemini
+  CLI each read it, and the trust prompts the last two show, are in
+  [agent-surfaces](./docs/template/agent-surfaces.md).
+- Pre-tool guards deny the common mistakes in all three tools; what they catch
+  and what they do not is in [guards](./docs/template/guards.md).
+- The writing rules, `.claude/output-styles/writing.md`, load at every session
+  start in all three tools; [agent-surfaces](./docs/template/agent-surfaces.md#writing-rules)
+  says how.
+- Feature-branch pushes and PR creation run without prompts, and a protected
+  branch is reachable only through a PR a human merges
+  ([Push protection](./docs/template/guards.md#push-protection)). The `pr`
+  skill does the whole thing the house way.
+- `pnpm sync:template` pulls the shared mechanics and the `sync-template` skill
+  drives it end to end; recipe and contract are in
+  [sync-template](./docs/template/sync-template.md).
+- `.devcontainer/` gives every tool the same node 24 + pnpm environment inside
+  a container, for unattended runs and Codespaces; the egress firewall is an
+  opt-in recipe in
+  [docs-toolchain](./docs/template/docs-toolchain.md#sandbox-agents-in-a-devcontainer).
 
 ## Where things live
 
@@ -196,9 +188,11 @@ recipe in [docs-toolchain](./docs/template/docs-toolchain.md).
   house shape; the `new-package` skill scaffolds more.
 - Docs entry point: [docs/README.md](./docs/README.md), the two sites and the
   template-owned folder.
+- Internal handbook: [docs/internal/](./docs/internal/index.md), decisions,
+  specs, and this project's own guides.
 - Decisions (why): [docs/internal/decisions/](./docs/internal/decisions/index.md)
 - Specs (what): [docs/internal/specs/](./docs/internal/specs/index.md)
-- Template-owned rules and agent material (synced, never rendered):
+- Template-owned rules and agent material (synced):
   [docs/template/](./docs/template/README.md), including the
   [vocabulary](./docs/template/README.md#vocabulary) every page uses.
 - Docs system, recipes, growth paths:

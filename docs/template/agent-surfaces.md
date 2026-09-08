@@ -1,0 +1,69 @@
+# Agent surfaces
+
+How Claude Code, Codex, and Gemini CLI each read the one rulebook, the guards,
+the skills, and the writing rules. It is template-owned and synced.
+
+## Surfaces
+
+| | Claude Code | Codex | Gemini CLI |
+| --- | --- | --- | --- |
+| Rulebook `AGENTS.md` | `CLAUDE.md`, one line: `@AGENTS.md` | native; nested files merged root-down, 32 KiB cap | `context.fileName` in `.gemini/settings.json` |
+| Guards `.claude/hooks/dispatch.mts` | PreToolUse hook in `.claude/settings.json` | PreToolUse hook in `.codex/hooks.json` | BeforeTool hook in `.gemini/settings.json` |
+| Skills `.claude/skills/` | read in place | `.agents/skills/`, the mirror | `.agents/skills/`, the mirror |
+| Writing rules `.claude/output-styles/writing.md` | `outputStyle` in `.claude/settings.json` | SessionStart hook in `.codex/hooks.json` | SessionStart hook in `.gemini/settings.json` |
+
+The guards' threat model is [guards](./guards.md). `.claude/settings.json` is
+never synced; every other file in the table is.
+
+## Trust and registration
+
+Codex and Gemini load project-level config only after the user trusts the
+folder, and Codex asks once more to trust each hook via `/hooks`. Gemini
+fingerprints project hooks and asks again after any change to
+`.gemini/settings.json`, a sync included. Until the user says yes, the guards
+and the writing rules stay off in that tool.
+
+Both registrations run `pnpm -w --silent run guards`, a workspace-root script
+that resolves from any subdirectory on Linux, macOS, and Windows with no
+shell-specific syntax. `--silent` keeps pnpm's own lines off stdout, which
+Gemini parses as JSON. Claude Code calls the dispatcher directly with node.
+
+## Skills mirror
+
+`.agents/skills/` is a generated, committed copy of `.claude/skills/`.
+`pnpm docs:gen` rewrites it; `pnpm docs:check` and the drift gate refuse a
+stale or hand-edited copy. It is a copy, never a symlink: a symlink needs
+privileges on Windows and silently becomes a text file without them.
+
+## Writing rules
+
+One file loads at every session start in all three tools. Claude Code carries
+it as its output style, part of the system prompt and re-reminded during the
+session. Codex and Gemini run `pnpm -w --silent run session` at SessionStart,
+and the session hook `session-start.mts` prints the file, frontmatter
+stripped, as `additionalContext`.
+
+The session hook ignores its payload, always exits 0, and prints nothing when
+the file is missing, so it can never block a session. Claude Code does not
+register it: that would inject the text twice and override a `/config` choice.
+`/config` overrides the style per machine in the gitignored
+`settings.local.json`, and restores it.
+
+Neither surface reaches Claude Code subagents. Codex caps injected context
+near 2,500 tokens, so `pnpm test:hooks` keeps the file under 4,000
+characters.
+
+## Nested rulebooks
+
+Codex merges a nested `AGENTS.md` on its own, and Gemini loads it when a tool
+first touches its directory. Claude Code walks nested `CLAUDE.md` only, so a
+scoped rulebook needs the `CLAUDE.md` pairing described in the Monorepo map of
+the root `AGENTS.md`.
+
+## Permission prompts
+
+The Claude Code permission allowlist in `.claude/settings.json` lets the
+commands in the skills run without a prompt. Codex exec-policy rules and
+Gemini's allowed-tools settings are the counterparts; roots ships neither, so
+expect approval prompts in those tools on the commands Claude Code runs
+silently.

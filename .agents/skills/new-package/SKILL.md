@@ -54,7 +54,7 @@ app or service). Placement alone registers it; the workspace globs cover both.
    if it still exists, else a minimal `defineConfig({ test: {} })`. Coverage is
    omitted until vitepress leaves vite 5 (the note in that file says why).
 5. Create `src/index.ts` plus a sibling `test/index.test.ts` with at least one
-   real test, so the gates are green. Tests live in `test/`, never in `src/`:
+   real test, so the done gate is green. Tests live in `test/`, never in `src/`:
    Vitest's default glob finds them with no config, and a colocated test is an
    ESLint error. Relative imports carry explicit `.ts` extensions, so the test
    imports `../src/index.ts`. If this replaces `packages/example-package` or
@@ -63,11 +63,9 @@ app or service). Placement alone registers it; the workspace globs cover both.
 6. Add one line to the AGENTS.md "Monorepo map": path — purpose. Update the
    map line of anything you replaced. If the package needs its own conventions,
    write `<package>/AGENTS.md` and `<package>/CLAUDE.md` containing only
-   `@AGENTS.md`; Claude Code discovers nested `CLAUDE.md`, not nested
-   `AGENTS.md`, so a lone scoped `AGENTS.md` never loads.
+   `@AGENTS.md`; the Monorepo map says why the pairing is needed.
 7. Run `pnpm install` (CI installs with a frozen lockfile and fails if it misses
-   the new member), then `pnpm typecheck && pnpm test && pnpm lint`, then
-   `pnpm docs:portability` (AGENTS.md changed); all must pass. If the package
-   adds externally observable behavior, spec it (new-spec skill).
+   the new member), then `pnpm verify`. If the package adds externally
+   observable behavior, spec it (new-spec skill).
 
 $ARGUMENTS is the package name and placement if provided.

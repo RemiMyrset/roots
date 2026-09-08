@@ -20,9 +20,9 @@ export default withMermaid(defineConfig({
       { text: 'Decisions', link: '/decisions/' },
       { text: 'Specs', link: '/specs/' },
     ],
-    // No Development group: the shared guides live in docs/template/, which is
+    // No guides group: the shared guides live in docs/template/, which is
     // template-owned and deliberately outside this site (read on GitHub). Add a
-    // group here when this project writes its own guides under development/.
+    // group here when this project writes its own guides (runbooks/, design/).
     sidebar: [
       { text: 'Decisions', link: '/decisions/', items: decisionsSidebar() },
       { text: 'Specs', link: '/specs/', items: specsSidebar() },

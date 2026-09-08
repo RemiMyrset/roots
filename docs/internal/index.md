@@ -1,7 +1,10 @@
 # Internal handbook
 
 The engineering handbook, rendered locally with `pnpm docs:internal:dev`.
-Counts and lists on this page are links, never numbers, because numbers drift.
+Paths under `docs/template/` are template-owned pages outside this site; read
+them on GitHub.
+
+<!-- Counts and lists on this page are links, never numbers: numbers drift. -->
 
 ## Start here
 
@@ -9,17 +12,12 @@ Counts and lists on this page are links, never numbers, because numbers drift.
    this site.
 2. `/AGENTS.md`, the agent rulebook and canonical-source map.
 3. `docs/template/spec-discipline.md`, one fact, one home, three-place sync.
-   Template-owned; read it on GitHub, since `docs/template/` is not part of
-   this site.
 4. [Decision records](./decisions/index.md), the why, append-only.
 5. [Specifications](./specs/index.md), the what: capability and entity specs.
-   Read the worked examples first: `docs/template/sync-template.md` is a real
-   capability spec, `docs/template/conventions.md` a real rationale page.
 
 ## Reference
 
 - `docs/template/markdown-portability.md`, authoring rules for every doc.
 - `docs/template/docs-toolchain.md`, how the docs mechanics work, plus recipes.
-- Create `development/` for this project's own guides (runbooks, design notes)
-  when the first one appears, and give it a sidebar group in
-  `.vitepress/config.ts`.
+- Create `runbooks/` or `design/` for this project's own guides when the first
+  one appears, and give it a sidebar group in `.vitepress/config.ts`.

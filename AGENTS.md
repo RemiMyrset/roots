@@ -1,7 +1,5 @@
 # Agent rulebook
 
-What this project is and does lives in [README.md](./README.md).
-
 ## How this file works
 
 This file holds the non-negotiable conventions, the commands that define "done",
@@ -16,11 +14,8 @@ decision wins; fix the loser in the same PR.
 The budget is 200 lines, enforced by `pnpm docs:check`. When a section outgrows
 its space, move the content to its canonical home and leave a link.
 
-Skills (procedures) live in `.claude/skills/`, mirrored to `.agents/skills/` for
-Codex and Gemini CLI, and path-scoped rules in `.claude/rules/`. The writing
-rules for all prose live in `.claude/output-styles/writing.md` and load at
-session start in all three tools. The words every page uses are defined in the
-[vocabulary](./docs/template/README.md#vocabulary).
+Skills, the procedures, live in `.claude/skills/`; path-scoped rules live in
+`.claude/rules/`.
 
 | Topic | Canonical source |
 | --- | --- |
@@ -29,10 +24,13 @@ session start in all three tools. The words every page uses are defined in the
 | What the system does now | [docs/internal/specs/](./docs/internal/specs/index.md) |
 | One fact, one home, three-place sync | [spec-discipline](./docs/template/spec-discipline.md) |
 | Markdown authoring rules | [markdown-portability](./docs/template/markdown-portability.md) |
+| Prose rules for every artifact | [writing rules](./.claude/output-styles/writing.md) |
+| The words every page uses | [vocabulary](./docs/template/README.md#vocabulary) |
 | Docs toolchain, recipes, growth paths | [docs-toolchain](./docs/template/docs-toolchain.md) |
 | Why the conventions are what they are | [conventions](./docs/template/conventions.md) (template-owned, synced) |
 | Agent guard threat model | [guards](./docs/template/guards.md) |
-| Template sync contract | [sync-template](./docs/template/sync-template.md) |
+| How each agent tool reads the rulebook, guards, skills, and writing rules | [agent-surfaces](./docs/template/agent-surfaces.md) |
+| Template sync recipe and contract | [sync-template](./docs/template/sync-template.md) |
 | Setup, install, quickstart | [README.md](./README.md) |
 <!-- This table is the canonical-home map. Add one row per fact as homes appear
      (ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
@@ -96,11 +94,10 @@ dependency, deleting user data or git history, or anything a hook blocks.
 
 ## Spec discipline
 
-When behavior changes, source, tests, and its spec change in the same PR. Spec
-kinds, concrete triggers, and generated versus hand-written are in
-[spec-discipline](./docs/template/spec-discipline.md) and the
-[specs index](./docs/internal/specs/index.md); read them before touching
-behavior.
+When behavior changes, source, tests, and its spec change in the same PR. The
+[spec kinds](./docs/template/spec-discipline.md#spec-kinds), the concrete
+triggers, and generated versus hand-written are all in spec-discipline; read it
+before touching behavior.
 
 ## Monorepo map
 
@@ -136,8 +133,8 @@ relative to the file holding it.
   green. `pnpm docs:check` catches it; never commit a generated region containing
   a warning comment.
 - The internal handbook is for the team: if you host it, gate it behind access
-  control (recipe in [docs-toolchain](./docs/template/docs-toolchain.md)). It
-  ships noindex and robots.txt against accidental exposure.
+  control (recipe in
+  [docs-toolchain](./docs/template/docs-toolchain.md#serve-the-internal-handbook-to-the-team)).
 - `pnpm install` refuses any dependency version published in the last 48 hours
   (`minimumReleaseAge` in `pnpm-workspace.yaml`); the registry is not broken,
   wait or pin the previous version.

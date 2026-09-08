@@ -26,88 +26,68 @@ generators).
 
 CI-enforced conventions with generated mechanical sections: rules that live
 only in prose drift, and external frameworks impose their own formats over the
-portability requirement.
+portability requirement. The choices, each with its why:
 
-`AGENTS.md`, the cross-tool standard, is the one agent rulebook. Claude Code
-reads it through a one-line `CLAUDE.md` import, Codex reads it natively, and
-`.gemini/settings.json` points Gemini CLI at it. Skills live once under
-`.claude/skills/`; Codex and Gemini reach them through a generated
-`.agents/skills/` copy (no symlinks: Windows is first-class).
-
-The writing rules live once under `.claude/output-styles/`; a SessionStart hook
-loads them in Codex and Gemini, with no copy.
-
-`docs/template/` holds the rules and agent material the template owns: this
-page, spec discipline, markdown portability, the docs toolchain and its recipes.
-It is synced into children, never rendered by either site, and never edited in
-a child. `docs/internal/` and `docs/public/` are the child's own and start
-clean; the decisions and specs folders hold only their index and template files.
-
-Decisions are MADR 4 minimal (the maintained published standard) in
-`docs/internal/decisions/NNNN-kebab-title.md`, append-only. Metadata is visible
-bold bullets; YAML frontmatter is invisible in VitePress and noisy on GitHub.
-
-Specs cover externally observable behavior under `docs/internal/specs/`, in two
-kinds, capability specs and entity specs, with three-place sync: source, tests,
-and spec change in the same PR.
-
-Every doc renders in GitHub, VitePress, and Obsidian; `pnpm docs:portability`
-checks this and blocks.
-
-automd plus repo generators produce the decisions and specs indexes; CI
-diff-gates the output so generated sections cannot drift.
-
-A synced GitHub Pages workflow publishes `docs/public/` on a push to `main`
-that touches its inputs, deploying only where Pages is enabled; the template's
-own public site is the live demo.
-
-The public site build emits `llms.txt` (the [llms.txt](https://llmstxt.org/)
-standard, "SEO for AI") plus a markdown copy of every page but the index, via
-`vitepress-plugin-llms`; that is the web-facing artifact for crawlers and agents
-on a deployed site. There is no committed repo-wide map and no concatenated
-`llms-full.txt`: coding agents inside a checkout have the rulebook, the indexes,
-and file search, and a corpus file is in no version of the standard.
-
-The stack is a TypeScript-first pnpm + Turborepo monorepo, node 24 minimum,
-with no JavaScript files (erasable-syntax TypeScript runs natively). No `class`
-or `enum`: functions and plain objects/union types only, enforced by ESLint
-`no-restricted-syntax` (enums also by `erasableSyntaxOnly`). When a dependency
-demands a subclass, escape with
-`// eslint-disable-next-line no-restricted-syntax -- <reason>`.
-
-Unit tests live in a sibling `test/` directory beside `src/`, never colocated
-(the unjs and antfu house layout). Every exported symbol carries a `/** */`
-block; ESLint `jsdoc/require-jsdoc` enforces presence, review enforces content.
-
-`secretlint` (npm-native, no binary, no licence) with the recommended preset
-runs on staged files at commit, in `pnpm verify`, and in CI. It is the
-write-side counterpart to the secret-read guard.
-
-One pre-tool dispatcher, registered in Claude Code, Codex, and Gemini CLI, runs
-node-only `deny-*` guards (no shell shims, no npm dependencies). They block
-non-pnpm package managers, dependency build scripts, shell reads of secrets,
-pushes to protected branches (`PROTECTED_BRANCHES`, default `main`;
-feature-branch pushes are allowed), and git-hook bypasses (`--no-verify`,
-hooks-path overrides, skip variables). Threat model and scope live in
-[guards](./guards.md); the fixture suite (`pnpm test:hooks`) pins every covered
-case.
-
-Template updates are pull-based and plain git. `pnpm sync:template` stages the
-template's version of an allow-list of mechanics paths (including
-`docs/template/`, the agent registrations, and the sync script itself), records
-the sync point in `.template-sync.json`, and prints the template commits since
-plus the `package.json` scripts that differ, as follow-ups. It works for
-template copies, forks, and pre-existing repos alike (the first sync infers its
-baseline), and a child can pin a template branch or tag with `ref`.
-
-`package.json` and `.claude/settings.json` are never synced; a template change
-that needs a hand-edit ships as a breaking Conventional Commit whose footer
-states it. The contract is [sync-template](./sync-template.md).
+- One agent rulebook, `AGENTS.md`, the cross-tool standard, plus one skills
+  folder and one writing-rules file, read by Claude Code, Codex, and Gemini CLI
+  alike. Overlapping instruction files were the first failure in the survey.
+  How each tool reads them is in [agent-surfaces](./agent-surfaces.md).
+- `docs/template/` holds the rules and agent material the template owns, listed
+  in [its README](./README.md). It is synced into children and never edited in
+  a child, so a fix lands once. `docs/internal/` and `docs/public/` are the
+  child's own and start clean; the decisions and specs folders hold only their
+  index and template files.
+- Decisions are MADR 4 minimal, the maintained published standard, in
+  `docs/internal/decisions/NNNN-kebab-title.md`, append-only. Metadata is
+  visible bold bullets because YAML frontmatter is invisible in VitePress and
+  noisy on GitHub.
+- Specs cover externally observable behavior under `docs/internal/specs/`, in
+  the two kinds and under the three-place sync defined in
+  [spec-discipline](./spec-discipline.md). A spec that lags its code misleads
+  more than no spec.
+- Every doc renders in GitHub, VitePress, and Obsidian, and
+  `pnpm docs:portability` blocks on a violation. Docs that rendered in one tool
+  and broke in the others were a survey finding.
+- automd plus repo generators produce the decisions and specs indexes, and the
+  drift gate refuses generated output that differs from a fresh run.
+  Hand-maintained indexes went stale in every surveyed repo.
+- A synced GitHub Pages workflow publishes `docs/public/` and deploys only where
+  Pages is enabled, so a repository without a public site pays nothing; the
+  build emits `llms.txt` (the [llms.txt](https://llmstxt.org/) standard, "SEO
+  for AI") plus a markdown copy of every page but the index. No `llms-full.txt`
+  and no committed repo-wide map: a corpus file is in no version of the
+  standard, and coding agents inside a checkout have the rulebook, the indexes,
+  and file search. The recipe is in [docs-toolchain](./docs-toolchain.md); the
+  template's own public site is the live demo.
+- The stack is a TypeScript-first pnpm + Turborepo monorepo, node 24 minimum,
+  with no JavaScript files: erasable-syntax TypeScript runs natively. No `class`
+  or `enum`, functions and plain objects/union types only, enforced by ESLint
+  `no-restricted-syntax` (enums also by `erasableSyntaxOnly`). When a dependency
+  demands a subclass, escape with
+  `// eslint-disable-next-line no-restricted-syntax -- <reason>`.
+- Unit tests live in a sibling `test/` directory beside `src/`, never colocated:
+  the unjs and antfu house layout. Every exported symbol carries a `/** */`
+  block; ESLint `jsdoc/require-jsdoc` enforces presence, review enforces
+  content.
+- `secretlint` with the recommended preset runs on staged files at commit, in
+  `pnpm verify`, and in CI: npm-native, no binary, no licence. It is the
+  write-side counterpart to the secret-read guard.
+- One pre-tool dispatcher runs node-only `deny-*` guards in all three tools, no
+  shell shims and no npm dependencies, so they work before `pnpm install`. What
+  they block, and what they cannot, is in [guards](./guards.md).
+- Template updates are pull-based and plain git: no bot, no token, nothing to
+  install. `pnpm sync:template` stages the template's version of the synced
+  paths, records the sync point, and prints the follow-ups a file copy cannot
+  carry, for template copies, forks, and pre-existing repos alike.
+  `package.json` and `.claude/settings.json` are never synced, so a template
+  change that needs a hand-edit ships as a breaking Conventional Commit whose
+  footer states it; recipe and contract are in
+  [sync-template](./sync-template.md).
 
 ## Consequences
 
 Enforcement no longer depends on memory: `pnpm docs:check`,
-`pnpm docs:portability`, and the CI diff-gate hold the conventions. A deployed
+`pnpm docs:portability`, and the drift gate hold the conventions. A deployed
 public site is discoverable by AI crawlers and agents out of the box, with
 nothing to maintain by hand.
 
