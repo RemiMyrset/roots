@@ -85,9 +85,9 @@ flowchart LR
    - This file: the H1 and the pitch paragraph above. Keep the provenance line
      under "Where things live".
    - `LICENSE`: the copyright holder and year (the template ships MIT).
-   - `.github/CODEOWNERS`: `@OWNER` becomes your GitHub user or team.
-   - `.github/ISSUE_TEMPLATE/config.yml`: `OWNER/REPO` in both links.
-   - `CODE_OF_CONDUCT.md`: the `[INSERT CONTACT METHOD]` placeholder.
+   - `.github/CODEOWNERS`: `@RemiMyrset` becomes your GitHub user or team.
+   - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` in both links.
+   - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact becomes yours.
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
      Bash on Windows), `grep -rl '@repo/' --exclude-dir=node_modules .` lists
      every file.

@@ -27,15 +27,17 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Least privilege per job: the build only reads the Pages settings; only the deploy writes.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
     outputs:
       enabled: ${{ steps.pages-enabled.outputs.enabled }}
     steps:
@@ -93,6 +95,9 @@ jobs:
     if: needs.build.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

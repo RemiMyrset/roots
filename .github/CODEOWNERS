@@ -1,4 +1,4 @@
-# Default reviewers for every path. `@OWNER` is a placeholder that the first-run
-# checklist (README "First run"; the `first-run` skill) replaces with your GitHub
+# Default reviewers for every path. `@RemiMyrset` is the template's owner; the first-run
+# checklist (README "First run"; the `first-run` skill) replaces it with your GitHub
 # user or team. Later rows override earlier ones; add path-specific owners below.
-* @OWNER
+* @RemiMyrset
