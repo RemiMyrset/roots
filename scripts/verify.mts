@@ -11,7 +11,12 @@
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
 
-const PNPM = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+// On Windows, pnpm is a `.cmd` shim, and node refuses to spawn a batch file without a shell
+// (EINVAL since the CVE-2024-27980 fix), while a `shell: true` spawn with args is deprecated
+// (DEP0190). So the gate runs through `cmd.exe /c` there, the form the node docs recommend;
+// every argument is a script name from this file, never user input, so no quoting is needed.
+const WIN = process.platform === 'win32'
+const PNPM = WIN ? 'cmd.exe' : 'pnpm'
 
 interface Gate {
   name: string
@@ -21,9 +26,10 @@ interface Gate {
 }
 
 function pnpm(...args: string[]): boolean {
-  const r = spawnSync(PNPM, args, { stdio: 'inherit' })
+  const argv = WIN ? ['/d', '/s', '/c', ['pnpm', ...args].join(' ')] : args
+  const r = spawnSync(PNPM, argv, { stdio: 'inherit' })
   if (r.error) {
-    console.error(`  could not run ${PNPM}: ${r.error.message} — install pnpm (corepack enable on node 24, or npm i -g pnpm)`)
+    console.error(`  could not run pnpm ${args.join(' ')}: ${r.error.message} — install pnpm (corepack enable on node 24, or npm i -g pnpm)`)
     return false
   }
   return r.status === 0
