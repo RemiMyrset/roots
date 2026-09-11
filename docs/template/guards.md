@@ -152,7 +152,12 @@ list: merging into a protected branch is a human decision and always asks.
 Create the ruleset once `ci` and `docs` have reported on `main` at least once;
 a required check that has never reported blocks every PR. The check names are
 the matrix job names. The ruleset is free on public repositories and needs
-GitHub Pro on private ones.
+GitHub Pro on private ones. Repository admins bypass it: the release script
+pushes the release commit and tag straight to `main`, and a required check can
+never have reported on a commit that does not exist yet. Agents on an admin's
+machine are still stopped by this guard, and every PR still needs green
+checks. Drop the `bypass_actors` line to make releases go through a temporary
+ruleset change instead.
 
 ```sh
 gh api -X POST repos/OWNER/REPO/rulesets --input - <<'JSON'
@@ -161,6 +166,7 @@ gh api -X POST repos/OWNER/REPO/rulesets --input - <<'JSON'
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "bypass_actors": [{ "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" }],
   "rules": [
     { "type": "deletion" },
     { "type": "non_fast_forward" },
