@@ -1,13 +1,13 @@
 /**
- * deny-secret-reads guard body (run via dispatch.mts). Blocks shell reads of
+ * deny-secret-reads guard (imported by dispatch.mts). Blocks shell reads of
  * secret files (.env*, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks, SSH private
  * keys, and the credential files of aws, gh, kube, docker, git, and postgres) — direct readers,
  * `<` redirects, pnpm-exec wrappers, and `find -exec` at a secret literal. `.env.example` is the one carve-out; other
  * placeholder spellings fail closed. Shared lexing in ./_lexer.mts. Scope and out-of-scope:
- * docs/template/guards.md. exit 2 = deny.
+ * docs/template/guards.md.
  */
-import process from 'node:process'
-import { commandOf, exit, resolveHead, run, segments, tokenize, unquote } from './_lexer.mts'
+import type { Verdict } from './_lexer.mts'
+import { resolveHead, segments, tokenize, unquote } from './_lexer.mts'
 
 const READERS: ReadonlySet<string> = new Set([
   'cat', 'head', 'tail', 'less', 'more', 'bat', 'nl', 'tac', 'grep', 'egrep', 'fgrep', 'rg',
@@ -64,16 +64,10 @@ function braceMembers(a: string): string[] {
   return m ? m[2]!.split(',').map(x => m[1]! + x + m[3]!) : [a]
 }
 
-run((s) => {
-  const cmd = commandOf(s)
-  if (cmd === null) {
-    process.stderr.write('secret-read guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
-    exit(2)
-  }
-  const deny = (): never => {
-    process.stderr.write('Blocked: reading secrets (.env*, .envrc, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks, SSH private keys, aws/gh/kube/docker/git/postgres credential files) via the shell is denied — same policy as the Read tool.\n')
-    exit(2)
-  }
+const DENY = 'reading secrets (.env*, .envrc, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks, SSH private keys, aws/gh/kube/docker/git/postgres credential files) via the shell is denied — same policy as the Read tool.'
+
+/** Denies a segment that reads, redirects from, or `find -exec`s over a secret-named path. */
+export const verdict: Verdict = (cmd) => {
   for (const seg of segments(cmd)) {
     const toks = tokenize(seg)
     // `<` redirect into a secret (`$(<.env)`, `read x < .env`, `cat <.env`, `cat <>.env`),
@@ -86,14 +80,14 @@ run((s) => {
       if (!tgt)
         tgt = toks[j + 1] ?? ''
       if (tgt && isSecret(tgt))
-        deny()
+        return DENY
     }
     const { i, head, probe } = resolveHead(toks)
     if (probe)
       continue
     // find ... -exec|-ok <reader> {} pointed at a secret literal.
     if (head === 'find' && toks.some(t => /^-(?:exec|ok)(?:dir)?$/.test(unquote(t))) && toks.slice(i + 1).flatMap(braceMembers).some(isSecret))
-      deny()
+      return DENY
     if (!READERS.has(head))
       continue
     const args: string[] = []
@@ -102,7 +96,7 @@ run((s) => {
       args.push(toks[k]!)
     }
     if (args.flatMap(braceMembers).some(isSecret))
-      deny()
+      return DENY
   }
-  exit(0)
-})
+  return null
+}

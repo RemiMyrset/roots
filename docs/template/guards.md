@@ -30,10 +30,13 @@ Code PreToolUse hook (`.claude/settings.json`), a Codex PreToolUse hook
 the guards are shared verbatim; the fixture suite pipes each tool's payload
 shape through the dispatcher.
 
-The dispatcher runs every `deny-*.mts` in the directory, and any non-zero exit
-denies the call. It also denies when the hook input is not a payload with a
-string `tool_input.command` (malformed JSON, a missing or null field) and when
-stdin never closes within five seconds. Node builtins only, so the guards work
+The dispatcher imports every `deny-*.mts` in the directory and runs its
+`verdict(cmd, ctx)` in the same process; the first reason returned denies the
+call, and a guard that throws or exports no verdict denies too. It also denies
+when the hook input is not a payload with a string `tool_input.command`
+(malformed JSON, a missing or null field) and when stdin never closes within
+five seconds. One process, not one per guard, keeps a shell call's overhead
+near node's own startup. Node builtins only, so the guards work
 before `pnpm install` and in any repo they are synced into.
 
 Folder trust, the per-hook trust prompts, and the command each registration

@@ -1,24 +1,18 @@
 /**
- * deny-build-scripts guard body (run via dispatch.mts). Blocks pnpm invocations
- * that enable dependency build/postinstall scripts. Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md. exit 2 = deny.
+ * deny-build-scripts guard (imported by dispatch.mts). Blocks pnpm invocations
+ * that enable dependency build/postinstall scripts. Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md.
  */
-import process from 'node:process'
-import { commandOf, exit, resolveHead, run, segments, tokenize } from './_lexer.mts'
+import type { Verdict } from './_lexer.mts'
+import { resolveHead, segments, tokenize } from './_lexer.mts'
 
 const BUILD = /(approve-builds|--allow-build|dangerously[-_]?allow[-_]?all[-_]?builds|dangerouslyAllowAllBuilds)/i
 
-run((s) => {
-  const cmd = commandOf(s)
-  if (cmd === null) {
-    process.stderr.write('build-scripts guard: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
-    exit(2)
-  }
+/** Denies a pnpm segment that carries a build-script approval flag or subcommand. */
+export const verdict: Verdict = (cmd) => {
   for (const seg of segments(cmd)) {
     const toks = tokenize(seg)
-    if (resolveHead(toks).head === 'pnpm' && BUILD.test(toks.join(' '))) {
-      process.stderr.write('Blocked: enabling dependency build scripts (approve-builds / allow-build flags) is a supply-chain code-exec vector. Human-only: run it yourself in a terminal.\n')
-      exit(2)
-    }
+    if (resolveHead(toks).head === 'pnpm' && BUILD.test(toks.join(' ')))
+      return 'enabling dependency build scripts (approve-builds / allow-build flags) is a supply-chain code-exec vector. Human-only: run it yourself in a terminal.'
   }
-  exit(0)
-})
+  return null
+}
