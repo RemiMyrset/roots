@@ -1,6 +1,8 @@
-# Project CI on Ubuntu and Windows: typecheck, lint, secrets, test, test:hooks, test:sync,
-# test:docs, test:gates, build (turbo orchestrates build/test/typecheck). Every step runs
-# under bash on both runners. scripts/test-gates.mts keeps these steps and pnpm verify equal.
+# Project CI on Ubuntu and Windows: frozen-lockfile install, typecheck, lint, secrets, test,
+# test:hooks, test:sync, test:docs, test:gates, build (turbo orchestrates build/test/typecheck).
+# Every step runs under bash on both runners. scripts/test-gates.mts keeps these steps and
+# pnpm verify equal. The one non-gate step runs `pnpm verify --only` for a fast gate, so the
+# verify script's own pnpm spawn is exercised on both platforms (it once broke on Windows).
 # Action pinning: GitHub-owned actions/* by major tag (GitHub protects those tags); every
 # third-party action by full commit SHA with its version in a trailing comment.
 name: ci
@@ -41,6 +43,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm verify --only lint:secrets # not a gate
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm lint:secrets

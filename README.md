@@ -140,7 +140,7 @@ pnpm install
 
 | Command | What it does |
 | --- | --- |
-| `pnpm verify` | The done gate: every check CI runs, in CI order, stopping at the first failure (`pnpm verify <gate>` resumes there) |
+| `pnpm verify` | The done gate: every check CI runs, in CI order, stopping at the first failure (`pnpm verify <gate>` resumes there, `pnpm verify --only <gate>` runs one) |
 | `pnpm build` / `pnpm test` / `pnpm typecheck` | Turbo across packages that define each script; `typecheck` also runs root `tsc` over scripts + configs |
 | `pnpm --filter @repo/example-package test` | One package's tests (`test:watch` for watch mode) |
 | `pnpm --filter @repo/example-app start` | Runs the sample CLI (`node src/main.ts`) against the sample package |
