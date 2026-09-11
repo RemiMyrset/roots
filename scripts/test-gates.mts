@@ -3,20 +3,23 @@
  * a gate in scripts/verify.mts, and every gate must be run by some workflow — otherwise
  * "pnpm verify is what CI runs" quietly stops being true. A separate script rather than a
  * verify self-check because CI runs discrete steps and never `pnpm verify` itself.
- * `pnpm install` is exempt; a workflow step that is deliberately not a gate carries a
- * trailing `# not a gate` comment (the exemption lives in the child-owned workflow, so a
- * child can add its own steps without diverging from the synced files). Node builtins only.
+ * A workflow step that is deliberately not a gate carries a trailing `# not a gate` comment
+ * (the exemption lives in the child-owned workflow, so a child can add its own steps without
+ * diverging from the synced files); the frozen-lockfile install is a gate like any other.
+ * Node builtins only.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 
 const root = join(import.meta.dirname, '..')
-const NOT_A_GATE: ReadonlySet<string> = new Set(['install'])
+// Scripts a workflow may run without a matching gate, beyond the `# not a gate` comment.
+const NOT_A_GATE: ReadonlySet<string> = new Set()
 
-// Every pnpm('<script>') call in verify.mts — the drift gate's inner docs:gen included.
+// Every pnpm('<script>', …) call in verify.mts, by its first argument — the drift gate's
+// inner docs:gen included; extra arguments (the install gate's flags) are not part of the name.
 const verifySource = readFileSync(join(root, 'scripts/verify.mts'), 'utf8')
-const gates = new Set([...verifySource.matchAll(/\bpnpm\('([^']+)'\)/g)].map(m => m[1]!))
+const gates = new Set([...verifySource.matchAll(/\bpnpm\('([^']+)'/g)].map(m => m[1]!))
 
 // Every `pnpm <script>` step in a workflow, with its file:line.
 interface Step { where: string, script: string }

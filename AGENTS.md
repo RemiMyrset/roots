@@ -41,8 +41,9 @@ Skills, the procedures, live in `.claude/skills/`; path-scoped rules live in
 A task is complete only when every command below that your change can affect
 passes clean after your last edit. When unsure which apply, run them all.
 
-- Done gate: `pnpm verify` (everything below, in CI order; stops at the first failure;
-  `pnpm verify <gate>` resumes there)
+- Done gate: `pnpm verify` (the frozen-lockfile install, then everything below, in CI
+  order; stops at the first failure; `pnpm verify <gate>` resumes there,
+  `pnpm verify --only <gate>` runs one)
 - Install: `pnpm install`
 - Build: `pnpm build` (turbo; packages that define `build`)
 - Test: `pnpm test` (turbo; single package: `pnpm --filter @repo/example-package test`)
