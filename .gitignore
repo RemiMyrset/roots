@@ -23,6 +23,12 @@ secrets/
 .envrc
 .netrc
 _netrc
+.git-credentials
+.pgpass
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
 
 # Obsidian per-user state (the committed app.json enforces portable links)
 docs/.obsidian/*
