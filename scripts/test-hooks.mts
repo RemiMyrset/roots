@@ -1,8 +1,10 @@
+import type { GuardContext, Verdict } from '../.claude/hooks/_lexer.mts'
 /**
- * Regression suite for the .claude/hooks agent guards and the session-start hook. Pipes
- * crafted tool-call JSON to each guard (and to the dispatcher that Claude Code actually
- * registers) and asserts the exit code (2 = deny, 0 = allow); pipes session payloads to the
- * session-start hook and asserts the context it prints. Runs in CI via `pnpm test:hooks` so a
+ * Regression suite for the .claude/hooks agent guards and the session-start hook. Calls each
+ * guard's verdict() in-process with a crafted command and context and asserts deny or allow;
+ * pipes crafted tool-call JSON to the dispatcher that Claude Code actually registers and
+ * asserts the exit code (2 = deny, 0 = allow); pipes session payloads to the session-start
+ * hook and asserts the context it prints. Runs in CI via `pnpm test:hooks` so a
  * guard bypass can never ship silently again — every case below is a line an agent might
  * plausibly type. Node builtins only; no deps. Node 24 runs this `.mts` natively.
  */
@@ -12,9 +14,23 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import { resolveHead, tokenize } from '../.claude/hooks/_lexer.mts'
+import { verdict as buildScripts } from '../.claude/hooks/deny-build-scripts.mts'
+import { verdict as hookBypass } from '../.claude/hooks/deny-hook-bypass.mts'
+import { verdict as nonPnpm } from '../.claude/hooks/deny-non-pnpm.mts'
+import { verdict as pushProtected } from '../.claude/hooks/deny-push-protected.mts'
+import { verdict as secretReads } from '../.claude/hooks/deny-secret-reads.mts'
 
 type Guard = 'deny-non-pnpm.mts' | 'deny-build-scripts.mts' | 'deny-secret-reads.mts' | 'deny-push-protected.mts' | 'deny-hook-bypass.mts' | 'dispatch.mts'
 interface Case { guard: Guard, expect: 0 | 2, cmd: string, env?: Record<string, string>, unset?: string[], cwd?: string, tool?: string, extra?: Record<string, unknown>, hooksDir?: string, raw?: string }
+
+// The guards under test, in-process; the dispatcher is spawned because its contract is a process.
+const VERDICTS: Record<Exclude<Guard, 'dispatch.mts'>, Verdict> = {
+  'deny-non-pnpm.mts': nonPnpm,
+  'deny-build-scripts.mts': buildScripts,
+  'deny-secret-reads.mts': secretReads,
+  'deny-push-protected.mts': pushProtected,
+  'deny-hook-bypass.mts': hookBypass,
+}
 
 const HOOKS = join(import.meta.dirname, '..', '.claude', 'hooks')
 const D = 2 // deny
@@ -406,10 +422,6 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: D, cmd: '<raw: no tool_input>', raw: '{"tool_name":"Bash"}' },
   { guard: 'dispatch.mts', expect: D, cmd: '<raw: command not a string>', raw: '{"tool_input":{"command":["npm","i"]}}' },
   { guard: 'dispatch.mts', expect: A, cmd: '<raw: empty command>', raw: '{"tool_input":{"command":""}}' }, // a string, nothing to run
-  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '<raw: empty>', raw: '' },
-  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '<raw: truncated>', raw: '{' },
-  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '<raw: null tool_input>', raw: '{"tool_input":null}' },
-  { guard: 'deny-secret-reads.mts', expect: D, cmd: '<raw: null tool_input>', raw: '{"tool_input":null}' },
 ]
 
 // Direct lexer pins: WRAP / WRAP_VALUE_FLAGS / POSITIONAL_MODE / wouldHideHead / leadIndex all
@@ -526,13 +538,21 @@ for (const c of LEXER_CASES) {
     fails.push(`[lexer] ${JSON.stringify(c.cmd)}: head=${got.head} probe=${got.probe}, want head=${c.head} probe=${c.probe ?? false}`)
 }
 for (const c of CASES) {
-  const json = c.raw ?? JSON.stringify({ ...c.extra, tool_name: c.tool ?? 'Bash', tool_input: { command: c.cmd } })
   const env: Record<string, string | undefined> = { ...process.env, ...c.env }
   for (const name of c.unset ?? [])
     delete env[name]
-  const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, c.guard)], { input: json, cwd: c.cwd ?? process.cwd(), env })
-  if (r.status !== c.expect)
-    fails.push(`[${c.guard}] got ${r.status ?? 'null'}, want ${c.expect}: ${c.cmd}`)
+  if (c.guard === 'dispatch.mts') {
+    const json = c.raw ?? JSON.stringify({ ...c.extra, tool_name: c.tool ?? 'Bash', tool_input: { command: c.cmd } })
+    const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, c.guard)], { input: json, cwd: c.cwd ?? process.cwd(), env })
+    if (r.status !== c.expect)
+      fails.push(`[${c.guard}] got ${r.status ?? 'null'}, want ${c.expect}: ${c.cmd}`)
+    continue
+  }
+  const ctx: GuardContext = { cwd: c.cwd ?? process.cwd(), env, settingsFile: join(c.hooksDir ?? HOOKS, '..', 'settings.json') }
+  const why = VERDICTS[c.guard](c.cmd, ctx)
+  const got = why === null ? A : D
+  if (got !== c.expect)
+    fails.push(`[${c.guard}] got ${got}${why ? ` (${why})` : ''}, want ${c.expect}: ${c.cmd}`)
 }
 
 // A harness that opens stdin and never closes it must not hang the tool call: the dispatcher

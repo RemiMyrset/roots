@@ -1,14 +1,13 @@
 /**
  * Shared lexical core for the agent guards (deny-non-pnpm / deny-build-scripts /
- * deny-secret-reads / deny-push-protected / deny-hook-bypass), plus the git-option parsing and
- * the hook-payload reader they share. Consolidated here so a fix lands ONCE — the
+ * deny-secret-reads / deny-push-protected / deny-hook-bypass), plus the git-option parsing,
+ * the hook-payload reader, and the context type the dispatcher hands every guard. Consolidated here so a fix lands ONCE — the
  * previous triplication is why the guards regressed every audit.
  *
  * ZERO external dependencies (node builtins only): the guards run before `pnpm install`
  * and are synced into arbitrary repos, so this module must never require an npm package.
  * Best-effort lexical detection, NOT a shell — scope and out-of-scope live in docs/template/guards.md.
  */
-import process from 'node:process'
 
 export const BANNED: ReadonlySet<string> = new Set(['npm', 'yarn', 'bun', 'bunx'])
 
@@ -257,29 +256,18 @@ export function commandOf(raw: string): string | null {
   }
 }
 
-// Guards run inside a stdin 'end' handler. On Windows, stdio pipes are asynchronous, and
-// process.exit() from inside that handler right after a stderr write aborts the process
-// (STATUS_STACK_BUFFER_OVERRUN, exit 3221226505) instead of returning the code. So a guard
-// never calls process.exit(): exit() records the code and unwinds the handler by throwing a
-// sentinel that run() swallows, and the loop drains on its own once stdin has ended.
-const EXIT: unique symbol = Symbol('exit')
-
-/** Records the guard's exit code and stops the handler; `never` so deny helpers keep their type. */
-export function exit(code: 0 | 2): never {
-  process.exitCode = code
-  throw EXIT
+/**
+ * What a guard may consult besides the command: the directory the tool call runs in (the
+ * push guard resolves an implicit branch there), the environment (PROTECTED_BRANCHES), and
+ * the settings file the push guard falls back to when the variable is unset. The dispatcher
+ * builds it once per call; the fixture suite builds one per case, so a guard never reads
+ * process.cwd(), process.env, or its own location directly.
+ */
+export interface GuardContext {
+  cwd: string
+  env: NodeJS.ProcessEnv
+  settingsFile: string
 }
 
-/** Reads all of stdin, then runs the guard body with it; exit() is the only way the body ends early. */
-export function run(body: (raw: string) => void): void {
-  let raw = ''
-  process.stdin.on('data', (d) => { raw += d }).on('end', () => {
-    try {
-      body(raw)
-    }
-    catch (e) {
-      if (e !== EXIT)
-        throw e
-    }
-  })
-}
+/** The shape every `deny-*.mts` guard exports: the deny reason for a command, or null to allow. */
+export type Verdict = (cmd: string, ctx: GuardContext) => string | null
