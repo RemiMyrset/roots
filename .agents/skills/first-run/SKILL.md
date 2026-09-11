@@ -48,6 +48,9 @@ calls. Ask before any step whose input you would otherwise have to invent.
    `gh workflow run pages.yml`, and
    `gh repo edit <owner>/<repo> --homepage https://<owner>.github.io/<repo>/`.
    If not authenticated, print the commands for the user instead.
+   Then print the Renovate install link, `https://github.com/apps/renovate`,
+   for the user: `gh` cannot install a GitHub App, and `renovate.json` is
+   already in the tree.
 6. Delete the `## First run` section from `README.md`, from that heading to the
    line before the next `## ` heading, then run `pnpm docs:portability` and
    `pnpm verify` once more.

@@ -18,3 +18,9 @@
 - name: enhancement
   color: a2eeef
   description: New capability or improvement
+- name: dependencies
+  color: 0366d6
+  description: Dependency or action-pin update opened by Renovate
+- name: security
+  color: b60205
+  description: Vulnerability fix opened by Renovate

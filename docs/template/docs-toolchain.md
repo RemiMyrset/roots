@@ -89,6 +89,32 @@ so only the team can read it: Cloudflare Access in front of Cloudflare Pages
 reachable only over VPN/Tailscale. The shipped noindex meta and `robots.txt`
 stay as a second guard in case a gate is ever misconfigured.
 
+### Keep dependencies current with Renovate
+
+`renovate.json` at the repo root is synced. It asks for one grouped pull
+request with every minor and patch update before 06:00 UTC on Mondays, waits
+two days after a release (the pnpm cooldown, `minimumReleaseAge`), keeps the
+action SHA pins and their version comments current, groups the workflow and
+devcontainer bumps, and automerges non-major updates once every check on the
+branch is green. Majors and security fixes arrive as their own pull requests.
+A dependency dashboard issue lists what is pending, with a checkbox per update
+to pull it on demand. Decision 0001 in the roots repository records why
+Renovate and why the hosted app.
+
+Nothing runs until the Mend Renovate app is installed on the repository at
+`https://github.com/apps/renovate` (two clicks; free for public and private
+repositories; it then scans every four hours). It opens an onboarding pull
+request that lists what it found; merge it. An organization that forbids
+third-party apps runs the same config through `renovatebot/github-action` on a
+schedule instead, with a GitHub App of its own for the token.
+
+Automerge is Renovate's own, not GitHub's native auto-merge: GitHub merges the
+moment the *required* checks pass, and without a branch ruleset none are
+required. The ruleset from [guards](./guards.md#push-protection) is still
+worth creating; it makes the requirement explicit on the server. To change the
+policy in one child, edit `renovate.json` there and list it under `exclude` in
+`.template-sync.json`.
+
 ### Sandbox agents in a devcontainer
 
 `.devcontainer/devcontainer.json` ships an environment every tool can run in:

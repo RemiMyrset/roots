@@ -55,6 +55,7 @@ const MECHANICS = [
   '.github/labels.yml',
   '.github/ISSUE_TEMPLATE/agent-task.md',
   '.github/PULL_REQUEST_TEMPLATE.md',
+  'renovate.json',
   'docs/template',
   'scripts/docs',
   'scripts/prepare.mts',

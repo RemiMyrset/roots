@@ -1,6 +1,7 @@
 # Syncs .github/labels.yml to the repo's labels. Templates don't copy labels;
 # this workflow recreates them in every child on first run.
-# Action pinning: GitHub-owned actions/* by major tag; third-party by full commit SHA.
+# Action pinning: every action by full commit SHA with its version in a trailing comment;
+# Renovate (renovate.json) moves the SHA and the comment together.
 name: labels
 
 on:

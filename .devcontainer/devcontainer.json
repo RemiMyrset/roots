@@ -1,7 +1,7 @@
 {
   // The egress firewall is an opt-in recipe (docs/template/docs-toolchain.md, "Sandbox agents
-  // in a devcontainer"). Features float on their major like the image tag: exact pins rot
-  // without an update bot, and the Claude Code feature tracks the CLI's own releases.
+  // in a devcontainer"). Features float on their major like the image tag; Renovate
+  // (renovate.json) proposes the bumps, and the Claude Code feature tracks the CLI's own releases.
   "image": "mcr.microsoft.com/devcontainers/typescript-node:24-bookworm",
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
