@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/OWNER/REPO/blob/main/SECURITY.md
+    url: https://github.com/RemiMyrset/roots/blob/main/SECURITY.md
     about: Report privately as described in SECURITY.md, never in a public issue.
   - name: Conventions, docs rules, and recipes
-    url: https://github.com/OWNER/REPO/blob/main/docs/template/README.md
+    url: https://github.com/RemiMyrset/roots/blob/main/docs/template/README.md
     about: The template-owned rules this repository follows.

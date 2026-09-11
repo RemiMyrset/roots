@@ -1,6 +1,6 @@
 ---
 name: first-run
-description: Initialize a repository just created from the template by running the README "First run" checklist. Prove the done gate, name the project, fill the owner placeholders, apply the GitHub settings with gh, delete the section, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when README.md still contains a "## First run" section and this checkout is not the template itself. Never pushes.
+description: Initialize a repository just created from the template by running the README "First run" checklist. Prove the done gate, name the project, replace the template owner's values with yours, apply the GitHub settings with gh, delete the section, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when README.md still contains a "## First run" section and this checkout is not the template itself. Never pushes.
 ---
 
 # First run
@@ -26,10 +26,11 @@ calls. Ask before any step whose input you would otherwise have to invent.
      and `## First run` are not the pitch; leave them. Keep the provenance line
      under "Where things live".
    - `LICENSE`: `Copyright (c) <year> <holder>`.
-   - `.github/CODEOWNERS`: `@OWNER` becomes `@<owner>`.
-   - `.github/ISSUE_TEMPLATE/config.yml`: `OWNER/REPO` becomes `<owner>/<repo>`.
-   - `CODE_OF_CONDUCT.md`: `[INSERT CONTACT METHOD]` becomes the contact the
-     user names.
+   - `.github/CODEOWNERS`: `@RemiMyrset` becomes `@<owner>`.
+   - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` becomes
+     `<owner>/<repo>` in both links.
+   - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact link becomes the contact
+     the user names.
    - Package scope, only if the user wants something other than `@repo/`:
      `grep -rl '@repo/' --exclude-dir=node_modules .` (the README's command)
      lists every file. Edit each except `pnpm-lock.yaml` and the
