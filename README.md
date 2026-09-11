@@ -42,8 +42,10 @@ Not for anyone who wants an unopinionated starter.
   [sync-template](./docs/template/sync-template.md).
 - Supply-chain defaults and a sandbox: dependency build scripts off, a 48-hour
   release cooldown, pinned actions, secrets scanned at commit and in CI
-  ([guards](./docs/template/guards.md#secrets-in-commits)), and a devcontainer
-  for unattended runs
+  ([guards](./docs/template/guards.md#secrets-in-commits)), a Renovate config
+  that keeps dependencies and pins current in one grouped PR a week
+  ([docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current-with-renovate)),
+  and a devcontainer for unattended runs
   ([docs-toolchain](./docs/template/docs-toolchain.md#sandbox-agents-in-a-devcontainer)).
 
 ## Layout
@@ -108,14 +110,20 @@ flowchart LR
    gh workflow run labels.yml   # seeds the labels from .github/labels.yml
    ```
 
-6. **Commit and push.** Delete this section, then
+6. **Renovate.** Install the app on the repository at
+   [github.com/apps/renovate](https://github.com/apps/renovate); `renovate.json`
+   is already in place and the app opens an onboarding PR to confirm it. What
+   the config does, and the self-hosted fallback, are in
+   [docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current-with-renovate).
+   **(skill prints the link)**
+7. **Commit and push.** Delete this section, then
    `git commit -am "chore: initialize from roots"` and push `main`. This is the
    one direct push; everything after lands through a PR. **(skill proposes the
    commit; it never pushes)**
-7. **Branch ruleset.** Run the command under
+8. **Branch ruleset.** Run the command under
    [Push protection](./docs/template/guards.md#push-protection) in guards; it
    says when the ruleset can be created and what it costs.
-8. **Publish the public docs (optional).** Enable GitHub Pages with
+9. **Publish the public docs (optional).** Enable GitHub Pages with
    `gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow`; the `pages`
    workflow deploys `docs/public/` on each push to `main` that touches its
    inputs from then on. Then

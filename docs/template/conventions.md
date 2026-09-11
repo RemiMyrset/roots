@@ -72,6 +72,11 @@ portability requirement. The choices, each with its why:
 - `secretlint` with the recommended preset runs on staged files at commit, in
   `pnpm verify`, and in CI: npm-native, no binary, no licence. It is the
   write-side counterpart to the secret-read guard.
+- Renovate keeps dependencies and action pins current from one synced
+  `renovate.json`: one grouped pull request a week, a two-day release cooldown,
+  and automerge for what the done gate proves. Dependabot's one pull request
+  per dependency was the noise this replaces; the recipe is in
+  [docs-toolchain](./docs-toolchain.md#keep-dependencies-current-with-renovate).
 - One pre-tool dispatcher runs node-only `deny-*` guards in all three tools, no
   shell shims and no npm dependencies, so they work before `pnpm install`. What
   they block, and what they cannot, is in [guards](./guards.md).

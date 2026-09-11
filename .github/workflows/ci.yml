@@ -3,8 +3,8 @@
 # Every step runs under bash on both runners. scripts/test-gates.mts keeps these steps and
 # pnpm verify equal. The one non-gate step runs `pnpm verify --only` for a fast gate, so the
 # verify script's own pnpm spawn is exercised on both platforms (it once broke on Windows).
-# Action pinning: GitHub-owned actions/* by major tag (GitHub protects those tags); every
-# third-party action by full commit SHA with its version in a trailing comment.
+# Action pinning: every action by full commit SHA with its version in a trailing comment;
+# Renovate (renovate.json) moves the SHA and the comment together.
 name: ci
 
 on:

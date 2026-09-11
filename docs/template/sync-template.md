@@ -2,7 +2,7 @@
 
 - **Source:** `scripts/sync-template.mts`
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
-- **Last reviewed:** 2026-09-08
+- **Last reviewed:** 2026-09-11
 
 The contract for `pnpm sync:template`. The tests pin behaviors 1 to 23; the
 per-file-error branch of behavior 23 is untested. The user-facing recipe is the
@@ -46,7 +46,8 @@ and the printed follow-ups, then run the done gate and commit
 `.template-sync.json` with the rest.
 
 The synced paths, grouped: the CI, docs, labels, and Pages workflows with the
-label list, the agent-task issue template, and the PR template; the docs
+label list, the agent-task issue template, the PR template, and the Renovate
+config; the docs
 generators and checkers, the verify gate, the git-hook installer, the four test
 suites, and the sync script itself; the guards, rules, skills, and writing
 rules under `.claude/`, the Codex and Gemini registrations, and the generated

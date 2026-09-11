@@ -6,7 +6,8 @@
 # A repository that never enables Pages sees a green run whose notice says "the
 # site was built but not deployed". Recipe: docs/template/docs-toolchain.md,
 # "Publish the public site".
-# Action pinning: GitHub-owned actions/* by major tag; third-party by full SHA.
+# Action pinning: every action by full commit SHA with its version in a trailing comment;
+# Renovate (renovate.json) moves the SHA and the comment together.
 name: pages
 
 on:
