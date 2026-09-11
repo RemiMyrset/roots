@@ -15,8 +15,8 @@ script, read a secret file, push to a protected branch, or skip the git hooks.
 
 What they cover reliably is the direct and common wrapped forms: bare and
 path-prefixed commands, standard wrappers (`sudo`, `env`, `nice`, `timeout`,
-`flock`, `xargs`, …) with their ordinary flags, `pnpm exec` / `dlx` / `x`
-unwrapping, `;` / `&&` / `|` / `$()` separators, and glued redirects. A
+`flock`, `xargs`, `mise x` / `mise exec`, …) with their ordinary flags,
+`pnpm exec` / `dlx` / `x` unwrapping, `;` / `&&` / `|` / `$()` separators, and glued redirects. A
 regression suite (`pnpm test:hooks`) pins every covered case so a fix for one
 form never silently reopens another.
 
@@ -52,7 +52,8 @@ from command text alone is undecidable, so the guards do not try.
 Out of scope by design, for every guard: a nested interpreter (`sh -c`,
 `bash -c`, `python -c`), ANSI-C escapes (`$'\x6e…'`), and unlisted wrapper words
 (the `WRAP` allowlist in `_lexer.mts` cannot be exhaustive: proxychains,
-firejail, setarch, …).
+firejail, setarch, …). `mise x` and `mise exec` are listed; `mise run` executes
+a task defined in a mise config and is a nested interpreter for this purpose.
 
 Known over-block for every guard (safe direction, never a bypass): backticks are
 read as command substitution, so a heredoc or commit message quoting
@@ -68,11 +69,15 @@ defense-in-depth on top of that, never a replacement for it.
 Two layers keep secrets out of the agent. The `.claude/settings.json`
 `permissions.deny` Read-tool list enumerates common `.env*` / `.envrc` /
 `.netrc` / `_netrc` / `.npmrc` / `secrets/` / `*.pem` / `*.key` / `*.p12` /
-`*.pfx` / `*.jks` names. The Bash-path guard `deny-secret-reads` covers the
-common shell-read forms of the same set (`.env` and `.envrc` matched
-case-insensitively; `.environment` is not matched): direct readers, `<`
-redirects (including `$(<file)` and `<>`), `pnpm exec` wrappers, and
-`find -exec`.
+`*.pfx` / `*.jks` names, plus the credentials a developer machine holds outside
+any repo: SSH private keys (`.ssh/id_*`), `.aws/credentials`,
+`.config/gh/hosts.yml`, `.git-credentials`, `.kube/config`,
+`.docker/config.json`, and `.pgpass`. The Bash-path guard `deny-secret-reads`
+covers the common shell-read forms of the same set (`.env` and `.envrc` matched
+case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
+readable; `credentials`, `config`, and `hosts.yml` count only under their
+credential directory): direct readers, `<` redirects (including `$(<file)` and
+`<>`), `pnpm exec` wrappers, and `find -exec`.
 
 The guard is the broader of the two; the Read list stays a curated subset so
 `.env.example` remains openable. `.env.example` is the one carve-out; other

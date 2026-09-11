@@ -63,7 +63,11 @@ the root `AGENTS.md`.
 ## Permission prompts
 
 The Claude Code permission allowlist in `.claude/settings.json` lets the
-commands in the skills run without a prompt. Codex exec-policy rules and
+commands in the skills run without a prompt. It is deliberately narrower than
+the read-only shape of a command suggests: `find` is absent (it deletes with
+`-delete` and executes with `-exec`), and `git branch` and `git stash` are
+listed only in their listing, push, and pop forms, so a branch deletion or a
+stash drop prompts. Codex exec-policy rules and
 Gemini's allowed-tools settings are the counterparts; roots ships neither, so
 expect approval prompts in those tools on the commands Claude Code runs
 silently.

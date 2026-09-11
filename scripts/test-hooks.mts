@@ -224,6 +224,34 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .Env' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .ENV.LOCAL' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat .ENVIRONMENT' }, // not a secret; must stay allowed
+  // --- pass-13 (audit 10): credentials that live outside the repo, on the developer machine.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.ssh/id_rsa' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.ssh/id_ed25519' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat id_ecdsa.bak' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'head -c 100 /home/x/.ssh/id_dsa' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.aws/credentials' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat $HOME/.aws/credentials' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.config/gh/hosts.yml' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.git-credentials' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.kube/config' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.docker/config.json' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.pgpass' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep token < ~/.config/gh/hosts.yml' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat ~/.ssh/id_rsa.pub' }, //    the public half
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat ~/.ssh/config' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat credentials.md' }, //       no .aws parent
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat config' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat docs/config.json' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat hosts.yml' },
+  // mise as a wrapper: `mise x tool@ver -- cmd` and `mise exec -- cmd` resolve to cmd.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'mise x node@24 -- npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'mise exec node@24 npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'mise x -- yarn add x' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'mise exec -- cat .env' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'mise x pnpm@12 -- pnpm approve-builds' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise x pnpm@12.3.4 -- pnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise run build' },
 
   // --- deny-push-protected: no pushes to protected branches (default: main) ----
   // Explicit targets. The REMOTE side of a refspec is what lands on the branch.
@@ -412,6 +440,13 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: '{ npm i', head: 'npm' },
   { cmd: 'command -v npm', head: 'npm', probe: true },
   { cmd: 'if command -v npm', head: 'npm', probe: true },
+  { cmd: 'mise x node@24 -- npm i', head: 'npm' }, //           tool spec, then the separator
+  { cmd: 'mise x pnpm@12.3.4 -- pnpm install', head: 'pnpm' },
+  { cmd: 'mise exec node@24 npm i', head: 'npm' }, //           no separator
+  { cmd: 'mise x -- cat .env', head: 'cat' },
+  { cmd: 'mise x --quiet node@24 -- npm i', head: 'npm' },
+  { cmd: 'mise run build', head: 'mise' }, //                   not a wrapper subcommand
+  { cmd: 'mise install', head: 'mise' },
 ]
 
 // The session-start hook prints the writing rules as SessionStart context for Codex and

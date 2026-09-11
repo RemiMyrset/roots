@@ -1,7 +1,8 @@
 /**
  * deny-secret-reads guard body (run via dispatch.mts). Blocks shell reads of
- * secret files (.env*, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks) — direct readers, `<` redirects, pnpm-exec
- * wrappers, and `find -exec` at a secret literal. `.env.example` is the one carve-out; other
+ * secret files (.env*, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks, SSH private
+ * keys, and the credential files of aws, gh, kube, docker, git, and postgres) — direct readers,
+ * `<` redirects, pnpm-exec wrappers, and `find -exec` at a secret literal. `.env.example` is the one carve-out; other
  * placeholder spellings fail closed. Shared lexing in ./_lexer.mts. Scope and out-of-scope:
  * docs/template/guards.md. exit 2 = deny.
  */
@@ -33,6 +34,20 @@ function isSecret(arg: string): boolean {
   // cannot prove it holds no token — fail closed; `pnpm config list` shows the config masked.
   if (b === '.netrc' || b === '_netrc' || b === '.npmrc')
     return true
+  // SSH private keys by their conventional names, any suffixed copy included (id_rsa.bak,
+  // id_ed25519~); the .pub half is public and stays readable.
+  if (/^id_(?:rsa|dsa|ecdsa|ed25519)(?:$|[.\-_~])/.test(b) && !b.endsWith('.pub'))
+    return true
+  // Credential files that a developer machine holds outside any repo, keyed by their parent
+  // directory so a bare `credentials` or `config` elsewhere is not one: ~/.aws/credentials,
+  // ~/.config/gh/hosts.yml (the gh OAuth token), ~/.kube/config, ~/.docker/config.json.
+  const segs = p.toLowerCase().split('/')
+  const parent = segs.at(-2) ?? ''
+  if ((parent === '.aws' && b === 'credentials') || (parent === 'gh' && segs.at(-3) === '.config' && b === 'hosts.yml') || (parent === '.kube' && b === 'config') || (parent === '.docker' && b === 'config.json'))
+    return true
+  // Plaintext credential stores by name: git's credential helper file and libpq's password file.
+  if (b === '.git-credentials' || b === '.pgpass')
+    return true
   // Secret env files: `.env`, any separator-suffixed variant (.env.production, .env-prod,
   // .env_x, the `.env~` editor backup), and `.envrc` (direnv, holds exports) plus its own
   // suffixed variants (.envrc.bak, .envrc~) — but NOT an unrelated basename that merely starts
@@ -56,7 +71,7 @@ run((s) => {
     exit(2)
   }
   const deny = (): never => {
-    process.stderr.write('Blocked: reading secrets (.env*, .envrc, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks) via the shell is denied — same policy as the Read tool.\n')
+    process.stderr.write('Blocked: reading secrets (.env*, .envrc, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks, SSH private keys, aws/gh/kube/docker/git/postgres credential files) via the shell is denied — same policy as the Read tool.\n')
     exit(2)
   }
   for (const seg of segments(cmd)) {

@@ -18,7 +18,7 @@ export const BANNED: ReadonlySet<string> = new Set(['npm', 'yarn', 'bun', 'bunx'
 export const WRAP: ReadonlySet<string> = new Set([
   'sudo', 'doas', 'runuser', 'env', 'command', 'exec', 'eval', 'time', 'timeout', 'nice',
   'ionice', 'taskset', 'chrt', 'nohup', 'setsid', 'stdbuf', 'unbuffer', 'flock', 'xargs',
-  'then', 'do', 'else', 'elif', 'if', 'while', 'until', '!', 'builtin', 'corepack',
+  'then', 'do', 'else', 'elif', 'if', 'while', 'until', '!', 'builtin', 'corepack', 'mise',
 ])
 
 // pnpm global flags that take a separate value (between `pnpm` and its subcommand).
@@ -140,6 +140,23 @@ export function leadIndex(toks: string[]): number {
   let curWrap = ''
   while (i < toks.length && skip(toks[i]!)) {
     const t = toks[i]!
+    // `mise x|exec [tool@version ...] [--] cmd`: the tool specs (a `@` in the word) and flags
+    // are skipped up to the `--` or the first token that is not a spec. Any other mise
+    // subcommand (`mise run`, `mise install`) is not a wrapper and mise stays the head.
+    if (base(t) === 'mise') {
+      const sub = unquote(toks[i + 1] ?? '')
+      if (sub !== 'x' && sub !== 'exec')
+        return i
+      i += 2
+      while (i < toks.length) {
+        const a = toks[i]!
+        if (a === '--') { i++; break }
+        if (a.startsWith('-') || (/^[\w@./+-]+@[\w./+-]*$/.test(a) && !wouldHideHead(a))) { i++; continue }
+        break
+      }
+      curWrap = 'mise'
+      continue
+    }
     if (t.startsWith('-')) {
       i++
       const vf = WRAP_VALUE_FLAGS.get(curWrap)
