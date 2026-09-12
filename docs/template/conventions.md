@@ -73,10 +73,20 @@ portability requirement. The choices, each with its why:
   `pnpm verify`, and in CI: npm-native, no binary, no licence. It is the
   write-side counterpart to the secret-read guard.
 - Renovate keeps dependencies and action pins current from one synced
-  `renovate.json`: one grouped pull request a week, a two-day release cooldown,
-  and automerge for the npm updates the done gate proves; action bumps and
-  majors wait for a human. Dependabot's one pull request per dependency was
-  the noise this replaces; the recipe is in
+  `renovate.json`: one grouped pull request a week, a two-day release cooldown
+  (the same one pnpm enforces at install), and automerge for the npm updates
+  the done gate proves; action bumps and majors wait for a human, because the
+  done gate cannot tell a malicious action from a good one and a major needs
+  reading. Nothing refreshed the catalog ranges or the action SHA pins before,
+  and Dependabot was rejected for opening one pull request per dependency.
+  Self-hosting Renovate was weighed and dropped: every child would have to
+  create a GitHub App and two secrets, while the Mend-hosted app is a two-click
+  install per repository, free for public and private ones, and leaves only the
+  config in git. Automerge is Renovate's own rather than GitHub's, since the
+  native one merges the moment the required checks pass and a child without a
+  ruleset requires none. The costs: a child installs the app once, the app
+  holds write access, and automerge trusts the done gate completely. The
+  recipe is in
   [docs-toolchain](./docs-toolchain.md#keep-dependencies-current-with-renovate).
 - One pre-tool dispatcher runs node-only `deny-*` guards in all three tools, no
   shell shims and no npm dependencies, so they work before `pnpm install`. What

@@ -100,8 +100,8 @@ the branch is green. Action bumps, majors, and security fixes wait for a human:
 the done gate cannot tell a malicious action from a good one, and a major needs
 reading.
 A dependency dashboard issue lists what is pending, with a checkbox per update
-to pull it on demand. Decision 0001 in the roots repository records why
-Renovate and why the hosted app.
+to pull it on demand. The rationale, the options weighed, and the costs are
+in [conventions](./conventions.md).
 
 Nothing runs until the Mend Renovate app is installed on the repository at
 `https://github.com/apps/renovate` (two clicks; free for public and private

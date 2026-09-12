@@ -24,8 +24,6 @@ and why, and the consequences, good and bad.
 
 <!-- automd:decisionsIndex -->
 
-| # | Title | Status |
-| --- | --- | --- |
-| [0001](./0001-renovate-for-dependency-updates.md) | Renovate keeps dependencies and action pins current | accepted |
+_No decisions yet. The first one appears here after `pnpm docs:gen`._
 
 <!-- /automd -->
