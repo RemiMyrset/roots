@@ -28,8 +28,8 @@ trustPolicy: no-downgrade
 # no-downgrade policy, not a takeover. Remove when vitepress moves off vite 5.
 trustPolicyExclude:
   - vite
-# Workspace globs. apps/ is created when the first app lands — pnpm tolerates
-# the empty glob until then.
+# Workspace globs. The samples populate both; pnpm tolerates an empty glob once
+# a sample is removed.
 packages:
   - apps/*
   - packages/*

@@ -106,8 +106,10 @@ flowchart LR
    **(skill)**
 
    ```sh
-   gh repo edit OWNER/REPO --description "your pitch" --add-topic typescript --enable-wiki=false --enable-projects=false
+   gh repo edit OWNER/REPO --description "your pitch" --add-topic typescript --enable-wiki=false --enable-projects=false --delete-branch-on-merge
    gh workflow run labels.yml   # seeds the labels from .github/labels.yml
+   gh api -X PUT repos/OWNER/REPO/vulnerability-alerts                       # Renovate's security PRs need the alerts
+   gh api -X PUT repos/OWNER/REPO/actions/permissions -f enabled=true -f allowed_actions=all -F sha_pinning_required=true
    ```
 
 6. **Renovate.** Install the app on the repository at

@@ -43,8 +43,11 @@ calls. Ask before any step whose input you would otherwise have to invent.
    mention them, do not attempt them.
 5. GitHub settings, only when `gh auth status` succeeds (each call prompts for
    permission, which is expected):
-   `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --enable-wiki=false --enable-projects=false`
-   then `gh workflow run labels.yml`. If the user wants the public docs
+   `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --enable-wiki=false --enable-projects=false --delete-branch-on-merge`,
+   then `gh workflow run labels.yml`,
+   `gh api -X PUT repos/<owner>/<repo>/vulnerability-alerts`, and
+   `gh api -X PUT repos/<owner>/<repo>/actions/permissions -f enabled=true -f allowed_actions=all -F sha_pinning_required=true`
+   (the docs-toolchain Renovate section says why). If the user wants the public docs
    published: `gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow`,
    `gh workflow run pages.yml`, and
    `gh repo edit <owner>/<repo> --homepage https://<owner>.github.io/<repo>/`.
