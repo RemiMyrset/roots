@@ -49,9 +49,13 @@ register it: that would inject the text twice and override a `/config` choice.
 `/config` overrides the style per machine in the gitignored
 `settings.local.json`, and restores it.
 
-Neither surface reaches Claude Code subagents. Codex caps injected context
-near 2,500 tokens, so `pnpm test:hooks` keeps the file under 4,000
-characters.
+Neither surface reaches Claude Code subagents. Codex truncates injected
+context past `additionalContextLimit`, 2,500 tokens by default (about 10,000
+characters), so `pnpm test:hooks` keeps the file under 8,000 characters.
+Gemini's SessionStart entry carries no `matcher` on purpose: Gemini matches
+lifecycle hooks by exact source name, so a regex such as `startup|resume`
+never fires there, while Codex reads the same field as a source list.
+`pnpm test:hooks` checks both registrations structurally.
 
 ## Nested rulebooks
 

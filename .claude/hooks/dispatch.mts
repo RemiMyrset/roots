@@ -10,7 +10,7 @@
  * second. Node builtins only (node 24 runs .mts natively), so the guards work before
  * `pnpm install` and in any repo they are synced into. A harness that opens stdin and never
  * closes it would hang the tool call, so the dispatcher denies after 5s — far above any real
- * payload, under Gemini's 10s hook timeout.
+ * payload, under the 10s timeout the Gemini registration sets (Gemini's own default is 60s).
  *
  * Exit codes are set through process.exitCode and the loop is left to drain rather than
  * forced with process.exit(): on Windows, stdio pipes are asynchronous, and exiting from

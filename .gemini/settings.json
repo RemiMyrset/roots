@@ -4,6 +4,58 @@
       "AGENTS.md"
     ]
   },
+  "tools": {
+    "allowed": [
+      "run_shell_command(git status)",
+      "run_shell_command(git log)",
+      "run_shell_command(git diff)",
+      "run_shell_command(git show)",
+      "run_shell_command(git add)",
+      "run_shell_command(git commit)",
+      "run_shell_command(git stash list)",
+      "run_shell_command(git stash push)",
+      "run_shell_command(git stash pop)",
+      "run_shell_command(git branch --show-current)",
+      "run_shell_command(git branch --list)",
+      "run_shell_command(git switch)",
+      "run_shell_command(git rev-parse)",
+      "run_shell_command(git remote get-url)",
+      "run_shell_command(git fetch)",
+      "run_shell_command(git push)",
+      "run_shell_command(gh auth status)",
+      "run_shell_command(gh repo view)",
+      "run_shell_command(gh pr create)",
+      "run_shell_command(gh pr view)",
+      "run_shell_command(gh pr list)",
+      "run_shell_command(gh pr checks)",
+      "run_shell_command(gh pr diff)",
+      "run_shell_command(gh run list)",
+      "run_shell_command(gh run view)",
+      "run_shell_command(gh run watch)",
+      "run_shell_command(gh issue view)",
+      "run_shell_command(gh issue list)",
+      "run_shell_command(ls)",
+      "run_shell_command(grep)",
+      "run_shell_command(rg)",
+      "run_shell_command(cat)",
+      "run_shell_command(head)",
+      "run_shell_command(tail)",
+      "run_shell_command(wc)",
+      "run_shell_command(pnpm install)",
+      "run_shell_command(pnpm verify)",
+      "run_shell_command(pnpm build)",
+      "run_shell_command(pnpm test)",
+      "run_shell_command(pnpm typecheck)",
+      "run_shell_command(pnpm lint)",
+      "run_shell_command(pnpm docs:gen)",
+      "run_shell_command(pnpm docs:check)",
+      "run_shell_command(pnpm docs:portability)",
+      "run_shell_command(pnpm docs:internal:build)",
+      "run_shell_command(pnpm docs:public:build)",
+      "run_shell_command(pnpm sync:template)",
+      "run_shell_command(pnpm exec changelogen)"
+    ]
+  },
   "hooks": {
     "BeforeTool": [
       {
@@ -20,7 +72,6 @@
     ],
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear",
         "hooks": [
           {
             "name": "writing-rules",
