@@ -12,8 +12,9 @@ docs/**/.vitepress/cache/
 .env.*
 !.env.example
 
-# Other secret material — matches the Read-deny + shell-guard secret rule, and
-# keeps these out of the Grep/Glob tools (ripgrep skips gitignored paths).
+# Other secret material — the repo-shaped subset of the Read-deny + shell-guard secret set
+# (the machine-credential files those cover live outside any repo), and keeps these out of
+# the Grep/Glob tools (ripgrep skips gitignored paths).
 secrets/
 *.pem
 *.key

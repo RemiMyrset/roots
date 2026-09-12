@@ -46,6 +46,9 @@ export const WRAP_VALUE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Ma
   ['exec', new Set(['-a'])],
   ['xargs', new Set(['-I', '-i', '-n', '-P', '-s', '-d', '-E', '-L', '-a'])],
   ['stdbuf', new Set(['-i', '-o', '-e'])],
+  // mise x|exec: directory, env profile, jobs, profile take a value; -c/--command is a nested
+  // command string and stays out of scope like sh -c.
+  ['mise', new Set(['-C', '--cd', '-E', '--env', '-j', '--jobs', '-P', '--profile'])],
 ])
 
 // Wrappers with a leading POSITIONAL before the command (not a flag), and WHEN to consume it:
@@ -114,15 +117,44 @@ export function segments(s: string): string[] {
 // all-digit prefix) stay one token — already handled by skip() / the secret redirect scan.
 const REDIR = /^([^<>]*)(\d*(?:<<<|<<|>>|<>|&>|>&|[<>]).*)$/
 
+// Unescape one word the way bash does: a backslash escapes the next character outside quotes,
+// only `$`, `` ` ``, `"`, and `\` inside double quotes, and nothing inside single quotes. So a
+// quoted Windows path (`'C:\repo\.env'`) keeps its separators and the secret guard still sees
+// them; the old unconditional strip turned it into `C:repo.env`. Quote state is per word.
+function unescapeWord(raw: string): string {
+  let out = ''
+  let q: string | null = null
+  for (let n = 0; n < raw.length; n++) {
+    const c = raw[n]!
+    if (q === '\'') {
+      if (c === '\'')
+        q = null
+      out += c
+      continue
+    }
+    if (q === '"') {
+      if (c === '\\' && /["$`\\]/.test(raw[n + 1] ?? '')) { out += raw[n + 1]; n++; continue }
+      if (c === '"')
+        q = null
+      out += c
+      continue
+    }
+    if (c === '\'' || c === '"') { q = c; out += c; continue }
+    if (c === '\\') { out += raw[n + 1] ?? ''; n++; continue }
+    out += c
+  }
+  return out
+}
+
 // Whitespace-tokenize a segment, peel a glued redirect operator off each word, and unescape.
 export function tokenize(seg: string): string[] {
   const out: string[] = []
   for (const raw of seg.trim().split(/\s+/).filter(Boolean)) {
     const m = REDIR.exec(raw)
     if (m && m[1] !== '' && !/^\d+$/.test(m[1]!))
-      out.push(m[1]!.replace(/\\(.)/g, '$1'), m[2]!.replace(/\\(.)/g, '$1'))
+      out.push(unescapeWord(m[1]!), unescapeWord(m[2]!))
     else
-      out.push(raw.replace(/\\(.)/g, '$1'))
+      out.push(unescapeWord(raw))
   }
   return out
 }
@@ -147,10 +179,17 @@ export function leadIndex(toks: string[]): number {
       if (sub !== 'x' && sub !== 'exec')
         return i
       i += 2
+      const miseFlags = WRAP_VALUE_FLAGS.get('mise')
       while (i < toks.length) {
         const a = toks[i]!
         if (a === '--') { i++; break }
-        if (a.startsWith('-') || (/^[\w@./+-]+@[\w./+-]*$/.test(a) && !wouldHideHead(a))) { i++; continue }
+        if (a.startsWith('-')) {
+          i++
+          if (miseFlags?.has(a) && i < toks.length && !wouldHideHead(toks[i]!))
+            i++
+          continue
+        }
+        if (/^[\w@./+-]+@[\w./+-]*$/.test(a) && !wouldHideHead(a)) { i++; continue }
         break
       }
       curWrap = 'mise'

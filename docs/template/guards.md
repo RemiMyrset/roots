@@ -16,7 +16,8 @@ script, read a secret file, push to a protected branch, or skip the git hooks.
 What they cover reliably is the direct and common wrapped forms: bare and
 path-prefixed commands, standard wrappers (`sudo`, `env`, `nice`, `timeout`,
 `flock`, `xargs`, `mise x` / `mise exec`, …) with their ordinary flags,
-`pnpm exec` / `dlx` / `x` unwrapping, `;` / `&&` / `|` / `$()` separators, and glued redirects. A
+`pnpm exec` / `dlx` / `x` unwrapping, `;` / `&&` / `|` / `$()` separators, glued redirects,
+and quoted paths with either separator (`'C:\repo\.env'`). A
 regression suite (`pnpm test:hooks`) pins every covered case so a fix for one
 form never silently reopens another.
 
@@ -55,8 +56,9 @@ from command text alone is undecidable, so the guards do not try.
 Out of scope by design, for every guard: a nested interpreter (`sh -c`,
 `bash -c`, `python -c`), ANSI-C escapes (`$'\x6e…'`), and unlisted wrapper words
 (the `WRAP` allowlist in `_lexer.mts` cannot be exhaustive: proxychains,
-firejail, setarch, …). `mise x` and `mise exec` are listed; `mise run` executes
-a task defined in a mise config and is a nested interpreter for this purpose.
+firejail, setarch, …). `mise x` and `mise exec` are listed with their value flags;
+`mise run` executes a task defined in a mise config and `mise x -c` takes a
+command string, so both are nested interpreters for this purpose.
 
 Known over-block for every guard (safe direction, never a bypass): backticks are
 read as command substitution, so a heredoc or commit message quoting
@@ -90,9 +92,11 @@ threat model above.
 
 `.npmrc` is denied: a filename cannot prove it holds no `_authToken`, and
 `pnpm config list` shows the effective config with tokens masked. `.gitignore`
-covers the same set except
-`.npmrc`, which a project may legitimately commit with `${VAR}` references
-(secretlint catches a literal token).
+covers the repo-shaped subset of the set (env files, keystores, `secrets/`,
+`.git-credentials`, `.pgpass`, the bare SSH key names) except `.npmrc`, which a
+project may legitimately commit with `${VAR}` references (secretlint catches a
+literal token); the other machine-credential files live outside any repository
+and are covered by the guard and the Read list only.
 
 Beyond the shared out-of-scope list, this guard cannot catch a recursive walker
 with no secret literal (`grep -r .`), a filename routed via xargs or a stdin
@@ -135,6 +139,10 @@ pass on unprotected targets.
 
 `pnpm release` and `changelogen --push` are denied outright: their push happens
 inside changelogen where a `git push` rule cannot see it.
+
+The remote must be a configured name (`origin`, `upstream`): a URL or a path in
+its place is denied, because pushing there sidesteps the remotes the list is
+written for.
 
 Out of scope, beyond the shared list: `cd elsewhere && git push` resolves the
 current branch in the project directory and ignores the `cd` target, and the
@@ -187,6 +195,26 @@ gh api -X POST repos/OWNER/REPO/rulesets --input - <<'JSON'
   ]
 }
 JSON
+```
+
+That ruleset stops deletions, force pushes, and unchecked commits; it does not
+require a pull request, so a direct push with green checks is still legal.
+That fits a single admin. With more than one committer, add a `pull_request`
+rule so `main` changes only through a PR on the server side too, with as many
+reviews as the team wants (zero keeps CODEOWNERS advisory, one makes it
+binding); the admin bypass above still lets a human release:
+
+```json
+{
+  "type": "pull_request",
+  "parameters": {
+    "required_approving_review_count": 1,
+    "dismiss_stale_reviews_on_push": true,
+    "require_code_owner_review": true,
+    "require_last_push_approval": false,
+    "required_review_thread_resolution": true
+  }
+}
 ```
 
 ## Hook bypass

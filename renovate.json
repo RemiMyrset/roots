@@ -29,6 +29,10 @@
     {
       "matchManagers": ["devcontainer"],
       "groupName": "devcontainer"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "automerge": false
     }
   ],
   "vulnerabilityAlerts": {

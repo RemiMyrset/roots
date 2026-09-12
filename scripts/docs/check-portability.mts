@@ -17,7 +17,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import process from 'node:process'
-import { githubSlug, repoRoot, SKIP_DIRS, slugsOf, WARN } from './root.mts'
+import { ATX_HEADING_RE, CLOSING_HASHES_RE, githubSlug, repoRoot, SKIP_DIRS, slugsOf, WARN } from './root.mts'
 import { posixRelative } from './skills.mts'
 
 const RULES_DOC = 'docs/template/markdown-portability.md'
@@ -57,8 +57,9 @@ const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g
 // and blanking every real link in between. A zero-length body could never
 // satisfy the trailing (?<!`) anyway, since the char before it is the opener.
 const INLINE_CODE_RE = /(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)/g
-// Group 1 is the hash run (its length is the level), group 2 the heading text.
-const HEADING_RE = /^(#{1,6})\s+(\S.*)$/
+// The heading grammar is root.mts's ATX_HEADING_RE, shared with the anchor checker, so an
+// indented heading or a closing hash run reads the same on both sides.
+const HEADING_RE = ATX_HEADING_RE
 const HEADING_BACKTICK_RE = /`/
 const NON_ASCII_RE = /[^\x20-\x7E]/
 const LINK_TARGET_RE = /\]\(([^)\n]+)\)/g
@@ -261,7 +262,9 @@ for (const file of files) {
     // counts as an H2 and cannot double as the page's H1.
     const h = visible.match(HEADING_RE)
     if (h) {
-      recordHeading(page, h[2]!.trim(), h[1]!.length, i + 1)
+      const text = (h[2] ?? '').trim().replace(CLOSING_HASHES_RE, '')
+      if (text)
+        recordHeading(page, text, h[1]!.length, i + 1)
     }
     else if (SETEXT_RE.test(visible) && prevVisible.trim() !== '' && !HEADING_RE.test(prevVisible) && !BLOCK_PREFIX_RE.test(prevVisible)) {
       recordHeading(page, prevVisible.trim(), visible.trim().startsWith('=') ? 1 : 2, i)

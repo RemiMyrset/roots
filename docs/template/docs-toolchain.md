@@ -95,11 +95,13 @@ stay as a second guard in case a gate is ever misconfigured.
 request with every minor and patch update before 06:00 UTC on Mondays, waits
 two days after a release (the pnpm cooldown, `minimumReleaseAge`), keeps the
 action SHA pins and their version comments current, groups the workflow and
-devcontainer bumps, and automerges non-major updates once every check on the
-branch is green. Majors and security fixes arrive as their own pull requests.
+devcontainer bumps, and automerges non-major npm updates once every check on
+the branch is green. Action bumps, majors, and security fixes wait for a human:
+the done gate cannot tell a malicious action from a good one, and a major needs
+reading.
 A dependency dashboard issue lists what is pending, with a checkbox per update
-to pull it on demand. Decision 0001 in the roots repository records why
-Renovate and why the hosted app.
+to pull it on demand. The rationale, the options weighed, and the costs are
+in [conventions](./conventions.md).
 
 Nothing runs until the Mend Renovate app is installed on the repository at
 `https://github.com/apps/renovate` (two clicks; free for public and private
@@ -114,6 +116,17 @@ required. The ruleset from [guards](./guards.md#push-protection) is still
 worth creating; it makes the requirement explicit on the server. To change the
 policy in one child, edit `renovate.json` there and list it under `exclude` in
 `.template-sync.json`.
+
+Two repository settings complete the picture and are worth applying on first
+run: vulnerability alerts, without which Renovate's security pull requests
+never fire (alerts are GitHub's advisory feed, not Dependabot pull requests),
+and required SHA pinning for actions, which makes GitHub refuse a workflow
+that references an action by a mutable tag.
+
+```sh
+gh api -X PUT repos/OWNER/REPO/vulnerability-alerts
+gh api -X PUT repos/OWNER/REPO/actions/permissions -f enabled=true -f allowed_actions=all -F sha_pinning_required=true
+```
 
 ### Sandbox agents in a devcontainer
 

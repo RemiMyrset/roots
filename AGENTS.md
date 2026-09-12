@@ -82,7 +82,9 @@ passes clean after your last edit. When unsure which apply, run them all.
   human action; details in [guards](./docs/template/guards.md).
 - NEVER hand-edit generated content: automd marker regions and the `.agents/skills`
   mirror (run `pnpm docs:gen`).
-- NEVER rewrite an accepted decision record; supersede it and link both ways.
+- NEVER rewrite an accepted decision record; supersede it and link both ways
+  (`docs:check` verifies the status vocabulary and the supersede link; a rewritten
+  body is caught in review only).
 - NEVER run dependency build scripts or touch `allowBuilds` in `pnpm-workspace.yaml`
   (the guard blocks the flags; each existing entry is a human verdict).
 

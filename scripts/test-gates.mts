@@ -6,6 +6,7 @@
  * A workflow step that is deliberately not a gate carries a trailing `# not a gate` comment
  * (the exemption lives in the child-owned workflow, so a child can add its own steps without
  * diverging from the synced files); the frozen-lockfile install is a gate like any other.
+ * Every `pnpm <script>` on a step line counts, so `pnpm a && pnpm b` records both.
  * Node builtins only.
  */
 import { readdirSync, readFileSync } from 'node:fs'
@@ -13,8 +14,6 @@ import { join } from 'node:path'
 import process from 'node:process'
 
 const root = join(import.meta.dirname, '..')
-// Scripts a workflow may run without a matching gate, beyond the `# not a gate` comment.
-const NOT_A_GATE: ReadonlySet<string> = new Set()
 
 // Every pnpm('<script>', …) call in verify.mts, by its first argument — the drift gate's
 // inner docs:gen included; extra arguments (the install gate's flags) are not part of the name.
@@ -25,16 +24,17 @@ const gates = new Set([...verifySource.matchAll(/\bpnpm\('([^']+)'/g)].map(m => 
 interface Step { where: string, script: string }
 const steps: Step[] = []
 const workflowsDir = join(root, '.github/workflows')
-for (const file of readdirSync(workflowsDir).filter(f => f.endsWith('.yml')).sort()) {
+for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f)).sort()) {
   const lines = readFileSync(join(workflowsDir, file), 'utf8').split('\n')
   lines.forEach((line, i) => {
-    const m = /^\s*(?:- )?(?:run: )?pnpm (?:run )?([a-z][\w:-]*)(\s.*)?$/.exec(line)
+    const m = /^\s*(?:- )?(?:run: )?(pnpm .*)$/.exec(line)
     if (!m)
       return
-    const script = m[1]!
-    if (NOT_A_GATE.has(script) || /#\s*not a gate\b/.test(m[2] ?? ''))
+    const [code = '', comment = ''] = m[1]!.split(/\s#/, 2)
+    if (/\bnot a gate\b/.test(comment))
       return
-    steps.push({ where: `.github/workflows/${file}:${i + 1}`, script })
+    for (const call of code.matchAll(/\bpnpm (?:run )?([a-z][\w:-]*)/g))
+      steps.push({ where: `.github/workflows/${file}:${i + 1}`, script: call[1]! })
   })
 }
 

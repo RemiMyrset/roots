@@ -151,10 +151,36 @@ delete withoutCi[CI_KEY]
     'README.md:28  broken anchor: ./AGENTS.md#nope (rule 1)',
     'README.md:31  second H1 "Second H1" (first at line 4)',
     'README.md:33  callout type "[!tip]"',
+    'README.md:38  duplicate heading "Title" (also line 36)',
     'docs/internal/README.md  no H1',
     'docs/internal/README.md  README.md inside a site directory',
     'docs/index.md  index.md outside a site directory',
   ])
+}
+
+// 3b. Heading grammar matches CommonMark: an H1 indented up to three spaces is an H1, and a
+// review date written today in a timezone ahead of UTC is not "in the future".
+{
+  const dir = fixture('clean')
+  writeFileSync(join(dir, 'docs/internal/indented.md'), '   # Indented\n\nText.\n')
+  const p = run('docs:portability', dir, withoutCi)
+  check('indented H1 passes', p.status === 0, p.out)
+
+  const d = new Date()
+  const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const inTwoDays = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10)
+  const spec = join(dir, 'docs/internal/specs/cli/hello.md')
+  const original = readFileSync(spec, 'utf8')
+  writeFileSync(spec, original.replace('2026-09-07', local))
+  const contract = join(dir, 'docs/template/contract.md')
+  writeFileSync(contract, readFileSync(contract, 'utf8').replace('2026-09-07', local))
+  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
+  plantSkill(dir, SKILLS_TARGET, 'x', '# x\n')
+  const ok = run('docs:check', dir, withoutCi)
+  check('local today is not in the future', ok.status === 0 && !ok.out.includes('in the future'), ok.out)
+  writeFileSync(spec, original.replace('2026-09-07', inTwoDays))
+  const future = run('docs:check', dir, withoutCi)
+  check('two days ahead is in the future', future.out.includes('is in the future'), future.out)
 }
 
 // 4. The rulebook budget applies to every AGENTS.md in the tree: 200 lines pass, 201 fail.

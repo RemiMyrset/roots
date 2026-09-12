@@ -93,8 +93,15 @@ export function githubSlug(text: string): string {
   return text.trim().toLowerCase().replace(SLUG_DROP_RE, '').replace(SLUG_SPACE_RE, '-')
 }
 
-const ATX_HEADING_RE = /^ {0,3}#{1,6}(?:[ \t]+(\S.*)?)?$/
-const CLOSING_HASHES_RE = /[ \t]+#+[ \t]*$/
+/**
+ * An ATX heading as CommonMark reads it: up to three spaces of indent, one to six hashes,
+ * then optional text; group 1 is the hash run (its length is the level), group 2 the raw text,
+ * which may still carry closing hashes (strip with CLOSING_HASHES_RE). One definition, so the
+ * anchor checker and the portability checker agree on what a heading is.
+ */
+export const ATX_HEADING_RE = /^ {0,3}(#{1,6})(?:[ \t]+(\S.*)?)?$/
+/** The optional closing hash run of an ATX heading, `## Title ##`, which is not part of the text. */
+export const CLOSING_HASHES_RE = /[ \t]+#+[ \t]*$/
 
 /**
  * The GitHub anchor of every ATX heading in a page, in document order, repeated slugs
@@ -108,7 +115,7 @@ export function slugsOf(text: string): string[] {
     const heading = line.match(ATX_HEADING_RE)
     if (!heading)
       continue
-    const base = githubSlug((heading[1] ?? '').trim().replace(CLOSING_HASHES_RE, ''))
+    const base = githubSlug((heading[2] ?? '').trim().replace(CLOSING_HASHES_RE, ''))
     if (!base)
       continue
     let slug = base
