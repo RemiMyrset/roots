@@ -14,5 +14,6 @@
     "eslint.config.ts",
     "docs/.shared/config.ts",
     "docs/internal/.vitepress/config.ts"
-  ]
+  ],
+  "exclude": ["scripts/docs/fixtures"]
 }

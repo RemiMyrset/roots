@@ -19,8 +19,8 @@
     "test:docs": "node scripts/test-docs.mts",
     "test:gates": "node scripts/test-gates.mts",
     "typecheck": "tsc --noEmit && turbo run typecheck",
-    "lint": "CI=1 eslint .",
-    "lint:fix": "CI=1 eslint . --fix",
+    "lint": "CI=1 eslint . --cache --cache-location node_modules/.cache/eslint/",
+    "lint:fix": "CI=1 eslint . --fix --cache --cache-location node_modules/.cache/eslint/",
     "lint:secrets": "secretlint \"**/*\"",
     "docs:gen": "automd && node scripts/docs/gen-skills.mts",
     "docs:check": "node scripts/docs/check-docs.mts",
@@ -56,11 +56,12 @@
     "vitepress-plugin-mermaid": "catalog:"
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm lint-staged && pnpm docs:portability",
+    "pre-commit": "CI=1 pnpm lint-staged",
     "commit-msg": "pnpm exec commitlint --edit $1"
   },
   "lint-staged": {
-    "*.{ts,mts,tsx,vue}": "eslint --fix",
+    "*.{ts,mts,tsx,vue}": "eslint --fix --cache --cache-location node_modules/.cache/eslint/",
+    "*.md": "node scripts/docs/check-portability.mts",
     "*": "secretlint --no-glob"
   },
   "commitlint": {
