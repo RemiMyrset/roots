@@ -46,7 +46,7 @@ calls. Ask before any step whose input you would otherwise have to invent.
    `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --enable-wiki=false --enable-projects=false --delete-branch-on-merge`,
    then `gh workflow run labels.yml`,
    `gh api -X PUT repos/<owner>/<repo>/vulnerability-alerts`, and
-   `gh api -X PUT repos/<owner>/<repo>/actions/permissions -f enabled=true -f allowed_actions=all -F sha_pinning_required=true`
+   `gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true`
    (the docs-toolchain Renovate section says why). If the user wants the public docs
    published: `gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow`,
    `gh workflow run pages.yml`, and
