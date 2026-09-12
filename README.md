@@ -81,11 +81,17 @@ flowchart LR
 1. **Prove the done gate.** `pnpm install && pnpm verify`, green before you
    touch anything. **(skill)**
 2. **Name it.** **(skill; it asks you for the one-line pitch)**
-   - `package.json`: `name` (your repo slug) and `description`.
-   - This file: the H1 and the pitch paragraph above. Keep the provenance line
-     under "Where things live".
+   - `package.json`: `name` (your repo slug), `description`, and
+     `repository.url`.
+   - This file: the H1 and the pitch above; delete "Who it is for, and not
+     for", "What is in the box", and the diagram under Layout, which describe
+     the template. Keep the provenance line under "Where things live".
+   - `docs/public/index.md` and `getting-started.md`: two stubs for your
+     product; the shipped pages describe the template and the public site
+     publishes what is here.
    - `LICENSE`: the copyright holder and year (the template ships MIT).
-   - `.github/CODEOWNERS`: `@RemiMyrset` becomes your GitHub user or team.
+   - `.github/CODEOWNERS`: `@RemiMyrset` becomes your GitHub user or team, and
+     the comment above it goes.
    - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` in both links.
    - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact becomes yours.
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
@@ -100,14 +106,14 @@ flowchart LR
    says. **(skill; the branch list only)**
 4. **Samples and stubs.** `packages/example-package` and `apps/example-app`
    keep the done gate honest; replace them when real code lands (the
-   `new-package` skill scaffolds the house shape). Same for the pages under
-   `docs/public/`, but keep one page beside `docs/public/index.md` or the build
-   emits no `llms.txt`. Not today.
+   `new-package` skill scaffolds the house shape). The two `docs/public/`
+   stubs from step 2 grow into product docs later; keep one page beside
+   `docs/public/index.md` or the build emits no `llms.txt`. Not today.
 5. **GitHub settings.** Needs `gh auth login`; `OWNER/REPO` is your repository.
    **(skill)**
 
    ```sh
-   gh repo edit OWNER/REPO --description "your pitch" --add-topic typescript --enable-wiki=false --enable-projects=false --delete-branch-on-merge
+   gh repo edit OWNER/REPO --description "your pitch" --add-topic typescript --add-topic pnpm --add-topic turborepo --add-topic ai-agents --enable-wiki=false --enable-projects=false --delete-branch-on-merge
    gh workflow run labels.yml   # seeds the labels from .github/labels.yml
    gh api -X PUT repos/OWNER/REPO/vulnerability-alerts                       # Renovate's security PRs need the alerts
    gh api -X PUT repos/OWNER/REPO/actions/permissions -f enabled=true -f allowed_actions=all -F sha_pinning_required=true

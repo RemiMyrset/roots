@@ -1,6 +1,6 @@
 ---
 name: first-run
-description: Initialize a repository just created from the template by running the README "First run" checklist. Prove the done gate, name the project, replace the template owner's values with yours, apply the GitHub settings with gh, delete the section, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when README.md still contains a "## First run" section and this checkout is not the template itself. Never pushes.
+description: Initialize a repository just created from the template by running the README "First run" checklist. Prove the done gate, name the project, replace the template's pitch, pages, and owner values with yours, apply the GitHub settings with gh, delete the section, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when README.md still contains a "## First run" section and this checkout is not the template itself. Never pushes.
 ---
 
 # First run
@@ -20,13 +20,26 @@ calls. Ask before any step whose input you would otherwise have to invent.
 2. Done gate: `pnpm install && pnpm verify`. Red here is a template defect; stop
    and report it, never work around it.
 3. Rename, exact edits:
-   - `package.json`: `"name": "<slug>"`, `"description": "<pitch>"`.
+   - `package.json`: `"name": "<slug>"`, `"description": "<pitch>"`, and
+     `repository.url` to this repository's URL (the public site's GitHub link
+     reads it).
    - `README.md`: the H1 becomes `# <slug>` (or the title the user gives); the
-     first paragraph under the H1 becomes the pitch. The sections between it
-     and `## First run` are not the pitch; leave them. Keep the provenance line
-     under "Where things live".
+     two paragraphs under it become one paragraph, the pitch. Delete the
+     sections `## Who it is for, and not for` and `## What is in the box` and
+     the `mermaid` block under `## Layout`; they describe the template, not
+     this repository. Under `## Where things live`, delete the parenthetical
+     that names the template's own site and keep the provenance line.
+   - `docs/public/index.md` becomes `# <slug> documentation`, one paragraph
+     with the pitch, and `Start with [Getting started](./getting-started.md).`
+     `docs/public/getting-started.md` becomes `# Getting started` with three
+     numbered steps: install node 24 and pnpm then `pnpm install`;
+     `pnpm verify` is what "done" means; replace this page with the product's
+     first steps. Both pages spoke about the template; the public site
+     publishes whatever is here.
    - `LICENSE`: `Copyright (c) <year> <holder>`.
-   - `.github/CODEOWNERS`: `@RemiMyrset` becomes `@<owner>`.
+   - `.github/CODEOWNERS`: the whole file becomes two lines, the comment
+     `# Default reviewers for every path. Later rows override earlier ones; add path-specific owners below.`
+     and `* @<owner>`; the shipped comment describes the template's owner.
    - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` becomes
      `<owner>/<repo>` in both links.
    - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact link becomes the contact
@@ -47,7 +60,8 @@ calls. Ask before any step whose input you would otherwise have to invent.
    `gh repo edit`, `gh workflow run`, and `gh api` calls prompt, which is
    expected; Codex prompts for every command; Gemini's `tools.allowed` covers
    the read-only ones):
-   `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --enable-wiki=false --enable-projects=false --delete-branch-on-merge`,
+   `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --add-topic pnpm --add-topic turborepo --add-topic ai-agents --enable-wiki=false --enable-projects=false --delete-branch-on-merge`
+   (add the product's own topics),
    then `gh workflow run labels.yml`,
    `gh api -X PUT repos/<owner>/<repo>/vulnerability-alerts`, and
    `gh api -X PUT repos/<owner>/<repo>/actions/permissions -f enabled=true -f allowed_actions=all -F sha_pinning_required=true`
@@ -66,7 +80,8 @@ calls. Ask before any step whose input you would otherwise have to invent.
    `git commit -am "chore: initialize from roots"` (run it only if asked; never
    push). Print the two things that wait: the branch ruleset, whose command and
    timing are under "Push protection" in `docs/template/guards.md`, and the
-   reminder that `packages/example-package`, `apps/example-app`, and the
-   `docs/public/` pages are still placeholders.
+   reminder that `packages/example-package`, `apps/example-app`, and the two
+   `docs/public/` stubs are still placeholders. Then `grep -rn 'RemiMyrset\|remimyrset' --exclude-dir=node_modules --exclude-dir=.git .`
+   must list only `docs/template/` and the provenance line in the README.
 
 If the request carries the pitch or a package scope, use them.
