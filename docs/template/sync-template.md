@@ -46,9 +46,9 @@ discard the rest with `git restore --staged --worktree <path>`. Apply each
 and the printed follow-ups, then run the done gate and commit
 `.template-sync.json` with the rest.
 
-The synced paths, grouped: the CI, docs, labels, and Pages workflows with the
-label list, the agent-task issue template, the PR template, and the Renovate
-config; the docs
+The synced paths, grouped: the CI, docs, labels, labeler, and Pages workflows
+with the label list and the path-label map, the agent-task issue template, the
+PR template, and the Renovate config; the docs
 generators and checkers, the verify gate, the git-hook installer, the four test
 suites, and the sync script itself; the guards, rules, skills, and writing
 rules under `.claude/`, the Codex and Gemini registrations, and the generated

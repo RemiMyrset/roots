@@ -1,0 +1,28 @@
+# Applies the path labels (spec, decision, docs) from .github/labeler.yml to every pull
+# request, so the labels the label list defines are actually used. Runs on pull_request,
+# never pull_request_target, so a fork's PR gets no write token; such a PR is skipped.
+# Action pinning: every action by full commit SHA with its version in a trailing comment;
+# Renovate (renovate.json) moves the SHA and the comment together.
+name: labeler
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: labeler-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  labeler:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/labeler@8558fd74291d67161a8a78ce36a881fa63b766a9 # v5.0.0
+        with:
+          sync-labels: true
