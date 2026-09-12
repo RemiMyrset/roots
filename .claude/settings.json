@@ -1,6 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "includeCoAuthoredBy": false,
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "outputStyle": "writing",
   "env": {
     "PROTECTED_BRANCHES": "main"
@@ -21,7 +24,10 @@
       "Bash(git switch:*)",
       "Bash(git rev-parse:*)",
       "Bash(git remote get-url:*)",
+      "Bash(git fetch:*)",
       "Bash(git push:*)",
+      "Bash(gh auth status)",
+      "Bash(gh repo view:*)",
       "Bash(gh pr create:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
@@ -41,20 +47,24 @@
       "Bash(wc:*)",
       "Bash(pnpm install)",
       "Bash(pnpm install --frozen-lockfile)",
-      "Bash(pnpm --filter * build:*)",
-      "Bash(pnpm --filter * test:*)",
-      "Bash(pnpm --filter * typecheck:*)",
-      "Bash(pnpm --filter * lint:*)",
       "Bash(pnpm verify:*)",
       "Bash(pnpm build:*)",
-      "Bash(pnpm test:*)",
+      "Bash(pnpm test)",
+      "Bash(pnpm test:hooks)",
+      "Bash(pnpm test:sync)",
+      "Bash(pnpm test:docs)",
+      "Bash(pnpm test:gates)",
       "Bash(pnpm typecheck:*)",
-      "Bash(pnpm lint:*)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm lint:fix)",
+      "Bash(pnpm lint:secrets)",
       "Bash(pnpm docs:gen)",
       "Bash(pnpm docs:check)",
       "Bash(pnpm docs:portability)",
       "Bash(pnpm docs:internal:build)",
       "Bash(pnpm docs:public:build)",
+      "Bash(pnpm sync:template:*)",
+      "Bash(pnpm exec changelogen)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)"
     ],
@@ -94,7 +104,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",

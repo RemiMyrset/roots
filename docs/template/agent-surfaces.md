@@ -67,7 +67,15 @@ commands in the skills run without a prompt. It is deliberately narrower than
 the read-only shape of a command suggests: `find` is absent (it deletes with
 `-delete` and executes with `-exec`), and `git branch` and `git stash` are
 listed only in their listing, push, and pop forms, so a branch deletion or a
-stash drop prompts. Codex exec-policy rules and
-Gemini's allowed-tools settings are the counterparts; roots ships neither, so
-expect approval prompts in those tools on the commands Claude Code runs
-silently.
+stash drop prompts. Scripts with a colon in the name are listed one by one
+(`Bash(pnpm test:hooks)`): a trailing `:*` is a space-wildcard, so
+`Bash(pnpm test:*)` matches `pnpm test --watch` and never `pnpm test:hooks`.
+`pnpm --filter <pkg> <script>` prompts once per repository by design; a
+`--filter` rule wide enough to match would also approve `pnpm --filter x exec`.
+
+Gemini's counterpart is `tools.allowed` in `.gemini/settings.json`, shipped
+and synced with the same set in Gemini's prefix form
+(`run_shell_command(pnpm test)` covers every `pnpm test:*` script); extend it
+in the child. Codex's execution policy lives in the user's
+`~/.codex/config.toml` and cannot be committed, so Codex prompts on the
+commands the other two run silently.
