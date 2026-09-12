@@ -91,8 +91,9 @@ flowchart LR
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
      Bash on Windows), `grep -rl '@repo/' --exclude-dir=node_modules .` lists
      every file.
-3. **Agent tools.** Trust the folder when Codex and Gemini CLI ask, or the
-   guards stay off; the prompts are described in
+3. **Agent tools.** Say yes to the trust prompts or the guards stay off:
+   Codex asks for the folder and then for each hook (`/hooks`); Gemini asks
+   to confirm the hooks; Claude Code asks for the folder. Details in
    [agent-surfaces](./docs/template/agent-surfaces.md#trust-and-registration).
    If `main` is not your only protected branch, set `PROTECTED_BRANCHES` as
    [Push protection](./docs/template/guards.md#push-protection) in guards
@@ -119,9 +120,10 @@ flowchart LR
    [docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current-with-renovate).
    **(skill prints the link)**
 7. **Commit and push.** Delete this section, then
-   `git commit -am "chore: initialize from roots"` and push `main`. This is the
-   one direct push; everything after lands through a PR. **(skill proposes the
-   commit; it never pushes)**
+   `git commit -am "chore: initialize from roots"` and push `main` yourself.
+   This is the one direct push, and it is yours: the push guard denies it to
+   agents. Everything after lands through a PR. **(skill proposes the commit;
+   it never pushes)**
 8. **Branch ruleset.** Run the command under
    [Push protection](./docs/template/guards.md#push-protection) in guards; it
    says when the ruleset can be created and what it costs.

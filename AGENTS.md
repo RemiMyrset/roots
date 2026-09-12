@@ -14,8 +14,9 @@ decision wins; fix the loser in the same PR.
 The budget is 200 lines, enforced by `pnpm docs:check`. When a section outgrows
 its space, move the content to its canonical home and leave a link.
 
-Skills, the procedures, live in `.claude/skills/`; path-scoped rules live in
-`.claude/rules/`.
+Skills, the procedures, live in `.claude/skills/` (Codex and Gemini read the
+generated `.agents/skills/` mirror); path-scoped rules live in `.claude/rules/`
+(Claude Code only; this file carries the same pointers).
 
 | Topic | Canonical source |
 | --- | --- |
@@ -44,7 +45,7 @@ passes clean after your last edit. When unsure which apply, run them all.
 - Done gate: `pnpm verify` (the frozen-lockfile install, then everything below, in CI
   order; stops at the first failure; `pnpm verify <gate>` resumes there,
   `pnpm verify --only <gate>` runs one)
-- Install: `pnpm install`
+- Install: `pnpm install` (node 24 per `.node-version`; `corepack enable` provides pnpm)
 - Build: `pnpm build` (turbo; packages that define `build`)
 - Test: `pnpm test` (turbo; single package: `pnpm --filter @repo/example-package test`)
 - Test hooks: `pnpm test:hooks` (agent guard allow/deny fixtures)
@@ -66,7 +67,9 @@ passes clean after your last edit. When unsure which apply, run them all.
      dilutes every other rule. Prune rules that stop being true. -->
 
 - ALWAYS use `pnpm`, never npm, yarn, or bun (guard-enforced in Claude Code, Codex,
-  and Gemini CLI; `npx` passes as a one-off runner, prefer `pnpm dlx`).
+  and Gemini CLI once the folder and hooks are trusted, see
+  [agent-surfaces](./docs/template/agent-surfaces.md#trust-and-registration);
+  `npx` passes as a one-off runner, prefer `pnpm dlx`).
 - ALWAYS use TypeScript: no `.js`/`.mjs`, erasable syntax only, no `class`, explicit
   `.ts`/`.mts` on relative imports (tsc `erasableSyntaxOnly` and ESLint; the escape
   hatch for a dependency that demands a subclass is in [conventions](./docs/template/conventions.md)).
@@ -119,9 +122,10 @@ Unit tests live in `<package>/test/`, never colocated in `src/` (a colocated tes
 is a lint error).
 
 A package with its own conventions gets a scoped `AGENTS.md` (same 200-line
-budget) plus a sibling `CLAUDE.md` holding only `@AGENTS.md`. Claude Code
-discovers nested `CLAUDE.md`, never nested `AGENTS.md`, and the import resolves
-relative to the file holding it.
+budget) plus a sibling `CLAUDE.md` holding only `@AGENTS.md`. The pairing is for
+Claude Code, which discovers nested `CLAUDE.md` and never nested `AGENTS.md` (the
+import resolves relative to the file holding it); Codex and Gemini read the
+nested `AGENTS.md` directly.
 
 ## Gotchas
 

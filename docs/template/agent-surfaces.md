@@ -11,17 +11,25 @@ the skills, and the writing rules. It is template-owned and synced.
 | Guards `.claude/hooks/dispatch.mts` | PreToolUse hook in `.claude/settings.json` | PreToolUse hook in `.codex/hooks.json` | BeforeTool hook in `.gemini/settings.json` |
 | Skills `.claude/skills/` | read in place | `.agents/skills/`, the mirror | `.agents/skills/`, the mirror |
 | Writing rules `.claude/output-styles/writing.md` | `outputStyle` in `.claude/settings.json` | SessionStart hook in `.codex/hooks.json` | SessionStart hook in `.gemini/settings.json` |
+| Path-scoped rules `.claude/rules/` | loaded when a matching path is touched | none; `AGENTS.md` carries the same pointers | none; `AGENTS.md` carries the same pointers |
+| Prompt-free commands | `permissions.allow` in `.claude/settings.json` | user-level execution policy only | `tools.allowed` in `.gemini/settings.json` |
 
 The guards' threat model is [guards](./guards.md). `.claude/settings.json` is
 never synced; every other file in the table is.
 
 ## Trust and registration
 
-Codex and Gemini load project-level config only after the user trusts the
-folder, and Codex asks once more to trust each hook via `/hooks`. Gemini
-fingerprints project hooks and asks again after any change to
-`.gemini/settings.json`, a sync included. Until the user says yes, the guards
-and the writing rules stay off in that tool.
+Each tool gates project-level config differently, and until its gate is
+passed the guards and the writing rules are off in that tool:
+
+- Claude Code asks once whether to trust the folder; hooks and settings load
+  with it.
+- Codex loads `.codex/` only after the folder is trusted, then asks once more
+  to review and trust each hook definition via `/hooks`. Hooks are on by
+  default; no feature flag is needed.
+- Gemini's folder trust is off by default, so project settings load without
+  a prompt. It fingerprints each hook and asks to confirm it on first use and
+  again after any change to `.gemini/settings.json`, a sync included.
 
 Both registrations run `pnpm -w --silent run guards`, a workspace-root script
 that resolves from any subdirectory on Linux, macOS, and Windows with no
