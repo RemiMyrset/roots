@@ -22,4 +22,4 @@ Create a decision record under `docs/internal/decisions/`.
 5. Run `pnpm docs:gen` (regenerates the index), then `pnpm docs:check`; both
    must pass.
 
-$ARGUMENTS is the decision topic if provided.
+If the request names the decision topic, use it.

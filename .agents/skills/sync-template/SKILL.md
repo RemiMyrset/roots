@@ -21,6 +21,7 @@ and the contract are in `docs/template/sync-template.md`.
    commit or stash them first, never discard them.
 3. Run `pnpm sync:template` (add the fork URL if this repo tracks a fork, or
    `--ref <branch|tag>` to pin a template branch or tag; both are remembered).
+   Claude Code and Gemini run it without a prompt; Codex asks.
    Read the output top to bottom. On a first sync, the `Baseline:` line says how
    the starting point was found: `root time` is approximate, `none` means no
    commit list this run.

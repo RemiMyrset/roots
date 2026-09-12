@@ -494,8 +494,8 @@ const LEXER_CASES: LexerCase[] = [
 
 // The session-start hook prints the writing rules as SessionStart context for Codex and
 // Gemini. It never reads the payload, never blocks, and never exits non-zero; the style body
-// arrives without frontmatter or CR, and stays short (Codex caps injected context near
-// 2,500 tokens). SENTINEL is the file's last line, so prose edits do not break the suite.
+// arrives without frontmatter or CR, and stays short (Codex's additionalContextLimit defaults to
+// 2,500 tokens, about 10,000 characters; 8,000 leaves headroom). SENTINEL is the file's last line, so prose edits do not break the suite.
 const SESSION = 'session-start.mts'
 const STYLE_TEXT = readFileSync(join(HOOKS, '..', 'output-styles', 'writing.md'), 'utf8')
 const SENTINEL = STYLE_TEXT.trim().split('\n').at(-1)!.trim()
@@ -550,14 +550,71 @@ function sessionProblems(c: SessionCase, status: number | null, stdout: string, 
     out.push('context should not carry the frontmatter')
   if (ctx.includes('\r'))
     out.push('context should not carry CR')
-  if (ctx.length > 4000)
-    out.push(`context is ${ctx.length} chars; keep the writing rules under 4000`)
+  if (ctx.length > 8000)
+    out.push(`context is ${ctx.length} chars; keep the writing rules under 8000`)
   if (stderr !== '')
     out.push(`unexpected stderr: ${stderr.slice(0, 80)}`)
   return out
 }
 
+// The registrations each vendor reads, checked structurally, since no fixture can run the
+// tools themselves: Gemini matches lifecycle hooks by exact source string (a regex alternation
+// never fires) and tool hooks by regex; Codex filters SessionStart by source name; Claude Code's
+// hook matcher must name both shell tools; and a Claude allow rule's trailing `:*` is a
+// space-wildcard, so `Bash(pnpm test:*)` never matches a `test:hooks` script — colon scripts are
+// listed one by one, and a wildcard before the last word matches nothing at all.
+const REPO = join(HOOKS, '..', '..')
+interface Registration { matcher?: string }
+interface Hooks { SessionStart?: Registration[], BeforeTool?: Registration[], PreToolUse?: Registration[] }
+const gemini = JSON.parse(readFileSync(join(REPO, '.gemini', 'settings.json'), 'utf8')) as { hooks?: Hooks, tools?: { allowed?: string[] } }
+const codex = JSON.parse(readFileSync(join(REPO, '.codex', 'hooks.json'), 'utf8')) as { hooks?: Hooks }
+const claude = JSON.parse(readFileSync(join(HOOKS, '..', 'settings.json'), 'utf8')) as { permissions?: { allow?: string[] }, hooks?: Hooks }
+const scriptNames = Object.keys((JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }).scripts ?? {})
+const CODEX_SOURCES: ReadonlySet<string> = new Set(['startup', 'resume', 'clear', 'compact'])
+const structural: string[] = []
+for (const e of gemini.hooks?.SessionStart ?? []) {
+  if (e.matcher !== undefined)
+    structural.push(`.gemini/settings.json: SessionStart matcher "${e.matcher}" never fires (exact-string match); omit the matcher`)
+}
+for (const e of gemini.hooks?.BeforeTool ?? []) {
+  if (e.matcher !== 'run_shell_command')
+    structural.push(`.gemini/settings.json: BeforeTool matcher "${e.matcher ?? ''}" is not run_shell_command`)
+}
+for (const a of gemini.tools?.allowed ?? []) {
+  if (!/^run_shell_command\([^()]+\)$/.test(a))
+    structural.push(`.gemini/settings.json: tools.allowed entry "${a}" is not a run_shell_command(prefix) form`)
+}
+for (const e of codex.hooks?.SessionStart ?? []) {
+  for (const source of (e.matcher ?? '').split('|').filter(Boolean)) {
+    if (!CODEX_SOURCES.has(source))
+      structural.push(`.codex/hooks.json: SessionStart matcher "${source}" is not a Codex session source`)
+  }
+}
+for (const e of codex.hooks?.PreToolUse ?? []) {
+  if (e.matcher !== 'Bash')
+    structural.push(`.codex/hooks.json: PreToolUse matcher "${e.matcher ?? ''}" is not Bash`)
+}
+for (const e of claude.hooks?.PreToolUse ?? []) {
+  for (const tool of ['Bash', 'PowerShell']) {
+    if (!(e.matcher ?? '').split('|').includes(tool))
+      structural.push(`.claude/settings.json: PreToolUse matcher "${e.matcher ?? ''}" leaves the ${tool} tool unguarded`)
+  }
+}
+for (const rule of claude.permissions?.allow ?? []) {
+  const body = /^Bash\((.*)\)$/.exec(rule)?.[1]
+  if (body === undefined)
+    continue
+  const words = body.split(' ')
+  if (words.slice(0, -1).some(w => w.includes('*')))
+    structural.push(`.claude/settings.json: allow rule ${rule} has a wildcard before its last word and matches nothing`)
+  const colon = /^pnpm (\S+):\*$/.exec(body)
+  if (colon && scriptNames.some(n => n.startsWith(`${colon[1]}:`)))
+    structural.push(`.claude/settings.json: allow rule ${rule} never matches the ${colon[1]}:* scripts (":*" is a space-wildcard); list each script`)
+}
+
 const fails: string[] = []
+for (const p of structural)
+  fails.push(`[registrations] ${p}`)
 for (const c of SESSION_CASES) {
   const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, SESSION)], { input: c.raw, encoding: 'utf8' })
   for (const p of sessionProblems(c, r.status, r.stdout, r.stderr))
@@ -612,4 +669,4 @@ if (fails.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${SESSION_CASES.length} session cases + both stdin timeouts pass`)
+console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${SESSION_CASES.length} session cases + both stdin timeouts + the three registrations pass`)

@@ -63,9 +63,10 @@ app or service). Placement alone registers it; the workspace globs cover both.
 6. Add one line to the AGENTS.md "Monorepo map": path — purpose. Update the
    map line of anything you replaced. If the package needs its own conventions,
    write `<package>/AGENTS.md` and `<package>/CLAUDE.md` containing only
-   `@AGENTS.md`; the Monorepo map says why the pairing is needed.
+   `@AGENTS.md`: the pairing is how Claude Code finds a nested rulebook; Codex
+   and Gemini read the nested `AGENTS.md` directly.
 7. Run `pnpm install` (CI installs with a frozen lockfile and fails if it misses
    the new member), then `pnpm verify`. If the package adds externally
    observable behavior, spec it (new-spec skill).
 
-$ARGUMENTS is the package name and placement if provided.
+If the request names the package and its placement, use them.

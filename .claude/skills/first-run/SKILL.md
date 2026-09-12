@@ -39,10 +39,14 @@ calls. Ask before any step whose input you would otherwise have to invent.
      `pnpm docs:gen` (the mirror rewrites the copies).
 4. Protected branches: ask whether `main` is the only one; if not, set
    `PROTECTED_BRANCHES` (comma-separated globs) in the `env` block of
-   `.claude/settings.json`. The Codex and Gemini trust prompts are the human's;
-   mention them, do not attempt them.
-5. GitHub settings, only when `gh auth status` succeeds (each call prompts for
-   permission, which is expected):
+   `.claude/settings.json`. The trust prompts are the human's; mention them,
+   do not attempt them: Codex asks to trust the folder and then each hook via
+   `/hooks`; Gemini asks only to confirm the hooks' fingerprints (its folder
+   trust is off by default); Claude Code asks nothing beyond the folder.
+5. GitHub settings, only when `gh auth status` succeeds (in Claude Code the
+   `gh repo edit`, `gh workflow run`, and `gh api` calls prompt, which is
+   expected; Codex prompts for every command; Gemini's `tools.allowed` covers
+   the read-only ones):
    `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --enable-wiki=false --enable-projects=false --delete-branch-on-merge`,
    then `gh workflow run labels.yml`,
    `gh api -X PUT repos/<owner>/<repo>/vulnerability-alerts`, and
@@ -65,4 +69,4 @@ calls. Ask before any step whose input you would otherwise have to invent.
    reminder that `packages/example-package`, `apps/example-app`, and the
    `docs/public/` pages are still placeholders.
 
-$ARGUMENTS may carry the pitch or a package scope.
+If the request carries the pitch or a package scope, use them.

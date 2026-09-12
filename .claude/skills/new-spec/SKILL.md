@@ -23,4 +23,4 @@ Create a spec under `docs/internal/specs/<area>/`.
    ships with a behavior change, source and tests move in the same PR
    (three-place sync).
 
-$ARGUMENTS is the capability or entity to spec if provided.
+If the request names the capability or entity, use it.

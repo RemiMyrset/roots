@@ -5,9 +5,10 @@ description: Push the current feature branch and open a pull request. Verify fir
 
 # Open a pull request
 
-The push flow runs unattended: `git push` and the read-only `gh` commands are
-allow-listed, and the `deny-push-protected` guard keeps every push off a
-protected branch. What counts as protected, and what else the guard denies, is
+In Claude Code the push flow runs unattended: `git push` and the read-only
+`gh` commands are allow-listed (Gemini's `tools.allowed` covers the same set;
+Codex prompts for each), and the `deny-push-protected` guard keeps every push
+off a protected branch. What counts as protected, and what else the guard denies, is
 under "Push protection" in `docs/template/guards.md`. Merging is a human
 decision; `gh pr merge` always prompts, and this skill never runs it.
 
@@ -33,4 +34,4 @@ decision; `gh pr merge` always prompts, and this skill never runs it.
 7. Report the PR URL and what CI will run. Then stop: watching checks
    (`gh pr checks`) or fixing a red run is a separate ask.
 
-$ARGUMENTS may name the issue to close or the PR title.
+If the request names the issue to close or the PR title, use them.

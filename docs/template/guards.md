@@ -58,7 +58,10 @@ Out of scope by design, for every guard: a nested interpreter (`sh -c`,
 (the `WRAP` allowlist in `_lexer.mts` cannot be exhaustive: proxychains,
 firejail, setarch, …). `mise x` and `mise exec` are listed with their value flags;
 `mise run` executes a task defined in a mise config and `mise x -c` takes a
-command string, so both are nested interpreters for this purpose.
+command string, so both are nested interpreters for this purpose. Claude Code
+on Windows registers the guards for its PowerShell tool as well as Bash; the
+lexer is bash-shaped, so PowerShell spellings are covered only where they
+coincide (`npm install`, `cat .env`, `git push origin main`).
 
 Known over-block for every guard (safe direction, never a bypass): backticks are
 read as command substitution, so a heredoc or commit message quoting
@@ -156,10 +159,12 @@ branch, and drops any old blanket `Bash(git push:*)` deny so the guard can
 allow feature-branch pushes.
 
 The push-flow entries on the Claude Code allowlist let an agent push a branch
-and open a PR without a prompt: `Bash(git push:*)`, `Bash(gh pr create:*)`,
+and open a PR without a prompt: `Bash(git push:*)`, `Bash(git fetch:*)`,
+`Bash(gh auth status)`, `Bash(gh repo view:*)`, `Bash(gh pr create:*)`,
 `Bash(gh pr view:*)`, `Bash(gh pr list:*)`, `Bash(gh pr checks:*)`,
 `Bash(gh pr diff:*)`, `Bash(gh run list:*)`, `Bash(gh run view:*)`,
-`Bash(gh run watch:*)`, `Bash(gh issue view:*)`, `Bash(gh issue list:*)`. That
+`Bash(gh run watch:*)`, `Bash(gh issue view:*)`, `Bash(gh issue list:*)`; the
+same set is `tools.allowed` in `.gemini/settings.json`. That
 convenience rests on this guard (the guard runs before an allowed command), and
 the out-of-scope list under [Limits](#limits) (nested interpreters first) is
 why the server-side ruleset is the boundary that matters. `gh pr merge` stays off the
