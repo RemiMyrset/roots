@@ -37,7 +37,16 @@ setTimeout(() => {
 async function dispatch(cmd: string): Promise<void> {
   const dir = import.meta.dirname
   const ctx: GuardContext = { cwd: process.cwd(), env: process.env, settingsFile: join(dir, '..', 'settings.json') }
-  for (const guard of readdirSync(dir).filter(f => /^deny-.*\.mts$/.test(f)).sort()) {
+  let guards: string[]
+  try {
+    guards = readdirSync(dir).filter(f => /^deny-.*\.mts$/.test(f)).sort()
+  }
+  catch (e) {
+    process.stderr.write(`guards: cannot list ${dir} (${e instanceof Error ? e.message : String(e)}); denying by default (fail closed).\n`)
+    process.exitCode = 2
+    return
+  }
+  for (const guard of guards) {
     let why: string | null
     try {
       const mod = await import(pathToFileURL(join(dir, guard)).href) as { verdict?: unknown }

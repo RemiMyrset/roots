@@ -268,6 +268,32 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise x pnpm@12.3.4 -- pnpm install' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise install' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise run build' },
+  // --- audit round 2: quoted multi-word messages, mise value flags, changelogen spellings,
+  // URL/path remotes, quoted Windows paths.
+  { guard: B, expect: D, cmd: 'git commit -m "fix the build" --no-verify' }, // -m once swallowed the flag
+  { guard: B, expect: D, cmd: 'git commit -m \'two words\' -n' },
+  { guard: B, expect: D, cmd: 'git commit -F "my notes.txt" --no-verify' },
+  { guard: B, expect: D, cmd: 'git commit -a -m "a b" --no-verify' },
+  { guard: B, expect: A, cmd: 'git commit -m "two words"' },
+  { guard: B, expect: A, cmd: 'git commit -m "fix the build" -s' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'mise x -C /tmp -- npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'mise exec --cd /tmp node@24 npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'mise x -E prod -- cat .env' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise x -C /tmp -- pnpm install' },
+  { guard: P, expect: D, cmd: 'npx -y changelogen --push' },
+  { guard: P, expect: D, cmd: 'npx --yes changelogen --release --push' },
+  { guard: P, expect: D, cmd: 'pnpm dlx changelogen@latest --push' },
+  { guard: P, expect: D, cmd: 'npx changelogen@0.6.2 --release --push' },
+  { guard: P, expect: A, cmd: 'npx -y changelogen' },
+  { guard: P, expect: D, cmd: 'git push https://example.com/x.git HEAD:tmp' },
+  { guard: P, expect: D, cmd: 'git push git@example.com:x/y.git main:keep' },
+  { guard: P, expect: D, cmd: 'git push ../other-repo feat/x' },
+  { guard: P, expect: A, cmd: 'git push upstream feat/x' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \'C:\\repo\\.env\'' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat "C:\\repo\\.env"' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \'secrets\\token\'' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \'C:\\Users\\me\\.ssh\\id_rsa\'' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'echo "a\\nb"' },
 
   // --- deny-push-protected: no pushes to protected branches (default: main) ----
   // Explicit targets. The REMOTE side of a refspec is what lands on the branch.
@@ -459,6 +485,11 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: 'mise x --quiet node@24 -- npm i', head: 'npm' },
   { cmd: 'mise run build', head: 'mise' }, //                   not a wrapper subcommand
   { cmd: 'mise install', head: 'mise' },
+  { cmd: 'mise x -C /tmp -- npm i', head: 'npm' }, //           value flag consumed
+  { cmd: 'mise x --cd /tmp node@24 npm i', head: 'npm' },
+  { cmd: 'mise exec -E prod -j 4 -- npm i', head: 'npm' },
+  { cmd: 'mise x -C npm -- pnpm i', head: 'npm' }, //           a value that is a banned head is not consumed
+  { cmd: 'cat \'C:\\repo\\.env\'', head: 'cat' },
 ]
 
 // The session-start hook prints the writing rules as SessionStart context for Codex and

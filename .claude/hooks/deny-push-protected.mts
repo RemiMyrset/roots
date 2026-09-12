@@ -97,6 +97,10 @@ function pushVerdict(args: string[], ctx: GuardContext): string | null {
     else
       refspecs.push(t)
   }
+  // A URL or a path as the remote sidesteps the configured remotes and the list this guard
+  // protects; only a named remote (origin, upstream) is allowed.
+  if (remote !== undefined && (/:\/\//.test(remote) || /^[^/]+@[^/]+:/.test(remote) || remote.includes('/')))
+    return `"${remote}" is a URL or path, not a configured remote; pushing there bypasses the protected-branch list. Use a named remote`
   const targets: string[] = []
   for (const spec of refspecs) {
     if (spec.startsWith('+'))
@@ -130,6 +134,33 @@ function pushVerdict(args: string[], ctx: GuardContext): string | null {
   return null
 }
 
+// npx flags that take a separate value; `-c`/`--call` is a nested command string, out of scope.
+const NPX_VALUE_FLAG: ReadonlySet<string> = new Set(['-p', '--package'])
+
+// `changelogen` in any spelling that runs it: bare, path-prefixed, or with an `@version` suffix.
+function isChangelogen(t: string): boolean {
+  return base(t).replace(/@[^@]*$/, '') === 'changelogen'
+}
+
+// Index of the changelogen word: at the head (directly, or via pnpm exec/dlx unwrapping), or
+// behind npx and its flags (`npx -y changelogen@latest …`); -1 when absent.
+function changelogenAt(toks: string[], i: number, head: string): number {
+  if (isChangelogen(toks[i] ?? ''))
+    return i
+  if (head !== 'npx')
+    return -1
+  let k = i + 1
+  while (k < toks.length) {
+    const t = unquote(toks[k]!)
+    if (!t.startsWith('-'))
+      break
+    k++
+    if (NPX_VALUE_FLAG.has(t))
+      k++
+  }
+  return isChangelogen(toks[k] ?? '') ? k : -1
+}
+
 // First pnpm script/subcommand after global flags, unwrapping `run`.
 function pnpmScript(toks: string[], i: number): string {
   let k = i + 1
@@ -159,8 +190,7 @@ export const verdict: Verdict = (cmd, ctx) => {
     }
     if (head === 'pnpm' && pnpmScript(toks, i) === 'release')
       return '`pnpm release` pushes to the default branch from inside changelogen. Human-only: prepare the release (release skill) and let the user run it.'
-    // changelogen at the head (directly, via pnpm exec/dlx unwrapping, or behind npx).
-    const cl = head === 'changelogen' ? i : head === 'npx' && base(toks[i + 1] ?? '') === 'changelogen' ? i + 1 : -1
+    const cl = changelogenAt(toks, i, head)
     if (cl >= 0 && toks.slice(cl + 1).some(t => unquote(t) === '--push'))
       return '`changelogen --push` pushes to the default branch. Human-only: run it yourself in a terminal.'
   }

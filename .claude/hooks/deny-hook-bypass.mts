@@ -19,10 +19,12 @@ const HOOKS_PATH_RE = /^core\.hookspath=/i
 const SKIP_ENV_RE = /^(?:SKIP_SIMPLE_GIT_HOOKS=|HUSKY=0$|HUSKY_SKIP_HOOKS=)/
 
 // Tokens outside quoted spans: tokenize() splits on whitespace regardless of quotes, so a
-// commit message mentioning `--no-verify` arrives as several tokens; skip everything from a
-// token that opens a quote to the token that closes it. `balanced` is false when a quote
-// never closed by this heuristic — the caller then scans every token (fail closed), which
-// also covers a quote closed mid-token (`-m "a "b --no-verify`).
+// commit message mentioning `--no-verify` arrives as several tokens; a span from the token
+// that opens a quote to the token that closes it collapses to ONE empty placeholder, so the
+// value-option arity below (`-m <msg>`) stays aligned and `-m` can never swallow the flag
+// that follows the message (`-m "fix the build" --no-verify` once passed that way). `balanced`
+// is false when a quote never closed by this heuristic — the caller then scans every token
+// (fail closed), which also covers a quote closed mid-token (`-m "a "b --no-verify`).
 function outsideQuotes(toks: string[]): { toks: string[], balanced: boolean } {
   const out: string[] = []
   let open: string | null = null
@@ -35,6 +37,7 @@ function outsideQuotes(toks: string[]): { toks: string[], balanced: boolean } {
     const q = t[0]
     if ((q === '"' || q === '\'') && !(t.length > 1 && t.endsWith(q))) {
       open = q
+      out.push('')
       continue
     }
     out.push(t)

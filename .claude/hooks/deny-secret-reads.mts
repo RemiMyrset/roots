@@ -21,7 +21,8 @@ const READERS: ReadonlySet<string> = new Set([
 const OUTPUT_O: ReadonlySet<string> = new Set(['sort', 'shuf'])
 
 function isSecret(arg: string): boolean {
-  const p = unquote(arg).replace(/\)+$/, '').replace(/^(?:if|of)=/, '')
+  // Both separators: a quoted Windows path keeps its backslashes through tokenize().
+  const p = unquote(arg).replace(/\)+$/, '').replace(/^(?:if|of)=/, '').replace(/\\/g, '/')
   if (/(?:^|\/)secrets(?:\/|$)/i.test(p))
     return true
   if (/\.(?:pem|key|p12|pfx|jks)$/i.test(p))
