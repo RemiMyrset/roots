@@ -217,6 +217,22 @@ commit(fork, 'feat: own work')
   check('pristine copy records the head', readState(copy).commit === T2)
 }
 
+// 2c. A copy of the template head: the first sync stages only the state file, and a second
+// run before the commit meets that staged file and must not refuse its own work.
+{
+  const current = join(tmp, 'copy-head')
+  copyTree(template, current)
+  git(current, 'init', '-q', '-b', 'main')
+  commit(current, 'Initial commit')
+  const first = run(current, URL)
+  check('head copy exits 0', first.status === 0, first.detail)
+  check('head copy stages only the state file', staged(current).join(',') === `A ${STATE}`, staged(current).join(', '))
+  check('head copy prints a Next block', first.stdout.includes('Next:'), first.stdout)
+  const again = run(current, URL)
+  check('rerun before commit exits 0', again.status === 0, again.detail)
+  check('rerun before commit reports unchanged', again.stdout.includes('unchanged since last sync'), again.stdout)
+}
+
 // 3. Up to date, with the docs:gen follow-up applied and lint kept customized.
 {
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
@@ -227,6 +243,7 @@ commit(fork, 'feat: own work')
   check('up-to-date reports unchanged', r.stdout.includes('unchanged since last sync'))
   check('up-to-date prints no baseline line', !r.stdout.includes('Baseline:'))
   check('up-to-date stages nothing', r.stdout.includes('Already up to date') && staged(child).length === 0, staged(child).join(', '))
+  check('up-to-date prints no Next block', !r.stdout.includes('Next:'), r.stdout)
   check('applied follow-up gone', !r.stdout.includes('scripts.docs:gen'))
   check('customized lint listed compactly', r.stdout.includes('Customized locally') && r.stdout.includes('scripts.lint') && !r.stdout.includes('scripts.lint  '))
 }
