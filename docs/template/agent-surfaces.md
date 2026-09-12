@@ -33,7 +33,11 @@ Gemini parses as JSON. Claude Code calls the dispatcher directly with node.
 `.agents/skills/` is a generated, committed copy of `.claude/skills/`.
 `pnpm docs:gen` rewrites it; `pnpm docs:check` and the drift gate refuse a
 stale or hand-edited copy. It is a copy, never a symlink: a symlink needs
-privileges on Windows and silently becomes a text file without them.
+privileges on Windows and silently becomes a text file without them. Skill
+bodies name their arguments in prose ("if the request names the topic, use
+it") rather than Claude Code's `$ARGUMENTS` placeholder, which Codex and
+Gemini would read as literal text; Claude Code appends the invocation
+arguments to the skill either way.
 
 ## Writing rules
 
