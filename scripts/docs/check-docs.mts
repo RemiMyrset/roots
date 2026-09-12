@@ -94,8 +94,11 @@ function checkSpecPage(where: string, raw: string): void {
     errors.push(`${where}: "- **Last reviewed:** ${reviewed}" is not a real calendar date`)
   }
   else {
+    // The bullet is a calendar date parsed as UTC midnight, while Date.now() is an instant, so
+    // today's date written east of UTC reads as slightly in the future until UTC catches up;
+    // a full day of tolerance keeps the warning for real typos (a wrong year) only.
     const ageDays = (Date.now() - new Date(reviewed).getTime()) / 86_400_000
-    if (ageDays < 0)
+    if (ageDays < -1)
       warnings.push(`${where}: last reviewed ${reviewed} is in the future — likely a year typo`)
     else if (ageDays > STALE_DAYS)
       warnings.push(`${where}: last reviewed ${reviewed} (> ${STALE_DAYS} days ago) — re-verify against the source`)

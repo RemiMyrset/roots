@@ -228,7 +228,9 @@ commit(fork, 'feat: own work')
   check('customized lint listed compactly', r.stdout.includes('Customized locally') && r.stdout.includes('scripts.lint') && !r.stdout.includes('scripts.lint  '))
 }
 
-// 4. A breaking template commit since the last sync.
+// 4. A breaking template commit since the last sync; a template page is renamed, so the
+// staged rename is reported by its destination.
+git(template, 'mv', 'docs/template/x.md', 'docs/template/y.md')
 write(template, 'scripts/docs/check-docs.mts', '// check v2\n')
 write(template, 'package.json', pkg({ ...T2_SCRIPTS, 'docs:check': 'node scripts/docs/check-docs.mts --strict' }))
 write(template, '.github/labels.yml', 'labels\n')
@@ -240,8 +242,9 @@ const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: 
   check('breaking commit marked', r.stdout.includes('! ') && r.stdout.includes('feat(docs)!: strict docs:check'))
   check('breaking paragraph printed', r.stdout.includes('BREAKING CHANGE: docs:check now fails on stale review dates.'))
   const s = staged(child)
-  for (const want of ['A .github/labels.yml', 'M scripts/docs/check-docs.mts', `M ${STATE}`])
+  for (const want of ['A .github/labels.yml', 'M scripts/docs/check-docs.mts', 'R docs/template/y.md', `M ${STATE}`])
     check(`commits-since stages ${want}`, s.includes(want), s.join(', '))
+  check('rename reported by its destination', r.stdout.includes('  R  docs/template/y.md') && !r.stdout.includes('  R  docs/template/x.md'), r.stdout)
   check('state advances to T3', readState(child).commit === T3)
   check('three-way mode names the upstream change', r.stdout.includes('scripts.docs:check  changed on the template since last sync'))
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')

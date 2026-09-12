@@ -2,7 +2,7 @@
 
 - **Source:** `scripts/sync-template.mts`
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
-- **Last reviewed:** 2026-09-11
+- **Last reviewed:** 2026-09-12
 
 The contract for `pnpm sync:template`. The tests pin behaviors 1 to 23; the
 per-file-error branch of behavior 23 is untested. The user-facing recipe is the

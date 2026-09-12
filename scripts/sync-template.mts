@@ -591,9 +591,9 @@ else {
   out.push('Staged (review with git diff --cached):')
   for (let i = 0; i < staged.length; i += 2) {
     const status = (staged[i] ?? '').slice(0, 1)
-    const file = staged[i + 1] ?? ''
     if (status === 'R' || status === 'C')
-      i++ // rename: status, source, destination
+      i++ // rename: status, source, destination; report the destination
+    const file = staged[i + 1] ?? ''
     const note = file === SELF ? '   (this script — the new version runs next time)' : ''
     out.push(`  ${status}  ${file}${note}`)
   }
