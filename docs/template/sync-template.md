@@ -15,8 +15,9 @@ enough for an agent to run it unattended. The repository may come from **Use
 this template** (no shared git history), a fork or clone (shared history), or
 predate the template. Safe means: stage rather than commit, refuse to clobber,
 work out where the repository branched off, record where it is now, and say
-what a file copy cannot carry (template commits since, and the `package.json`
-scripts that now differ).
+what a file copy cannot carry (template commits since, the `package.json`
+scripts that now differ, and the `.claude/settings.json` rules the template
+has and this repository lacks).
 
 ## Non-goals
 
@@ -180,7 +181,12 @@ stdout, in order:
    `Follow-ups` header followed by one block per script (the key, its label,
    `template:`, `yours:`, and an optional `note:` line), then an optional
    `Customized locally` line. Labels say "since the baseline" on a first sync
-   and "since last sync" afterwards.
+   and "since last sync" afterwards. Then `Settings: none new.`,
+   `Settings: skipped` with a reason, or a `Settings` header followed by one
+   `<rule>  missing here` line per `permissions.allow` or `permissions.deny`
+   entry the template has and this repository lacks, and a
+   `hooks.PreToolUse command  differs` block with `template:` and `yours:`
+   lines when the hook command differs.
 6. A `Next:` block with the review, discard, and commit commands.
 
 Commit lines are `  ! <sha> <subject>` for breaking commits and
@@ -233,7 +239,13 @@ Warnings and errors go to stderr.
 13. Given a template URL whose repository has none of the synced paths, when
     run, then exit `1`, stderr says "Nothing to pull", and neither the state
     file nor the index is touched.
-14. Follow-ups compare only the template's `scripts` keys, in template order. A
+14. Settings follow-ups are two-way: every `permissions.allow` and
+    `permissions.deny` rule in the template's `.claude/settings.json` that this
+    repository's file lacks is listed as "missing here", and the first
+    `PreToolUse` hook command is listed when it differs; the repository's own
+    rules are never mentioned, the file is never edited, and a missing or
+    unreadable file skips the block with a reason. Script follow-ups compare
+    only the template's `scripts` keys, in template order. A
     key absent here is "missing here", unless the template at the baseline
     already had it, in which case it is listed as customized, "absent here"; a
     key whose local value differs from the template's is "changed on the

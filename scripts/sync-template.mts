@@ -14,9 +14,10 @@
  * .template-sync.json.
  *
  * After staging it prints what a file copy cannot carry: the template commits since
- * the last sync (breaking ones marked `!` with their BREAKING CHANGE paragraph) and
- * the package.json `scripts` that differ from the template's, as follow-ups to apply
- * by hand. A first sync infers where this repo branched off the template — shared
+ * the last sync (breaking ones marked `!` with their BREAKING CHANGE paragraph), the
+ * package.json `scripts` that differ from the template's, and the .claude/settings.json
+ * allow and deny rules and hook command the template has and this repo lacks, as
+ * follow-ups to apply by hand. A first sync infers where this repo branched off the template — shared
  * history, the root commit's tree, or the root commit's time — so the list starts
  * there. The sync point (template URL, ref, commit) is recorded in .template-sync.json
  * and staged with the rest, so the next run knows where to start.
@@ -422,6 +423,54 @@ function scriptFollowUps(
   return { items, customized }
 }
 
+/** The parts of a Claude Code settings file a template ships and a child must carry by hand. */
+interface SettingsShape {
+  allow: string[]
+  deny: string[]
+  hook?: string
+}
+
+/** The allow and deny rules and the first PreToolUse hook command of a settings.json text; undefined when it is not JSON. */
+function settingsOf(json: string | null): SettingsShape | undefined {
+  if (json === null)
+    return undefined
+  try {
+    const parsed = JSON.parse(json) as { permissions?: { allow?: unknown, deny?: unknown }, hooks?: { PreToolUse?: { hooks?: { command?: unknown }[] }[] } }
+    const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
+    const hook = parsed.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command
+    return { allow: list(parsed.permissions?.allow), deny: list(parsed.permissions?.deny), ...(typeof hook === 'string' ? { hook } : {}) }
+  }
+  catch {
+    return undefined
+  }
+}
+
+interface SettingsFollowUps {
+  missing: string[]
+  hook?: { template: string, yours?: string }
+  skipped?: string
+}
+
+/**
+ * Two-way compare of .claude/settings.json, which is never synced: template allow and deny
+ * rules absent here, and a PreToolUse hook command that differs. A child's own rules are
+ * never mentioned, and the file is never edited.
+ */
+function settingsFollowUps(template: SettingsShape | undefined, local: SettingsShape | undefined, localMissing: boolean): SettingsFollowUps {
+  if (localMissing)
+    return { missing: [], skipped: 'no .claude/settings.json here' }
+  if (!template)
+    return { missing: [], skipped: 'the template has no readable .claude/settings.json' }
+  if (!local)
+    return { missing: [], skipped: '.claude/settings.json here is not valid JSON' }
+  const missing = [
+    ...template.allow.filter(r => !local.allow.includes(r)).map(r => `permissions.allow ${r}`),
+    ...template.deny.filter(r => !local.deny.includes(r)).map(r => `permissions.deny ${r}`),
+  ]
+  const hook = template.hook !== undefined && template.hook !== local.hook ? { template: template.hook, ...(local.hook !== undefined ? { yours: local.hook } : {}) } : undefined
+  return { missing, ...(hook ? { hook } : {}) }
+}
+
 // ---------------------------------------------------------------------------------
 
 const toplevel = tryGit(['rev-parse', '--show-toplevel'])
@@ -520,6 +569,13 @@ const followUps = scriptFollowUps(
   existsSync('package.json') ? scriptsOf(readFileSync('package.json', 'utf8')) : undefined,
   !existsSync('package.json'),
   deleted,
+)
+
+const SETTINGS = '.claude/settings.json'
+const settings = settingsFollowUps(
+  settingsOf(tryGit(['show', `${head}:${SETTINGS}`])),
+  existsSync(SETTINGS) ? settingsOf(readFileSync(SETTINGS, 'utf8')) : undefined,
+  !existsSync(SETTINGS),
 )
 
 const next: SyncState = { url, commit: head }
@@ -625,6 +681,25 @@ else {
 }
 if (followUps.customized.length > 0)
   out.push(`  Customized locally (unchanged on the template since ${since}): ${followUps.customized.map(k => `scripts.${k}`).join(', ')}`)
+
+out.push('')
+if (settings.skipped) {
+  out.push(`Settings: skipped — ${settings.skipped}.`)
+}
+else if (settings.missing.length === 0 && !settings.hook) {
+  out.push('Settings: none new.')
+}
+else {
+  out.push(`Settings — ${SETTINGS} is yours, sync never edits it. Apply by hand where they apply:`)
+  for (const m of settings.missing)
+    out.push(`  ${m}  missing here`)
+  if (settings.hook) {
+    out.push('  hooks.PreToolUse command  differs')
+    out.push(`    template: ${settings.hook.template}`)
+    if (settings.hook.yours !== undefined)
+      out.push(`    yours:    ${settings.hook.yours}`)
+  }
+}
 
 out.push('', 'Next:')
 out.push('  git diff --cached                                    # review')

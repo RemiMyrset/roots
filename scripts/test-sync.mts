@@ -121,6 +121,8 @@ write(template, 'scripts/docs/check-docs.mts', '// check v1\n')
 write(template, 'scripts/sync-template.mts', `${REAL_SCRIPT}// t1\n`) // an older copy of the real script
 write(template, 'scripts/test-hooks.mts', '// hooks\n')
 write(template, '.claude/skills/x/SKILL.md', '# x\n')
+const settings = (deny: string[], hook: string): string => `${JSON.stringify({ permissions: { allow: ['Bash(git status:*)'], deny }, hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: hook }] }] } }, null, 2)}\n`
+write(template, '.claude/settings.json', settings(['Read(**/.env)'], 'node hooks.mts'))
 write(template, '.github/workflows/ci.yml', 'ci v1\n')
 write(template, '.github/workflows/docs.yml', 'v1\n')
 write(template, '.codex/hooks.json', '{}\n')
@@ -201,6 +203,7 @@ commit(fork, 'feat: own work')
   check('test:sync reported missing', r.stdout.includes('scripts.test:sync') && r.stdout.includes('missing here'))
   check('customized lint listed compactly on first sync', r.stdout.includes('Customized locally') && r.stdout.includes('scripts.lint') && !r.stdout.includes('scripts.lint  '))
   check('child-only script never mentioned', !r.stdout.includes('scripts.dev'))
+  check('settings equal on first sync', r.stdout.includes('Settings: none new.'), r.stdout)
   check('no template tags imported', gitSafe(child, 'tag', '-l').trim() === '', gitSafe(child, 'tag', '-l'))
   check('remote has no-tags set', gitSafe(child, 'config', 'remote.template.tagOpt').trim() === '--no-tags')
 }
@@ -234,6 +237,7 @@ git(template, 'mv', 'docs/template/x.md', 'docs/template/y.md')
 write(template, 'scripts/docs/check-docs.mts', '// check v2\n')
 write(template, 'package.json', pkg({ ...T2_SCRIPTS, 'docs:check': 'node scripts/docs/check-docs.mts --strict' }))
 write(template, '.github/labels.yml', 'labels\n')
+write(template, '.claude/settings.json', settings(['Read(**/.env)', 'Read(**/.pgpass)'], 'node hooks.mts --strict'))
 const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: docs:check now fails on stale review dates.\n', T3_AT)
 {
   const r = run(child)
@@ -247,6 +251,9 @@ const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: 
   check('rename reported by its destination', r.stdout.includes('  R  docs/template/y.md') && !r.stdout.includes('  R  docs/template/x.md'), r.stdout)
   check('state advances to T3', readState(child).commit === T3)
   check('three-way mode names the upstream change', r.stdout.includes('scripts.docs:check  changed on the template since last sync'))
+  check('missing deny rule listed', r.stdout.includes('permissions.deny Read(**/.pgpass)  missing here'), r.stdout)
+  check('present rules not listed', !r.stdout.includes('Read(**/.env)') && !r.stdout.includes('Bash(git status:*)'), r.stdout)
+  check('changed hook command listed', r.stdout.includes('hooks.PreToolUse command  differs') && r.stdout.includes('template: node hooks.mts --strict') && r.stdout.includes('yours:    node hooks.mts'), r.stdout)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
@@ -308,6 +315,7 @@ const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: 
   check('bootstrap stages the script itself', staged(fresh).includes('A scripts/sync-template.mts'), staged(fresh).join(', '))
   check('bootstrap lists sync:template as missing', r.stdout.includes('scripts.sync:template') && r.stdout.includes('missing here'))
   check('two-way mode says differs for lint', r.stdout.includes('scripts.lint  differs'))
+  check('no settings file skips the settings block', r.stdout.includes('Settings: skipped — no .claude/settings.json here.'), r.stdout)
   // A repo with an older TRACKED copy bootstraps the same way: the fresh copy shows as
   // modified, and the script must exempt itself from its own dirty check.
   gitSafe(fresh, 'commit', '-q', '-m', 'chore: sync mechanics from template')
