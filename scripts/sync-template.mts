@@ -53,7 +53,9 @@ const MECHANICS = [
   '.github/workflows/docs.yml',
   '.github/workflows/labels.yml',
   '.github/workflows/pages.yml',
+  '.github/workflows/labeler.yml',
   '.github/labels.yml',
+  '.github/labeler.yml',
   '.github/ISSUE_TEMPLATE/agent-task.md',
   '.github/PULL_REQUEST_TEMPLATE.md',
   'renovate.json',
@@ -496,10 +498,12 @@ if (origin !== null && hostPath(origin) === hostPath(url))
 const exclude = new Set(state?.exclude ?? [])
 const paths = [...MECHANICS.filter(p => !exclude.has(p)), ...(state?.include ?? []).filter(p => !MECHANICS.includes(p))]
 
-// Refuse to clobber uncommitted work in the synced paths. The one exemption is this
-// script itself, untracked or modified: a repo that predates it, or holds an older
-// tracked copy, bootstraps by dropping a fresh copy in place and running it — and
-// the checkout below replaces it with the template's version anyway.
+// Refuse to clobber uncommitted work in the synced paths. Two exemptions: this script
+// itself, untracked or modified (a repo that predates it, or holds an older tracked copy,
+// bootstraps by dropping a fresh copy in place and running it, and the checkout below
+// replaces it with the template's version anyway), and the state file when it is staged
+// and otherwise clean, which is what a previous run left behind; a second run before the
+// commit must not refuse its own work.
 const dirty: string[] = []
 const statusEntries = zList(tryGit(['status', '--porcelain', '-z', '--', ...paths, STATE_FILE]))
 for (let i = 0; i < statusEntries.length; i++) {
@@ -510,10 +514,12 @@ for (let i = 0; i < statusEntries.length; i++) {
     i++ // the following entry is the rename source
   if (file === SELF)
     continue
+  if (file === STATE_FILE && xy[1] === ' ')
+    continue
   dirty.push(entry)
 }
 if (dirty.length > 0)
-  fail(`Uncommitted changes in template-managed paths — commit or stash first:\n\n${dirty.join('\n')}`)
+  fail(`Uncommitted changes in template-managed paths — commit or stash first (a previous sync's staged files count too: commit them, or discard with git restore --staged --worktree <path>):\n\n${dirty.join('\n')}`)
 
 if (existingRemote === undefined)
   git(['remote', 'add', '--no-tags', REMOTE, url])
@@ -701,8 +707,10 @@ else {
   }
 }
 
-out.push('', 'Next:')
-out.push('  git diff --cached                                    # review')
-out.push('  git restore --staged --worktree <path>               # discard one path')
-out.push('  git commit -m "chore: sync mechanics from template"  # keep')
+if (staged.length > 0) {
+  out.push('', 'Next:')
+  out.push('  git diff --cached                                    # review')
+  out.push('  git restore --staged --worktree <path>               # discard one path')
+  out.push('  git commit -m "chore: sync mechanics from template"  # keep')
+}
 console.log(out.join('\n'))

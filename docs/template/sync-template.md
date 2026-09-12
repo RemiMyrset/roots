@@ -46,9 +46,9 @@ discard the rest with `git restore --staged --worktree <path>`. Apply each
 and the printed follow-ups, then run the done gate and commit
 `.template-sync.json` with the rest.
 
-The synced paths, grouped: the CI, docs, labels, and Pages workflows with the
-label list, the agent-task issue template, the PR template, and the Renovate
-config; the docs
+The synced paths, grouped: the CI, docs, labels, labeler, and Pages workflows
+with the label list and the path-label map, the agent-task issue template, the
+PR template, and the Renovate config; the docs
 generators and checkers, the verify gate, the git-hook installer, the four test
 suites, and the sync script itself; the guards, rules, skills, and writing
 rules under `.claude/`, the Codex and Gemini registrations, and the generated
@@ -187,7 +187,8 @@ stdout, in order:
    entry the template has and this repository lacks, and a
    `hooks.PreToolUse command  differs` block with `template:` and `yours:`
    lines when the hook command differs.
-6. A `Next:` block with the review, discard, and commit commands.
+6. A `Next:` block with the review, discard, and commit commands, only when
+   something is staged.
 
 Commit lines are `  ! <sha> <subject>` for breaking commits and
 `    <sha> <subject>` otherwise, newest first, capped at 40, with the
@@ -223,7 +224,9 @@ Warnings and errors go to stderr.
    then exit `1`, stderr names the paths, nothing is fetched or staged, and the
    `template` remote is not added or changed. `scripts/sync-template.mts`
    itself never counts, untracked or modified: a fresh copy dropped in by hand
-   is how an older repo bootstraps.
+   is how an older repo bootstraps. The state file counts only when it has
+   worktree changes: staged and clean is what a previous run left, so a second
+   run before the commit proceeds.
 8. Given an untracked copy of the script, or an older tracked and now modified
    one, when run with a URL, then the run succeeds and the template's version
    of the script is staged.

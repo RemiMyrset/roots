@@ -59,6 +59,8 @@ passes clean after your last edit. When unsure which apply, run them all.
 - Docs, validate: `pnpm docs:check && pnpm docs:portability`
 - Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`
 - Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev`
+- Sync: `pnpm sync:template` (stages the template's mechanics; the sync-template skill)
+- Release: `pnpm release` (human-run; the push guard denies it to agents)
 
 ## Non-negotiable rules
 
@@ -75,8 +77,9 @@ passes clean after your last edit. When unsure which apply, run them all.
   hatch for a dependency that demands a subclass is in [conventions](./docs/template/conventions.md)).
 - ALWAYS write docs as portable markdown (`pnpm docs:portability`; rules in
   [markdown-portability](./docs/template/markdown-portability.md)).
-- ALWAYS write Conventional Commits with a subject of at most 50 characters
-  (commitlint), and NEVER bypass a git hook (guard-enforced): fix the failing check.
+- ALWAYS write Conventional Commits with a lowercase subject of at most 50 characters
+  and body lines under 100 (commitlint), and NEVER bypass a git hook (guard-enforced):
+  fix the failing check.
 - ALWAYS give every exported symbol a `/** */` block saying what it is for and what
   a caller cannot see from the signature (presence is lint-enforced; content is on you).
 - NEVER push to a protected branch: `PROTECTED_BRANCHES` in the `env` block of

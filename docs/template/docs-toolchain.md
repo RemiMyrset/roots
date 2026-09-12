@@ -133,7 +133,9 @@ gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_ac
 `.devcontainer/devcontainer.json` ships an environment every tool can run in:
 the official TypeScript-and-node image at node 24, the Claude Code and GitHub
 CLI Dev Container features, `corepack enable && pnpm install` after creation,
-and the editor extensions the repo already recommends. Node 24 still bundles
+the editor extensions the repo already recommends, the two VitePress dev-server
+ports forwarded, and the pnpm store on a named volume so a rebuild re-links
+instead of re-downloading. Node 24 still bundles
 corepack; from node 25, install it with `npm install -g corepack` in the image
 or pin the feature's pnpm.
 

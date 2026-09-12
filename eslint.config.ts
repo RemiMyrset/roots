@@ -7,6 +7,9 @@ export default antfu(
     ignores: [
       'docs/**/.vitepress/cache',
       'docs/**/.vitepress/dist',
+      // Checker fixtures, one of them deliberately broken; linting them would couple two gates
+      // to a tree whose job is to be wrong.
+      'scripts/docs/fixtures/**',
     ],
   },
   {

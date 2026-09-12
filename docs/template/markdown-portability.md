@@ -42,8 +42,12 @@ frontmatter.
    `README.md` everywhere else: the repo root, `docs/README.md`, and
    `docs/template/README.md`. The checker rejects the other name in either
    place.
-7. **Mermaid** works everywhere as standard fenced `mermaid` code blocks
-   (VitePress renders them via the bundled plugin).
+7. **Mermaid** works everywhere as standard fenced `mermaid` code blocks.
+   GitHub and Obsidian render them natively; the internal site through the
+   bundled plugin; the public site only once its config export is wrapped in
+   `withMermaid()` the way the internal config is, because the plugin preloads
+   about 500 KB of diagram code on every visit and ships off until a public
+   page needs it.
 8. **Emoji** are real Unicode characters, never `:shortcode:` colon codes
    (Obsidian renders those literally).
 9. **HTML** is limited to `<details>`/`<summary>` and `<br>`; the checker

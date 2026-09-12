@@ -2,7 +2,10 @@ node_modules/
 dist/
 .turbo/
 coverage/
+*.tsbuildinfo
 .DS_Store
+Thumbs.db
+.idea/
 
 # VitePress cache (its dist/ output is covered by the dist/ rule above)
 docs/**/.vitepress/cache/

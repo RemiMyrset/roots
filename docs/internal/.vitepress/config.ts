@@ -29,5 +29,6 @@ export default withMermaid(defineConfig({
       { text: 'Decisions', link: '/decisions/', items: decisionsSidebar() },
       { text: 'Specs', link: '/specs/', items: specsSidebar() },
     ],
+    ...shared.themeConfig,
   },
 }))

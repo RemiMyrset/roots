@@ -9,6 +9,10 @@
   },
   "postCreateCommand": "corepack enable && pnpm install",
   "remoteUser": "node",
+  // The two VitePress dev servers (internal, then public) bind the next free port from 5173.
+  "forwardPorts": [5173, 5174],
+  // The pnpm store survives a container rebuild, so a rebuild re-links instead of re-downloading.
+  "mounts": ["source=roots-pnpm-store,target=/home/node/.local/share/pnpm,type=volume"],
   "customizations": {
     "vscode": {
       "extensions": ["editorconfig.editorconfig", "dbaeumer.vscode-eslint"]
