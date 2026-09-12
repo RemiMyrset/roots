@@ -5,7 +5,6 @@
 import process from 'node:process'
 import { defineConfig } from 'vitepress'
 import llmstxt from 'vitepress-plugin-llms'
-import { withMermaid } from 'vitepress-plugin-mermaid'
 import { normalizeBase, shared } from '../../.shared/config.ts'
 
 // Both come from the Pages workflow (actions/configure-pages): DOCS_BASE is the
@@ -20,10 +19,12 @@ const base = normalizeBase(process.env[BASE_KEY])
 const url = process.env.DOCS_URL ? `${process.env.DOCS_URL.replace(/\/+$/, '')}/` : undefined
 const origin = url ? new URL(url).origin : undefined
 
-// withMermaid stays with no diagram on the site yet: a future page adds one without a config change.
-export default withMermaid(defineConfig({
+// No Mermaid here on purpose: the plugin preloads the whole diagram registry (Mermaid plus
+// KaTeX, about 500 KB) on every visit, and the public site has no diagram. When a page needs
+// one, wrap this export in withMermaid() from 'vitepress-plugin-mermaid' as the internal
+// site does; docs/template/markdown-portability.md rule 7 says so.
+export default defineConfig({
   ...shared,
-  description: 'Public documentation.',
   base,
   ...(url ? { sitemap: { hostname: url } } : {}),
   vite: {
@@ -37,4 +38,4 @@ export default withMermaid(defineConfig({
     // that is why getting-started.md must be replaced, never just deleted.
     plugins: [llmstxt({ generateLLMsFullTxt: false, ...(origin ? { domain: origin } : {}) })],
   },
-}))
+})
