@@ -125,7 +125,7 @@ that references an action by a mutable tag.
 
 ```sh
 gh api -X PUT repos/OWNER/REPO/vulnerability-alerts
-gh api -X PUT repos/OWNER/REPO/actions/permissions -f enabled=true -f allowed_actions=all -F sha_pinning_required=true
+gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true
 ```
 
 ### Sandbox agents in a devcontainer
