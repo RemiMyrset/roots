@@ -121,7 +121,7 @@ write(template, 'scripts/docs/check-docs.mts', '// check v1\n')
 write(template, 'scripts/sync-template.mts', `${REAL_SCRIPT}// t1\n`) // an older copy of the real script
 write(template, 'scripts/test-hooks.mts', '// hooks\n')
 write(template, '.claude/skills/x/SKILL.md', '# x\n')
-const settings = (deny: string[], hook: string): string => `${JSON.stringify({ permissions: { allow: ['Bash(git status:*)'], deny }, hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: hook }] }] } }, null, 2)}\n`
+const settings = (deny: string[], hook: string, matcher = 'Bash'): string => `${JSON.stringify({ permissions: { allow: ['Bash(git status:*)'], deny }, hooks: { PreToolUse: [{ matcher, hooks: [{ type: 'command', command: hook }] }] } }, null, 2)}\n`
 write(template, '.claude/settings.json', settings(['Read(**/.env)'], 'node hooks.mts'))
 write(template, '.github/workflows/ci.yml', 'ci v1\n')
 write(template, '.github/workflows/docs.yml', 'v1\n')
@@ -254,7 +254,7 @@ git(template, 'mv', 'docs/template/x.md', 'docs/template/y.md')
 write(template, 'scripts/docs/check-docs.mts', '// check v2\n')
 write(template, 'package.json', pkg({ ...T2_SCRIPTS, 'docs:check': 'node scripts/docs/check-docs.mts --strict' }))
 write(template, '.github/labels.yml', 'labels\n')
-write(template, '.claude/settings.json', settings(['Read(**/.env)', 'Read(**/.pgpass)'], 'node hooks.mts --strict'))
+write(template, '.claude/settings.json', settings(['Read(**/.env)', 'Read(**/.pgpass)'], 'node hooks.mts --strict', 'Bash|Monitor'))
 const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: docs:check now fails on stale review dates.\n', T3_AT)
 {
   const r = run(child)
@@ -271,6 +271,7 @@ const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: 
   check('missing deny rule listed', r.stdout.includes('permissions.deny Read(**/.pgpass)  missing here'), r.stdout)
   check('present rules not listed', !r.stdout.includes('Read(**/.env)') && !r.stdout.includes('Bash(git status:*)'), r.stdout)
   check('changed hook command listed', r.stdout.includes('hooks.PreToolUse command  differs') && r.stdout.includes('template: node hooks.mts --strict') && r.stdout.includes('yours:    node hooks.mts'), r.stdout)
+  check('changed hook matcher listed', r.stdout.includes('hooks.PreToolUse matcher  differs') && r.stdout.includes('template: Bash|Monitor') && r.stdout.includes('yours:    Bash\n'), r.stdout)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 

@@ -10,7 +10,7 @@
  * Beyond the banned-token scan: a relative link target must exist and a `#fragment` into
  * a markdown page (the page's own included) must be the GitHub slug of one of its ATX
  * headings; a page has exactly one H1; a callout is one of the five uppercase GitHub
- * alerts, unfolded; and an index page is named for where it lives (rule 6).
+ * alerts, unfolded and untitled; and an index page is named for where it lives (rule 6).
  *
  * Adapted from an earlier internal docs-portability checker.
  */
@@ -22,7 +22,8 @@ import { posixRelative } from './skills.mts'
 
 const RULES_DOC = 'docs/template/markdown-portability.md'
 
-const BANNED: { re: RegExp, msg: string }[] = [
+// `raw` entries are tested before inline code is scrubbed: the token is live even there.
+const BANNED: { re: RegExp, msg: string, raw?: true }[] = [
   { re: /\[\[/, msg: 'Obsidian wikilink "[[" — use a relative [text](./file.md) link (rule 1)' },
   // NB: @include is NOT here — it lives inside an HTML comment, which the loop
   // strips before the BANNED scan, so it is checked separately (see below).
@@ -30,9 +31,11 @@ const BANNED: { re: RegExp, msg: string }[] = [
   { re: /^\s*:::/, msg: 'VitePress container ":::" — use a GitHub-style "> [!NOTE]" alert (rule 2)' },
   { re: /\]\(\/[^)]/, msg: 'absolute link "](/...)" — use a relative path (rule 1)' },
   // Lookarounds keep prose like `docs:internal:dev` or 12:30:45 from matching:
-  // a real shortcode is not adjacent to another word/colon segment.
-  { re: /(?<![\w:]):[a-z0-9_+-]+:(?![\w:])/, msg: 'emoji shortcode — use the real Unicode character (rule 8)' },
-  { re: /\{\{/, msg: 'Vue interpolation "{{" — VitePress compiles every page as a Vue template, so "{{ ... }}" is evaluated and silently dropped (rule 9)' },
+  // a real shortcode is not adjacent to another word/colon segment. The body needs a
+  // letter or digit, so a centered table cell `:---:` is not one while `:-1:` is.
+  { re: /(?<![\w:]):(?=[a-z0-9_+-]*[a-z0-9])[a-z0-9_+-]+:(?![\w:])/, msg: 'emoji shortcode — use the real Unicode character (rule 8)' },
+  // VitePress puts v-pre on fenced code only, so "{{" inside inline code is evaluated too.
+  { re: /\{\{/, raw: true, msg: 'Vue interpolation "{{" — VitePress compiles every page as a Vue template and evaluates "{{ ... }}" even inside inline code; show it in fenced code (rule 9)' },
   { re: /<\/?(?!(?:details|summary|br)\b)[a-z][a-z0-9-]*(?:\s[^>]*)?\/?>/i, msg: 'raw HTML tag beyond <details>/<summary>/<br> — renders inconsistently across GitHub / VitePress / Obsidian (rule 9)' },
 ]
 
@@ -45,12 +48,15 @@ const BLOCKQUOTE_RE = /^ {0,3}(?:> ?)+/
 // A block-level previous line (blockquote/list) turns a following `---`/`===` into a
 // thematic break, not a setext heading underline.
 const BLOCK_PREFIX_RE = /^ {0,3}(?:>|[-*+] |\d+[.)] )/
-// A callout opener: the type inside `> [!TYPE]` is group 1; Obsidian's fold marker, when
-// one follows the bracket, is group 2. Matched with the blockquote prefix in place so a
+// A callout opener: the type inside `> [!TYPE]` is group 1; the rest of the line (Obsidian's
+// fold marker or a title) is group 2. Matched with the blockquote prefix in place so a
 // backticked example (`> `[!tip]``) is not one.
-const ALERT_RE = /^ {0,3}(?:> ?)+\[!([^\]\n]*)\]([+-]?)/
+const ALERT_RE = /^ {0,3}(?:> ?)+\[!([^\]\n]*)\](.*)$/
 const ALERT_TYPES: ReadonlySet<string> = new Set(['NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION'])
 const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g
+// Line endings are normalized on read, so a CRLF file (written on Windows before git
+// normalizes it) reads as the LF checkout will: the heading grammar ends in `$`.
+const CRLF_RE = /\r\n/g
 // Backtick runs must match in length (CommonMark), so ``a `b` c`` parses as one
 // span. The body is [^\n]+? (min 1, single line): bounding it to one line stops
 // a stray backtick from pairing with a distant one across the joined document
@@ -123,7 +129,7 @@ function anchorsOf(file: string): ReadonlySet<string> {
   const key = resolve(file)
   let slugs = slugCache.get(key)
   if (!slugs) {
-    slugs = new Set(slugsOf(readFileSync(key, 'utf8')))
+    slugs = new Set(slugsOf(readFileSync(key, 'utf8').replace(CRLF_RE, '\n')))
     slugCache.set(key, slugs)
   }
   return slugs
@@ -165,7 +171,7 @@ function checkLinkTarget(where: string, file: string, raw: string, display: stri
 
 for (const file of files) {
   const where = posixRelative(root, file)
-  const text = readFileSync(file, 'utf8')
+  const text = readFileSync(file, 'utf8').replace(CRLF_RE, '\n')
   const lines = text.split('\n')
 
   if (lines[0]?.trim() === '---')
@@ -245,18 +251,21 @@ for (const file of files) {
       prevVisible = ''
       return
     }
-    // Tokens inside inline code render literally everywhere — scrub before checking.
-    // Blockquote prefix stripped so a banned token inside a quoted fence is not flagged.
-    const scrubbed = visible.replace(BLOCKQUOTE_RE, '').replace(INLINE_CODE_RE, '')
-    for (const { re, msg } of BANNED) {
-      if (re.test(scrubbed))
+    // Tokens inside inline code render literally everywhere — scrub before checking, except
+    // for the `raw` entries. Blockquote prefix stripped so a banned token inside a quoted
+    // fence is not flagged.
+    const unquoted = visible.replace(BLOCKQUOTE_RE, '')
+    const scrubbed = unquoted.replace(INLINE_CODE_RE, '')
+    for (const { re, msg, raw } of BANNED) {
+      if (re.test(raw ? unquoted : scrubbed))
         problems.push(`${where}:${i + 1}  ${msg}\n    ${line.trim()}`)
     }
     // GitHub renders exactly five alert types, uppercase, and nothing after the bracket;
-    // Obsidian's other types and its `]+`/`]-` fold markers render as plain quotes there.
+    // Obsidian's other types, its `]+`/`]-` fold markers, and a title after the bracket
+    // render as plain quotes there.
     const alert = visible.match(ALERT_RE)
-    if (alert && !(ALERT_TYPES.has(alert[1]!) && alert[2] === ''))
-      problems.push(`${where}:${i + 1}  callout type "[!${alert[1]}]${alert[2]}" — use one of the five uppercase GitHub alerts, never foldable (rule 2)\n    ${line.trim()}`)
+    if (alert && !(ALERT_TYPES.has(alert[1]!) && alert[2]!.trim() === ''))
+      problems.push(`${where}:${i + 1}  callout type "[!${alert[1]}]${alert[2]!.trimEnd()}" — use one of the five uppercase GitHub alerts, never foldable or titled (rule 2)\n    ${line.trim()}`)
     // Headings: ATX (# ...) here, or setext (prose line underlined by === / ---). A
     // setext `===` is an H1 and `---` an H2, so a frontmatter block's closing `---`
     // counts as an H2 and cannot double as the page's H1.

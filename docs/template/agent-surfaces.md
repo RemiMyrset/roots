@@ -7,12 +7,12 @@ the skills, and the writing rules. It is template-owned and synced.
 
 | | Claude Code | Codex | Gemini CLI |
 | --- | --- | --- | --- |
-| Rulebook `AGENTS.md` | `CLAUDE.md`, one line: `@AGENTS.md` | native; nested files merged root-down, 32 KiB cap | `context.fileName` in `.gemini/settings.json` |
+| Rulebook `AGENTS.md` | `CLAUDE.md`, one line: `@AGENTS.md` | native; files merged from the root down to the launch directory, 32 KiB cap | `context.fileName` in `.gemini/settings.json` |
 | Guards `.claude/hooks/dispatch.mts` | PreToolUse hook in `.claude/settings.json` | PreToolUse hook in `.codex/hooks.json` | BeforeTool hook in `.gemini/settings.json` |
 | Skills `.claude/skills/` | read in place | `.agents/skills/`, the mirror | `.agents/skills/`, the mirror |
 | Writing rules `.claude/output-styles/writing.md` | `outputStyle` in `.claude/settings.json` | SessionStart hook in `.codex/hooks.json` | SessionStart hook in `.gemini/settings.json` |
 | Path-scoped rules `.claude/rules/` | loaded when a matching path is touched | none; `AGENTS.md` carries the same pointers | none; `AGENTS.md` carries the same pointers |
-| Prompt-free commands | `permissions.allow` in `.claude/settings.json` | user-level execution policy only | `tools.allowed` in `.gemini/settings.json` |
+| Prompt-free commands | `permissions.allow` in `.claude/settings.json` | none shipped | none shipped |
 
 The guards' threat model is [guards](./guards.md). `.claude/settings.json` is
 never synced; every other file in the table is.
@@ -25,16 +25,31 @@ passed the guards and the writing rules are off in that tool:
 - Claude Code asks once whether to trust the folder; hooks and settings load
   with it.
 - Codex loads `.codex/` only after the folder is trusted, then asks once more
-  to review and trust each hook definition via `/hooks`. Hooks are on by
-  default; no feature flag is needed.
-- Gemini's folder trust is off by default, so project settings load without
-  a prompt. It fingerprints each hook and asks to confirm it on first use and
-  again after any change to `.gemini/settings.json`, a sync included.
+  to review and trust each hook definition via `/hooks`. Trust is recorded
+  against the definition's hash, so a changed hook, including one a template
+  sync brings, is skipped until it is trusted again. Hooks are on by default;
+  no feature flag is needed.
+- Gemini asks once whether to trust the folder; folder trust is on by
+  default. Untrusted, it ignores `.gemini/settings.json` and `.agents/skills/`,
+  so the rulebook, the guards, the writing rules, and the skills are all off.
+  Trusted, it prints a warning naming each new hook, or one whose name or
+  command changed, and then runs it without asking.
 
-Both registrations run `pnpm -w --silent run guards`, a workspace-root script
-that resolves from any subdirectory on Linux, macOS, and Windows with no
-shell-specific syntax. `--silent` keeps pnpm's own lines off stdout, which
-Gemini parses as JSON. Claude Code calls the dispatcher directly with node.
+Start Claude Code and Gemini CLI at the repository root. Both read project
+settings only from the directory they start in, so a session started in
+`packages/<name>` runs with no guards, deny rules, or writing rules, and
+Gemini also loses `AGENTS.md` and the skills. Claude Code still reads the root
+`CLAUDE.md` from a subdirectory, so the rulebook looks active while the guards
+are off; Codex reads `.codex/` from the project root down and is unaffected.
+
+The Codex and Gemini registrations run `pnpm -w --silent run guards`, a
+workspace-root script, so the command resolves from any subdirectory on Linux,
+macOS, and Windows with no shell-specific syntax. `--silent` keeps pnpm's own
+lines off stdout, which Gemini parses as JSON. Claude Code calls the
+dispatcher directly with node through `${CLAUDE_PROJECT_DIR}`, braced because
+Claude Code 2.1.198 and later rewrite only that spelling for PowerShell, which
+reads a bare `$CLAUDE_PROJECT_DIR` as empty and would leave the hook failing
+open.
 
 ## Skills mirror
 
@@ -64,17 +79,29 @@ register it: that would inject the text twice and override a `/config` choice.
 Neither surface reaches Claude Code subagents. Codex truncates injected
 context past `additionalContextLimit`, 2,500 tokens by default (about 10,000
 characters), so `pnpm test:hooks` keeps the file under 8,000 characters.
-Gemini's SessionStart entry carries no `matcher` on purpose: Gemini matches
-lifecycle hooks by exact source name, so a regex such as `startup|resume`
-never fires there, while Codex reads the same field as a source list.
-`pnpm test:hooks` checks both registrations structurally.
+
+Neither SessionStart entry carries a `matcher`, so each fires on every source
+its tool has. Codex filters by source, so an entry that skipped `clear` or
+`compact` would drop the rules after `/clear` or an automatic compaction.
+Gemini matches lifecycle hooks by exact source name, so a regex such as
+`startup|resume` never fires there. `pnpm test:hooks` checks both
+registrations structurally.
+
+Gemini's SessionStart sources are only startup, resume, and `/clear`, and it
+ignores a PreCompress hook's output, so no hook can put the rules back after
+chat compression. In a long Gemini session compression can summarize them
+away; `/clear` loads them again.
 
 ## Nested rulebooks
 
-Codex merges a nested `AGENTS.md` on its own, and Gemini loads it when a tool
-first touches its directory. Claude Code walks nested `CLAUDE.md` only, so a
-scoped rulebook needs the `CLAUDE.md` pairing described in the Monorepo map of
-the root `AGENTS.md`.
+Codex merges the `AGENTS.md` files from the project root down to the
+directory it starts in. A nested file below that reaches the model only if the
+model reads it; some of Codex's built-in model prompts tell it to when it
+edits a file in that directory, and others do not.
+
+Gemini loads a nested file when a tool first touches its directory. Claude
+Code walks nested `CLAUDE.md` only, so a scoped rulebook needs the
+`CLAUDE.md` pairing described in the Monorepo map of the root `AGENTS.md`.
 
 ## Permission prompts
 
@@ -89,9 +116,27 @@ stash drop prompts. Scripts with a colon in the name are listed one by one
 `pnpm --filter <pkg> <script>` prompts once per repository by design; a
 `--filter` rule wide enough to match would also approve `pnpm --filter x exec`.
 
-Gemini's counterpart is `tools.allowed` in `.gemini/settings.json`, shipped
-and synced with the same set in Gemini's prefix form
-(`run_shell_command(pnpm test)` covers every `pnpm test:*` script); extend it
-in the child. Codex's execution policy lives in the user's
-`~/.codex/config.toml` and cannot be committed, so Codex prompts on the
-commands the other two run silently.
+The template gives Gemini no prompt-free list, so an interactive session asks
+before every shell command outside its own built-in read-only set
+(`git status` passes). Gemini's `tools.allowed` setting is deprecated, and any
+`run_shell_command(...)` entry in it denies every command it does not list,
+even in YOLO mode, so `pnpm test:hooks` fails if the key comes back. The
+replacement, a policy file under `.gemini/policies/`, is ignored at the
+workspace tier as of Gemini 0.60; a developer who wants fewer prompts adds
+allow rules under `~/.gemini/policies/`.
+
+A headless Gemini run (`gemini -p`) cannot ask, so it denies every shell
+command, `git status` included, unless it is started with
+`--approval-mode=yolo` or finds allow rules under `~/.gemini/policies/`. The
+guards run before the approval check, so YOLO mode keeps them.
+
+The template ships no Codex rules file either. In a trusted folder Codex's
+default sandbox runs commands that write only ordinary workspace files without
+a prompt. It asks before anything that needs the network (`git push`, `gh`,
+`pnpm install`) or writes `.git/`, `.agents/`, or `.codex/`, which it keeps
+read-only (`git commit`, `git switch`, `pnpm docs:gen`).
+
+Codex does load a committed `.codex/rules/*.rules` once `.codex/` is trusted,
+but rules are experimental and an `allow` rule runs the command outside the
+sandbox, a wider grant than a Claude Code allow rule, so that choice stays in
+each developer's `~/.codex/rules/`.

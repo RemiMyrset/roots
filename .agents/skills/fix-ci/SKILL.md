@@ -21,11 +21,15 @@ step has a local twin, and the fix is local.
    `--no-verify` (the guards deny it anyway). A stale lockfile is
    `pnpm install`, then commit `pnpm-lock.yaml`. Stale generated docs are
    `pnpm docs:gen`, then commit the output.
-4. Stop if the failing gate is a template mechanic (`pnpm verify` marks them
+4. If the failing gate is a template mechanic (`pnpm verify` marks them
    "template mechanics": `test:hooks`, `test:sync`, `test:docs`,
-   `test:gates`). The synced files are not this repository's to patch; say so
-   and point at the `sync-template` skill, or report it upstream.
+   `test:gates`), read which file the failure names. A file this repository
+   owns is a local fix like any other: its own workflow (a `pnpm` step that is
+   deliberately not a gate ends its line with `# not a gate`),
+   `.claude/settings.json`, or `package.json`. A failure inside the synced
+   files themselves is not a child's to patch; say so and point at the
+   `sync-template` skill, or report it upstream.
 5. Prove it. `pnpm verify` end to end, then commit with a Conventional subject
    (`fix(scope): what`, at most 50 chars) and push the same branch. Watch with
    `gh pr checks <n> --watch`; report the outcome and stop. In Claude Code the
-   `gh` calls run without a prompt; Codex asks for each.
+   `gh` calls run without a prompt; Codex and Gemini ask for each.
