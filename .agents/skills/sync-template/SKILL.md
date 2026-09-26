@@ -23,7 +23,7 @@ and the contract are in `docs/template/sync-template.md`.
 3. Run `pnpm sync:template`, or `node scripts/sync-template.mts` while
    `package.json` has no `sync:template` script (add the fork URL if this repo
    tracks a fork, or `--ref <branch|tag>` to pin a template branch or tag; both
-   are remembered). Claude Code and Gemini run it without a prompt; Codex asks.
+   are remembered). Claude Code runs it without a prompt; Codex and Gemini ask.
    If it stops on an invalid `.template-sync.json`, fix the field it names;
    deleting the file drops its `exclude` and `include`.
    Read the output top to bottom. On a first sync, the `Baseline:` line says how

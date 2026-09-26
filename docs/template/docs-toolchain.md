@@ -36,13 +36,14 @@ Template sync has its own recipe in [sync-template](./sync-template.md#recipe).
 
 ### Publish the public site on GitHub Pages
 
-`.github/workflows/pages.yml` is the standard, and it is synced. On a push to
-`main` that touches `docs/public/`, `docs/.shared/`, `package.json`, the
-lockfile, or the workflow file itself (and on manual dispatch) it builds the
-public site, and when GitHub Pages is enabled for the repository it also
-deploys it. Until then the run is green and says "the site was built but not
-deployed", so a repository that never wants a public site pays nothing and
-sees no red.
+`.github/workflows/pages.yml` is the standard, and it is synced. On a pull
+request or a push to `main` that touches `docs/public/`, `docs/.shared/`,
+`package.json`, the lockfile, or the workflow file itself (and on manual
+dispatch) it builds the public site. On `main`, when GitHub Pages is enabled
+for the repository, it also deploys it; a pull request only builds, so a
+broken build or action pin shows before merge. Until Pages is enabled the run
+is green and says "the site was built but not deployed", so a repository that
+never wants a public site pays nothing and sees no red.
 
 Enable it once, either under Settings → Pages → Build and deployment → Source:
 GitHub Actions, or:
@@ -55,14 +56,16 @@ gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/
 
 The site lands at `https://OWNER.github.io/REPO/` (a project site) or at the
 root of `OWNER.github.io` (a user site). A custom domain set under Settings →
-Pages is honoured too; add `docs/public/public/CNAME` holding the domain so the
-build keeps it.
+Pages is honoured too, and an Actions deployment needs no `CNAME` file.
 
 The workflow asks `actions/configure-pages` for the base path and URL and hands
 them to the build as `DOCS_BASE` and `DOCS_URL`, which
 `docs/public/.vitepress/config.ts` turns into VitePress `base`, a
 `sitemap.xml`, and absolute links in `llms.txt`. Local builds leave both unset
-and keep relative links.
+and keep relative links. The build checks out full history, because each
+page's "Last updated" date and its sitemap `lastmod` come from `git log`; a
+shallow clone stamps every page with the deploy commit's date, and
+`pnpm test:gates` refuses one.
 
 The public build emits `/llms.txt`, the [llms.txt](https://llmstxt.org/)
 standard that crawlers and agents fetch first, plus a clean markdown copy of
@@ -121,7 +124,9 @@ Two repository settings complete the picture and are worth applying on first
 run: vulnerability alerts, without which Renovate's security pull requests
 never fire (alerts are GitHub's advisory feed, not Dependabot pull requests),
 and required SHA pinning for actions, which makes GitHub refuse a workflow
-that references an action by a mutable tag.
+that references an action by a mutable tag. The check reaches inside a pinned
+composite action too, so before merging an action bump, read the new
+release's own `action.yml` for a tag-only `uses:`.
 
 ```sh
 gh api -X PUT repos/OWNER/REPO/vulnerability-alerts
@@ -132,12 +137,21 @@ gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_ac
 
 `.devcontainer/devcontainer.json` ships an environment every tool can run in:
 the official TypeScript-and-node image at node 24, the Claude Code and GitHub
-CLI Dev Container features, `corepack enable && pnpm install` after creation,
-the editor extensions the repo already recommends, the two VitePress dev-server
-ports forwarded, and the pnpm store on a named volume so a rebuild re-links
-instead of re-downloading. Node 24 still bundles
-corepack; from node 25, install it with `npm install -g corepack` in the image
-or pin the feature's pnpm.
+CLI Dev Container features, `pnpm install` after creation, the editor
+extensions the repo already recommends, the two VitePress dev-server ports
+forwarded, and the pnpm store on a named volume, so a rebuild copies packages
+from it instead of downloading them again.
+
+The container runs as the non-root `node` user, and Docker creates the
+volume's mount point owned by root, so the post-create step first hands it to
+`node` with `sudo`. `pnpm_config_store_dir` then points pnpm at the volume:
+the checkout is a separate mount, and without the variable pnpm keeps its
+store inside the checkout.
+
+The `pnpm` on the container's path is the image's own. It switches to the
+version `packageManager` pins but, unlike corepack, does not check the
+download against the pin's hash. Corepack's shims would land in a root-owned
+directory behind it on the path, so the container does not enable corepack.
 
 Open it with VS Code's "Reopen in Container", a GitHub Codespace, or the
 `devcontainer` CLI. Inside it an unattended agent run cannot reach your keys,
@@ -167,6 +181,10 @@ changelogen for `changesets` the day packages need independent versions.
 
 ### Optional CI additions
 
+- A workflow step of your own that runs `pnpm <script>` but is not a gate,
+  such as an e2e or deploy step, ends its line with `# not a gate`.
+  Otherwise `pnpm test:gates`, which keeps `pnpm verify` and the workflows
+  running the same steps, fails on it.
 - typos (crate-ci/typos) spell-checks docs; add it as an advisory step in
   `docs.yml`.
 - lychee checks external URLs; run it scheduled (weekly) and advisory, since

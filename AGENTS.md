@@ -39,27 +39,32 @@ generated `.agents/skills/` mirror); path-scoped rules live in `.claude/rules/`
 
 ## Commands
 
-A task is complete only when every command below that your change can affect
-passes clean after your last edit. When unsure which apply, run them all.
+A task is complete only when every gate command below that your change can
+affect passes clean after your last edit. When unsure which apply, run
+`pnpm verify`, which runs them all.
 
-- Done gate: `pnpm verify` (the frozen-lockfile install, then everything below, in CI
+- Done gate: `pnpm verify` (the frozen-lockfile install, then the gate commands below, in CI
   order; stops at the first failure; `pnpm verify <gate>` resumes there,
   `pnpm verify --only <gate>` runs one)
-- Install: `pnpm install` (node 24 per `.node-version`; `corepack enable` provides pnpm)
 - Build: `pnpm build` (turbo; packages that define `build`)
 - Test: `pnpm test` (turbo; single package: `pnpm --filter @repo/example-package test`)
 - Test hooks: `pnpm test:hooks` (agent guard allow/deny fixtures)
 - Test sync: `pnpm test:sync` (template-sync fixtures)
 - Test docs: `pnpm test:docs` (docs checker fixtures)
-- Test gates: `pnpm test:gates` (verify and the workflows run the same steps)
+- Test gates: `pnpm test:gates` (verify and the workflows run the same steps; ESLint
+  rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
 - Docs, regenerate: `pnpm docs:gen` (automd indexes and the `.agents/skills` mirror)
 - Docs, validate: `pnpm docs:check && pnpm docs:portability`
 - Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`
-- Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev`
-- Sync: `pnpm sync:template` (stages the template's mechanics; the sync-template skill)
+
+Other commands, never part of done and never run to prove it:
+
+- Install: `pnpm install` (node 24 per `.node-version`; `corepack enable` provides pnpm)
+- Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev` (dev servers; they never exit)
+- Sync: `pnpm sync:template` (only when asked; stages the template's mechanics; the sync-template skill)
 - Release: `pnpm release` (human-run; the push guard denies it to agents)
 
 ## Non-negotiable rules
@@ -74,7 +79,8 @@ passes clean after your last edit. When unsure which apply, run them all.
   `npx` passes as a one-off runner, prefer `pnpm dlx`).
 - ALWAYS use TypeScript: no `.js`/`.mjs`, erasable syntax only, no `class`, explicit
   `.ts`/`.mts` on relative imports (tsc `erasableSyntaxOnly` and ESLint; the escape
-  hatch for a dependency that demands a subclass is in [conventions](./docs/template/conventions.md)).
+  hatches for a dependency that demands a subclass or a JavaScript config are in
+  [conventions](./docs/template/conventions.md)).
 - ALWAYS write docs as portable markdown (`pnpm docs:portability`; rules in
   [markdown-portability](./docs/template/markdown-portability.md)).
 - ALWAYS write Conventional Commits with a lowercase subject of at most 50 characters
@@ -137,6 +143,10 @@ nested `AGENTS.md` directly.
      would repeat, add a one-line entry in the same PR; delete entries that stop
      being true. -->
 
+- Claude Code and Gemini CLI load project settings only from the directory
+  they start in: started below the repository root, the guards and writing
+  rules are off ([agent-surfaces](./docs/template/agent-surfaces.md#trust-and-registration)).
+  If this session did not start at the root, tell the user.
 - `pnpm docs:gen` mutates files; never run it inside a pre-commit hook.
 - automd swallows generator failures: it writes the error into the marker region
   as a comment, exits 0, and re-runs byte-identical, so the drift gate stays

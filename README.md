@@ -95,11 +95,13 @@ flowchart LR
    - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` in both links.
    - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact becomes yours.
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
-     Bash on Windows), `grep -rl '@repo/' --exclude-dir=node_modules .` lists
-     every file.
-3. **Agent tools.** Say yes to the trust prompts or the guards stay off:
-   Codex asks for the folder and then for each hook (`/hooks`); Gemini asks
-   to confirm the hooks; Claude Code asks for the folder. Details in
+     Bash on Windows),
+     `grep -rl '@repo/' --exclude-dir=node_modules --exclude-dir=.claude --exclude-dir=.agents .`
+     lists every file to change. It skips the synced skills, which name
+     `@repo/` only as the default.
+3. **Agent tools.** Start Claude Code and Gemini CLI at the repository root
+   and say yes to the trust prompts, or the guards stay off: each tool asks to
+   trust the folder, and Codex then asks for each hook (`/hooks`). Details in
    [agent-surfaces](./docs/template/agent-surfaces.md#trust-and-registration).
    If `main` is not your only protected branch, set `PROTECTED_BRANCHES` as
    [Push protection](./docs/template/guards.md#push-protection) in guards
@@ -167,7 +169,7 @@ pnpm install
 | `pnpm test:hooks` | Agent guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm test:docs` | Docs checker fixtures (a clean tree and a broken one, node only) |
-| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps |
+| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps; ESLint rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version |
 | `pnpm docs:gen` | Regenerate the decisions and specs indexes and the `.agents/skills` mirror |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |

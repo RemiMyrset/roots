@@ -45,3 +45,7 @@ a [reference][ref], an [anchor](./AGENTS.md#agent-rulebook), and a [self link](#
 a three-backtick fence inside a four-backtick fence
 ```
 ````
+
+| Centered | Left |
+| :---: | --- |
+| a | b |

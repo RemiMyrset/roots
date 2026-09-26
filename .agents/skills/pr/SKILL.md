@@ -6,9 +6,9 @@ description: Push the current feature branch and open a pull request. Verify fir
 # Open a pull request
 
 In Claude Code the push flow runs unattended: `git push` and the read-only
-`gh` commands are allow-listed (Gemini's `tools.allowed` covers the same set;
-Codex prompts for each), and the `deny-push-protected` guard keeps every push
-off a protected branch. What counts as protected, and what else the guard denies, is
+`gh` commands are allow-listed (Codex and Gemini prompt for each), and the
+`deny-push-protected` guard keeps every push off a protected branch. What
+counts as protected, and what else the guard denies, is
 under "Push protection" in `docs/template/guards.md`. Merging is a human
 decision; `gh pr merge` always prompts, and this skill never runs it.
 

@@ -98,17 +98,27 @@
       "Read(**/.kube/config)",
       "Read(**/.docker/config.json)",
       "Read(**/.pgpass)",
+      "Read(~/.ssh/id_*)",
+      "Read(~/.aws/credentials)",
+      "Read(~/.config/gh/hosts.yml)",
+      "Read(~/.git-credentials)",
+      "Read(~/.kube/config)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.pgpass)",
+      "Read(~/.netrc)",
+      "Read(~/_netrc)",
+      "Read(~/.npmrc)",
       "Bash(pnpm approve-builds:*)"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell",
+        "matcher": "Bash|PowerShell|Monitor",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.mts\""
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/dispatch.mts\""
           }
         ]
       }

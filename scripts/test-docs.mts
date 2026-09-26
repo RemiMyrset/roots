@@ -122,10 +122,14 @@ delete withoutCi[CI_KEY]
     'docs/template/contract.md: Source path `scripts/nope.mts` does not exist',
     'docs/template/contract.md: Tests path `scripts/test-nope.mts` does not exist',
     'docs/template/contract.md: "- **Last reviewed:** 2026-02-30" is not a real calendar date',
+    // A copy of the spec template that keeps its guidance comments, which mention "(pending)".
+    'docs/internal/specs/cli/template-copy.md: Source path `src/missing.ts` does not exist',
+    'docs/internal/specs/cli/template-copy.md: Tests path `test/missing.ts` does not exist',
     '.agents/skills/y/SKILL.md: missing — run `pnpm docs:gen` to mirror .claude/skills',
     '.agents/skills/x/SKILL.md: differs from .claude/skills/x/SKILL.md — never hand-edit the mirror',
     '.agents/skills/z/SKILL.md: has no source under .claude/skills — run `pnpm docs:gen` to remove it',
   ])
+  check('a "(pending)" inside a comment is not a pending bullet', !c.out.includes('template-copy.md: Source is (pending)') && !c.out.includes('template-copy.md: Tests is (pending)'), c.out)
 }
 
 // 3. The broken tree: every portability rule fires with file:line.
@@ -152,6 +156,9 @@ delete withoutCi[CI_KEY]
     'README.md:31  second H1 "Second H1" (first at line 4)',
     'README.md:33  callout type "[!tip]"',
     'README.md:38  duplicate heading "Title" (also line 36)',
+    'README.md:40  Vue interpolation',
+    'README.md:42  callout type "[!NOTE] Custom title"',
+    'README.md:45  callout type "[!NOTE]-"',
     'docs/internal/README.md  no H1',
     'docs/internal/README.md  README.md inside a site directory',
     'docs/index.md  index.md outside a site directory',
@@ -165,6 +172,13 @@ delete withoutCi[CI_KEY]
   writeFileSync(join(dir, 'docs/internal/indented.md'), '   # Indented\n\nText.\n')
   const p = run('docs:portability', dir, withoutCi)
   check('indented H1 passes', p.status === 0, p.out)
+
+  // A page written with CRLF endings (a Windows editor, before git normalizes it) reads the
+  // same: its H1 is found and a fragment into its own heading resolves.
+  const crlf = fixture('clean')
+  writeFileSync(join(crlf, 'docs/internal/crlf.md'), '# Title\r\n\r\nSee [below](#section).\r\n\r\n## Section\r\n')
+  const cr = run('docs:portability', crlf, withoutCi)
+  check('CRLF page passes docs:portability', cr.status === 0, cr.out)
 
   const d = new Date()
   const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`

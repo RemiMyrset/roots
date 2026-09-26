@@ -118,7 +118,7 @@ write(template, 'scripts/docs/check-docs.mts', '// check v1\n')
 write(template, 'scripts/sync-template.mts', `${REAL_SCRIPT}// t1\n`) // an older copy of the real script
 write(template, 'scripts/test-hooks.mts', '// hooks\n')
 write(template, '.claude/skills/x/SKILL.md', '# x\n')
-const settings = (deny: string[], hook: string): string => `${JSON.stringify({ permissions: { allow: ['Bash(git status:*)'], deny }, hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: hook }] }] } }, null, 2)}\n`
+const settings = (deny: string[], hook: string, matcher = 'Bash'): string => `${JSON.stringify({ permissions: { allow: ['Bash(git status:*)'], deny }, hooks: { PreToolUse: [{ matcher, hooks: [{ type: 'command', command: hook }] }] } }, null, 2)}\n`
 write(template, '.claude/settings.json', settings(['Read(**/.env)'], 'node hooks.mts'))
 write(template, '.github/workflows/ci.yml', 'ci v1\n')
 write(template, '.github/workflows/docs.yml', 'v1\n')

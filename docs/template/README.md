@@ -19,9 +19,10 @@ of the template shares.
   each read the rulebook, guards, skills, and writing rules.
 
 `pnpm sync:template` pulls the template's version of this folder like any other
-mechanic. Do not add or edit files here; extend `AGENTS.md` or `docs/internal/`
-instead. `exclude` in `.template-sync.json` takes whole synced paths, so this
-folder can only be excluded as a unit (`docs/template`), never one page of it.
+mechanic. In a child, do not add or edit files here; extend `AGENTS.md` or
+`docs/internal/` instead. `exclude` in `.template-sync.json` takes whole synced
+paths, so this folder can only be excluded as a unit (`docs/template`), never
+one page of it.
 
 Neither VitePress site renders this folder; it is read on GitHub and in
 Obsidian. Pages inside the internal site name these files as paths, because

@@ -39,6 +39,10 @@ const PATH_CHARS_RE = /^[\w@./-]+$/
 const EXTENSION_RE = /\.\w+$/
 const REVIEWED_BULLET_RE = /^- \*\*Last reviewed:\*\*\s*(\d{4}-\d{2}-\d{2})/m
 const SOURCE_BULLET_RE = /^- \*\*Source:\*\*/m
+// An HTML comment on a bullet line, closed or running past it: the spec template's guidance
+// comments mention "(pending)", and a copy that keeps them must still have its paths checked.
+const LINE_COMMENT_RE = /<!--.*?(?:-->|$)/g
+const PENDING = '(pending)'
 const CRLF_RE = /\r\n/g
 
 const root = repoRoot()
@@ -69,11 +73,14 @@ function checkSpecPage(where: string, raw: string): void {
       errors.push(`${where}: missing "- **${bullet}:** ..." bullet`)
       continue
     }
-    if (line.includes('(pending)')) {
+    // The visible value, comments dropped. It is pending only when it says so up front; a
+    // path followed by the word is still checked.
+    const value = line.replace(LINE_COMMENT_RE, '').trim()
+    if (value.startsWith(PENDING)) {
       warnings.push(`${where}: ${bullet} is (pending) — fill it when the code lands`)
       continue
     }
-    for (const [, p] of line.matchAll(BACKTICK_PATH_RE)) {
+    for (const [, p] of value.matchAll(BACKTICK_PATH_RE)) {
       // A Source/Tests line may cite a test name beside its path, e.g. `src/foo.ts` (`add`).
       // Only a path-shaped token is existence-checked: path characters throughout, and
       // either a `/` or an extension; a bare identifier is a name, not a path.

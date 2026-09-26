@@ -1,7 +1,7 @@
 # Publishes docs/public to GitHub Pages — the standard way to host the public site.
-# Builds on every push to main that touches the site (the build is a useful check on
-# its own) and deploys only when Pages is enabled for the repository: Settings →
-# Pages → Source: GitHub Actions, or
+# Builds on every pull request and every push to main that touches the site, so a broken
+# build or action pin shows before merge. Deploys only from main, and only when Pages is
+# enabled for the repository: Settings → Pages → Source: GitHub Actions, or
 #   gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow
 # A repository that never enables Pages sees a green run whose notice says "the
 # site was built but not deployed". Recipe: docs/template/docs-toolchain.md,
@@ -19,13 +19,20 @@ on:
       - package.json
       - pnpm-lock.yaml
       - .github/workflows/pages.yml
+  pull_request:
+    paths:
+      - docs/public/**
+      - docs/.shared/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/pages.yml
   workflow_dispatch:
 
 # One deploy at a time, never cancelled mid-flight: a cancelled Pages deploy can
-# leave the site half-published.
+# leave the site half-published. Any other ref only builds, so a newer run replaces it.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Least privilege per job: the build only reads the Pages settings; only the deploy writes.
 permissions:
@@ -43,6 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0 # full history: lastUpdated dates each page and the sitemap from git log
           persist-credentials: false
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6
@@ -54,21 +62,26 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Only a 404 means "not enabled"; any other API failure fails the run, so an outage
+      # never skips a deploy behind a green run and a misleading notice.
       - name: Is GitHub Pages enabled for this repository?
         id: pages-enabled
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh api "repos/${GITHUB_REPOSITORY}/pages" > /dev/null 2>&1; then
+          if err=$(gh api "repos/${GITHUB_REPOSITORY}/pages" 2>&1 > /dev/null); then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            case "$err" in
+              *"(HTTP 404)"*) echo "enabled=false" >> "$GITHUB_OUTPUT" ;;
+              *) echo "::error::Could not tell whether GitHub Pages is enabled: $err"; exit 1 ;;
+            esac
           fi
 
       - name: Resolve the Pages URL
         if: steps.pages-enabled.outputs.enabled == 'true'
         id: pages
-        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Build the public site
         env:
@@ -79,9 +92,11 @@ jobs:
           DOCS_BASE: ${{ steps.pages.outputs.base_path }}
         run: pnpm docs:public:build
 
+      # Required SHA pinning also covers the actions a composite action calls: v3 called
+      # upload-artifact by tag and failed at job setup. Check a bump's own action.yml.
       - name: Upload the site
         if: steps.pages-enabled.outputs.enabled == 'true'
-        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: docs/public/.vitepress/dist
 
@@ -92,7 +107,8 @@ jobs:
 
   deploy:
     needs: build
-    if: needs.build.outputs.enabled == 'true'
+    # A pull request, or a dispatch from another branch, stops at the build.
+    if: needs.build.outputs.enabled == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -104,7 +120,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
       - name: Summary
         env:
