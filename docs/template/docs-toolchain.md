@@ -36,13 +36,14 @@ Template sync has its own recipe in [sync-template](./sync-template.md#recipe).
 
 ### Publish the public site on GitHub Pages
 
-`.github/workflows/pages.yml` is the standard, and it is synced. On a push to
-`main` that touches `docs/public/`, `docs/.shared/`, `package.json`, the
-lockfile, or the workflow file itself (and on manual dispatch) it builds the
-public site, and when GitHub Pages is enabled for the repository it also
-deploys it. Until then the run is green and says "the site was built but not
-deployed", so a repository that never wants a public site pays nothing and
-sees no red.
+`.github/workflows/pages.yml` is the standard, and it is synced. On a pull
+request or a push to `main` that touches `docs/public/`, `docs/.shared/`,
+`package.json`, the lockfile, or the workflow file itself (and on manual
+dispatch) it builds the public site. On `main`, when GitHub Pages is enabled
+for the repository, it also deploys it; a pull request only builds, so a
+broken build or action pin shows before merge. Until Pages is enabled the run
+is green and says "the site was built but not deployed", so a repository that
+never wants a public site pays nothing and sees no red.
 
 Enable it once, either under Settings → Pages → Build and deployment → Source:
 GitHub Actions, or:

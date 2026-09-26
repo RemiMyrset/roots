@@ -1,7 +1,7 @@
 # Publishes docs/public to GitHub Pages — the standard way to host the public site.
-# Builds on every push to main that touches the site (the build is a useful check on
-# its own) and deploys only when Pages is enabled for the repository: Settings →
-# Pages → Source: GitHub Actions, or
+# Builds on every pull request and every push to main that touches the site, so a broken
+# build or action pin shows before merge. Deploys only from main, and only when Pages is
+# enabled for the repository: Settings → Pages → Source: GitHub Actions, or
 #   gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow
 # A repository that never enables Pages sees a green run whose notice says "the
 # site was built but not deployed". Recipe: docs/template/docs-toolchain.md,
@@ -19,13 +19,20 @@ on:
       - package.json
       - pnpm-lock.yaml
       - .github/workflows/pages.yml
+  pull_request:
+    paths:
+      - docs/public/**
+      - docs/.shared/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/pages.yml
   workflow_dispatch:
 
 # One deploy at a time, never cancelled mid-flight: a cancelled Pages deploy can
-# leave the site half-published.
+# leave the site half-published. Any other ref only builds, so a newer run replaces it.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # Least privilege per job: the build only reads the Pages settings; only the deploy writes.
 permissions:
@@ -94,7 +101,8 @@ jobs:
 
   deploy:
     needs: build
-    if: needs.build.outputs.enabled == 'true'
+    # A pull request, or a dispatch from another branch, stops at the build.
+    if: needs.build.outputs.enabled == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
