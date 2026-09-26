@@ -1,4 +1,6 @@
 node_modules/
+# pnpm's fallback store when the checkout is its own mount (a devcontainer without its store env)
+.pnpm-store/
 dist/
 .turbo/
 coverage/
