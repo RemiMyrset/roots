@@ -300,15 +300,19 @@ stderr.
     `outputStyle` when this repository sets none, and so is every template
     hook registration (event, matcher, command) absent here. It is "differs"
     when it replaced a registration here that the template head lacks, and
-    each such registration gets a `yours:` line. One running the same command
-    for the same event was replaced by it (a changed matcher). One the
-    template shipped at the sync point was replaced by the template's new
-    registrations for that event with its command, else its matcher, else all
-    of them. Otherwise it is "missing here". The repository's own rules and
-    hooks are never listed, even beside the template's under the same
-    matcher; a hook of its own registered ahead of the template's is no
-    difference, the file is never edited, and a missing or unreadable file
-    skips the block with a reason. Script follow-ups compare only the
+    each such registration gets a `yours:` line. A registration here that any
+    version of the template's file held (in the template's history or at the
+    sync point) is the template's, however far it lags the sync point: it was
+    replaced by the template's new registrations for that event with its
+    command (a changed matcher), else its matcher (a changed command), else
+    all of them. One that no version held is the repository's own; it was
+    replaced by those running its command (an edited matcher) only when it is
+    the one registration here for that event running that command.
+    Otherwise it is "missing here". The repository's own rules and hooks are
+    otherwise never listed, even beside the template's under the same matcher
+    or running the same command; a hook of its own registered ahead of the
+    template's is no difference, the file is never edited, and a missing or
+    unreadable file skips the block with a reason. Script follow-ups compare only the
     template's `scripts` keys, in template order. A
     key absent here is "missing here", unless the template at the baseline
     already had it, in which case it is listed as customized, "absent here"; a

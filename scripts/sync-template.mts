@@ -165,6 +165,35 @@ function short(sha: string): string {
   return sha.slice(0, 7)
 }
 
+/**
+ * Every version (blob id) of every file under `paths` in the history of `revs`, by file. Both
+ * sides of each change count and a merge is diffed against each parent, so a version that only a
+ * merge wrote counts too.
+ */
+function versionsAt(revs: string[], paths: string[]): Map<string, Set<string>> {
+  const versions = new Map<string, Set<string>>()
+  if (paths.length === 0)
+    return versions
+  const parts = zList(tryGit(['log', '--format=', '--raw', '-z', '--no-abbrev', '--no-renames', '--full-history', '-m', ...revs, '--', ...paths]))
+  for (let i = 0; i < parts.length; i++) {
+    const meta = parts[i] ?? ''
+    if (!meta.startsWith(':'))
+      continue
+    const file = parts[++i] ?? ''
+    const [, , from = '', to = ''] = meta.split(' ')
+    let set = versions.get(file)
+    if (!set) {
+      set = new Set()
+      versions.set(file, set)
+    }
+    for (const blob of [from, to]) {
+      if (/^[0-9a-f]+$/.test(blob) && !/^0+$/.test(blob))
+        set.add(blob)
+    }
+  }
+  return versions
+}
+
 function fail(message: string): never {
   console.error(`✖ ${message}`)
   process.exit(1)
@@ -556,12 +585,13 @@ interface SettingsFollowUps {
 /**
  * Compare of .claude/settings.json, which is never synced: template allow and deny rules
  * absent here, the template's output style when this repository sets none, and every
- * template hook registration (event, matcher, command) absent here. A registration here is
- * paired with one it was replaced by only when it runs the same command, or when the
- * template shipped it at the sync point (`base`) and has since dropped it. A child's own
- * rules and hooks are never mentioned, and the file is never edited.
+ * template hook registration (event, matcher, command) absent here. `shipped` is every
+ * registration any version of the template's file held. A registration here that the
+ * template shipped and has since dropped is paired with its replacement; one it never shipped
+ * is the repository's own, paired only as an edited matcher of the template's command. A
+ * child's own rules and hooks are never mentioned, and the file is never edited.
  */
-function settingsFollowUps(template: SettingsShape | undefined, base: SettingsShape | undefined, local: SettingsShape | undefined, localMissing: boolean): SettingsFollowUps {
+function settingsFollowUps(template: SettingsShape | undefined, shipped: Hook[], local: SettingsShape | undefined, localMissing: boolean): SettingsFollowUps {
   if (localMissing)
     return { missing: [], hooks: [], skipped: 'no .claude/settings.json here' }
   if (!template)
@@ -574,14 +604,19 @@ function settingsFollowUps(template: SettingsShape | undefined, base: SettingsSh
     ...(template.outputStyle !== undefined && local.outputStyle === undefined ? [`outputStyle ${template.outputStyle}`] : []),
   ]
   const same = (a: Hook, b: Hook): boolean => a.event === b.event && a.matcher === b.matcher && a.command === b.command
+  const fromTemplate = (h: Hook): boolean => template.hooks.some(t => same(t, h)) || shipped.some(s => same(s, h))
   const absent = template.hooks.filter(t => !local.hooks.some(l => same(t, l)))
-  // What a registration here was replaced by: the template's registrations absent here with
-  // its command (a changed matcher); for one the template dropped since the sync point, else
-  // those with its matcher (a changed command), else every one for its event.
+  // What a registration here was replaced by. One the template shipped at any point and has
+  // since dropped: the template's registrations absent here with its command (a changed
+  // matcher), else with its matcher (a changed command), else every one for its event. One it
+  // never shipped is the repository's own, or its edit of the template's matcher: paired with
+  // those running its command only when it is the one registration here that runs it.
   const replacedBy = (l: Hook): Hook[] => {
     const inEvent = absent.filter(t => t.event === l.event)
     const byCommand = inEvent.filter(t => t.command === l.command)
-    if (byCommand.length > 0 || !base?.hooks.some(b => same(b, l)))
+    if (!fromTemplate(l))
+      return local.hooks.filter(o => o.event === l.event && o.command === l.command).length === 1 ? byCommand : []
+    if (byCommand.length > 0)
       return byCommand
     const byMatcher = inEvent.filter(t => t.matcher === l.matcher)
     return byMatcher.length > 0 ? byMatcher : inEvent
@@ -668,6 +703,9 @@ const base = baseline?.commit ?? recorded
 const baseInHistory = baseline !== undefined || (recorded !== undefined && tryGit(['merge-base', '--is-ancestor', recorded, head]) !== null)
 const behind = recorded !== undefined && !baseInHistory && tryGit(['merge-base', '--is-ancestor', head, recorded]) !== null
 const since = recorded === undefined ? 'the baseline' : 'last sync'
+// The template history that says what it shipped: the head's, and the sync point's when git has
+// it and it is off that history (a sync back to an older ref, or a switch to another one).
+const historyRevs = base !== undefined && base !== head && !recordedLost ? [head, base] : [head]
 
 // Take the template's version of every synced path it still ships, then stage removals
 // for tracked files under those paths that the template retired — a file inside a path
@@ -730,10 +768,14 @@ const followUps = scriptFollowUps(
   deleted,
 )
 
+// Every hook registration the template shipped, from every version of its settings file in
+// its history and the sync point's: a registration here that lags the sync point is still the
+// template's, and one in no version is the repository's own.
 const SETTINGS = '.claude/settings.json'
+const settingsVersions = versionsAt(historyRevs, [SETTINGS]).get(SETTINGS) ?? new Set<string>()
 const settings = settingsFollowUps(
   settingsOf(tryGit(['show', `${head}:${SETTINGS}`])),
-  base !== undefined ? settingsOf(tryGit(['show', `${base}:${SETTINGS}`])) : undefined,
+  [...settingsVersions].flatMap(blob => settingsOf(tryGit(['cat-file', 'blob', blob]))?.hooks ?? []),
   existsSync(SETTINGS) ? settingsOf(readFileSync(SETTINGS, 'utf8')) : undefined,
   !existsSync(SETTINGS),
 )

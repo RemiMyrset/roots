@@ -710,6 +710,44 @@ function bootstrapWithFilter(name: string, pattern: string): string {
     check(`lost sync point lists ${file} as kept`, kept.includes(`  ${file}`), r.stdout)
 }
 
+// 23. A hook registration is the template's when any version of its settings held it, so one
+// here that lags the sync point (a follow-up never applied) still pairs with its replacement,
+// here after the template renames the hook file. The repository's own registration of the
+// template's command, beside the template's, is never paired.
+{
+  const hooksTemplate = join(tmp, 'hooks-template')
+  mkdirSync(hooksTemplate)
+  git(hooksTemplate, 'init', '-q', '-b', 'main')
+  const DISPATCH = 'node .claude/hooks/dispatch.mts'
+  const hookSettings = (...entries: [string, string][]): string => json({ hooks: { PreToolUse: entries.map(([matcher, command]) => ({ matcher, hooks: [{ type: 'command', command }] })) } })
+  write(hooksTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(hooksTemplate, '.claude/hooks/dispatch.mts', '// dispatch\n')
+  write(hooksTemplate, '.claude/settings.json', hookSettings(['Bash', DISPATCH]))
+  commit(hooksTemplate, 'chore: t1', T1_AT)
+  const kid = join(tmp, 'hooks-child')
+  copyTree(hooksTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  commit(kid, 'Initial commit', COPY_AT)
+  write(kid, '.claude/settings.json', hookSettings(['Bash', DISPATCH], ['mcp__devbox__exec', DISPATCH]))
+  commit(kid, 'feat: guard the devbox tool too')
+  write(hooksTemplate, '.claude/settings.json', hookSettings(['Bash|PowerShell', DISPATCH]))
+  commit(hooksTemplate, 'fix(hooks): guard powershell', T2_AT)
+  const widened = run(kid, pathToFileURL(hooksTemplate).href)
+  check('widened matcher exits 0', widened.status === 0, widened.detail)
+  check('widened matcher pairs only the template\'s registration', widened.stdout.includes(`  hooks.PreToolUse  differs\n    template: matcher Bash|PowerShell, command ${DISPATCH}\n    yours:    matcher Bash, command ${DISPATCH}\n\n`), widened.stdout)
+  check('own registration of the template\'s command never listed', !widened.stdout.includes('mcp__devbox__exec'), widened.stdout)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  git(hooksTemplate, 'mv', '.claude/hooks/dispatch.mts', '.claude/hooks/guard.mts')
+  write(hooksTemplate, '.claude/settings.json', hookSettings(['Bash|PowerShell', 'node .claude/hooks/guard.mts']))
+  commit(hooksTemplate, 'refactor(hooks): rename dispatch to guard', T3_AT)
+  const renamed = run(kid)
+  check('renamed hook exits 0', renamed.status === 0, renamed.detail)
+  const s = staged(kid)
+  check('renamed hook file staged as a deletion and an addition', s.includes('D .claude/hooks/dispatch.mts') && s.includes('A .claude/hooks/guard.mts'), s.join(', '))
+  check('registration older than the sync point pairs with its replacement', renamed.stdout.includes(`  hooks.PreToolUse  differs\n    template: matcher Bash|PowerShell, command node .claude/hooks/guard.mts\n    yours:    matcher Bash, command ${DISPATCH}\n\n`), renamed.stdout)
+  check('own registration still never listed', !renamed.stdout.includes('mcp__devbox__exec'), renamed.stdout)
+}
+
 if (fails.length > 0) {
   console.error(`\n✖ sync fixtures — ${fails.length} of ${checks} checks failed:\n`)
   for (const f of fails)
