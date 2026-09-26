@@ -63,7 +63,10 @@ The workflow asks `actions/configure-pages` for the base path and URL and hands
 them to the build as `DOCS_BASE` and `DOCS_URL`, which
 `docs/public/.vitepress/config.ts` turns into VitePress `base`, a
 `sitemap.xml`, and absolute links in `llms.txt`. Local builds leave both unset
-and keep relative links.
+and keep relative links. The build checks out full history, because each
+page's "Last updated" date and its sitemap `lastmod` come from `git log`; a
+shallow clone stamps every page with the deploy commit's date, and
+`pnpm test:gates` refuses one.
 
 The public build emits `/llms.txt`, the [llms.txt](https://llmstxt.org/)
 standard that crawlers and agents fetch first, plus a clean markdown copy of
