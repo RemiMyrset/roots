@@ -72,20 +72,16 @@ function run(cwd: string, ...args: string[]): Run {
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', detail }
 }
 
-/** `git diff --cached --name-status` as "X path" lines (rename entries collapse to their destination). */
+/** `git diff --cached --name-status` as "X path" lines, renames split into a deletion and an addition as the report prints them. */
 function staged(cwd: string): string[] {
-  const parts = gitSafe(cwd, 'diff', '--cached', '--name-status', '-z').split('\0').filter(Boolean)
+  const parts = gitSafe(cwd, 'diff', '--cached', '--no-renames', '--name-status', '-z').split('\0').filter(Boolean)
   const lines: string[] = []
-  for (let i = 0; i < parts.length; i += 2) {
-    const status = (parts[i] ?? '').slice(0, 1)
-    if (status === 'R' || status === 'C')
-      i++
-    lines.push(`${status} ${parts[i + 1] ?? ''}`)
-  }
+  for (let i = 0; i < parts.length; i += 2)
+    lines.push(`${(parts[i] ?? '').slice(0, 1)} ${parts[i + 1] ?? ''}`)
   return lines
 }
 
-interface State { url?: string, ref?: string, commit?: string }
+interface State { url?: string, ref?: string, commit?: string, exclude?: unknown, include?: unknown }
 function readState(cwd: string): State {
   try {
     return JSON.parse(readFileSync(join(cwd, STATE), 'utf8')) as State
@@ -107,7 +103,8 @@ function check(name: string, ok: boolean, detail = ''): void {
 const template = join(tmp, 'template')
 mkdirSync(template)
 git(template, 'init', '-q', '-b', 'main')
-const pkg = (scripts: Record<string, string>): string => `${JSON.stringify({ name: 'fixture', scripts }, null, 2)}\n`
+const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`
+const pkg = (scripts: Record<string, string>): string => json({ name: 'fixture', scripts })
 const T1_SCRIPTS = {
   'docs:gen': 'automd && node scripts/docs/gen-llms.mts',
   'docs:check': 'node scripts/docs/check-docs.mts',
@@ -129,17 +126,25 @@ write(template, '.codex/hooks.json', '{}\n')
 write(template, '.gemini/settings.json', '{}\n')
 write(template, '.claude/output-styles/writing.md', '---\nname: writing\n---\nrules v1\n')
 write(template, 'docs/template/x.md', '# x v1\n')
+write(template, 'docs/template/x[1].md', '# retired at T2; as a glob it also matches x1.md\n')
 write(template, 'src/index.ts', 'export const v = 1\n')
 const T1 = commit(template, 'chore: t1', T1_AT)
 git(template, 'tag', 'v9.9.9')
 
 // Consumers made from T1 with no git history in common, dated after T1 and before T2:
-// `child` customizes package.json (so only the root-time inference can place it),
+// `child` customizes package.json (so only the root-time inference can place it) and adds
+// files of its own: a skill under a synced directory, a page the glob `x[1].md` matches,
+// a directory an `include` names, and configs the glob `*.config.ts` matches.
 // `copy` is pristine (its root tree equals T1's tree exactly).
 const child = join(tmp, 'child')
 copyTree(template, child)
 git(child, 'init', '-q', '-b', 'main')
 write(child, 'package.json', pkg({ ...T1_SCRIPTS, lint: 'eslint .', dev: 'vite' }))
+write(child, '.claude/skills/own/SKILL.md', '# own\n')
+write(child, 'docs/template/x1.md', '# own page\n')
+write(child, 'config/lint.json', '{}\n')
+write(child, 'eslint.config.ts', 'export default []\n')
+write(child, 'packages/a/vitest.config.ts', 'export default {}\n')
 commit(child, 'chore: init', COPY_AT)
 const copy = join(tmp, 'copy')
 copyTree(template, copy)
@@ -149,6 +154,7 @@ commit(copy, 'Initial commit', COPY_AT)
 // T2: the motivating case — a mechanic is deleted and the script that called it changes;
 // the agent-skills copy and the CI workflow change too.
 rmSync(join(template, 'scripts/docs/gen-llms.mts'))
+rmSync(join(template, 'docs/template/x[1].md'))
 const T2_SCRIPTS = { ...T1_SCRIPTS, 'docs:gen': 'automd', 'test:sync': 'node scripts/test-sync.mts' }
 write(template, 'package.json', pkg(T2_SCRIPTS))
 write(template, 'scripts/test-sync.mts', '// test\n')
@@ -167,6 +173,7 @@ const fork = join(tmp, 'fork')
 git(tmp, 'clone', '-q', template, fork)
 git(fork, 'remote', 'set-url', 'origin', 'file:///example/fork')
 write(fork, 'src/app.ts', 'export const app = true\n')
+write(fork, '.claude/skills/fork-own/SKILL.md', '# fork own\n')
 commit(fork, 'feat: own work')
 
 // 1. Not a git repository.
@@ -187,10 +194,10 @@ commit(fork, 'feat: own work')
   check('one commit since the baseline', r.stdout.includes('1 commit since the baseline'))
   check('breaking commit marked on first sync', r.stdout.includes('! ') && r.stdout.includes('refactor(docs)!: drop gen-llms'))
   const s = staged(child)
-  for (const want of ['M .github/workflows/ci.yml', 'M .github/workflows/docs.yml', 'D scripts/docs/gen-llms.mts', 'A scripts/test-sync.mts', 'M scripts/sync-template.mts', 'M docs/template/x.md', 'A .agents/skills/x/SKILL.md', `A ${STATE}`])
+  for (const want of ['M .github/workflows/ci.yml', 'M .github/workflows/docs.yml', 'D scripts/docs/gen-llms.mts', 'D docs/template/x[1].md', 'A scripts/test-sync.mts', 'M scripts/sync-template.mts', 'M docs/template/x.md', 'A .agents/skills/x/SKILL.md', `A ${STATE}`])
     check(`first sync stages ${want}`, s.includes(want), s.join(', '))
-  for (const never of ['src/index.ts', 'package.json'])
-    check(`first sync leaves ${never} alone`, !s.some(l => l.endsWith(never)), s.join(', '))
+  for (const never of ['src/index.ts', 'package.json', '.claude/skills/own/SKILL.md', 'docs/template/x1.md'])
+    check(`first sync leaves ${never} alone`, !s.some(l => l.endsWith(never)) && existsSync(join(child, never)), s.join(', '))
   check('agent skills copy is a plain file', existsSync(join(child, '.agents/skills/x/SKILL.md')) && gitSafe(child, 'ls-files', '-s', '--', '.agents/skills/x/SKILL.md').startsWith('100644'))
   check('self-update is annotated', r.stdout.includes('new version runs next time'))
   const st = readState(child)
@@ -249,28 +256,36 @@ commit(fork, 'feat: own work')
 }
 
 // 4. A breaking template commit since the last sync; a template page is renamed, so the
-// staged rename is reported by its destination.
+// old page is retired and reported as a deletion beside the addition. The child's own
+// agent files under synced directories, added after the last sync, stay.
 git(template, 'mv', 'docs/template/x.md', 'docs/template/y.md')
 write(template, 'scripts/docs/check-docs.mts', '// check v2\n')
 write(template, 'package.json', pkg({ ...T2_SCRIPTS, 'docs:check': 'node scripts/docs/check-docs.mts --strict' }))
 write(template, '.github/labels.yml', 'labels\n')
 write(template, '.claude/settings.json', settings(['Read(**/.env)', 'Read(**/.pgpass)'], 'node hooks.mts --strict'))
 const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: docs:check now fails on stale review dates.\n', T3_AT)
+const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.claude/rules/api.md', '.claude/hooks/deny-prod-db.mts', 'docs/template/x1.md']
 {
+  write(child, '.agents/skills/own/SKILL.md', '# own\n')
+  write(child, '.claude/rules/api.md', '# api rule\n')
+  write(child, '.claude/hooks/deny-prod-db.mts', '// own guard\n')
+  commit(child, 'feat: own agent files')
   const r = run(child)
   check('commits-since exits 0', r.status === 0, r.detail)
   check('commits-since counts one', r.stdout.includes('1 commit since last sync'))
   check('breaking commit marked', r.stdout.includes('! ') && r.stdout.includes('feat(docs)!: strict docs:check'))
   check('breaking paragraph printed', r.stdout.includes('BREAKING CHANGE: docs:check now fails on stale review dates.'))
   const s = staged(child)
-  for (const want of ['A .github/labels.yml', 'M scripts/docs/check-docs.mts', 'R docs/template/y.md', `M ${STATE}`])
+  for (const want of ['A .github/labels.yml', 'M scripts/docs/check-docs.mts', 'D docs/template/x.md', 'A docs/template/y.md', `M ${STATE}`])
     check(`commits-since stages ${want}`, s.includes(want), s.join(', '))
-  check('rename reported by its destination', r.stdout.includes('  R  docs/template/y.md') && !r.stdout.includes('  R  docs/template/x.md'), r.stdout)
+  check('rename reported as a deletion and an addition', r.stdout.includes('  D  docs/template/x.md') && r.stdout.includes('  A  docs/template/y.md'), r.stdout)
+  for (const own of OWN)
+    check(`own file kept: ${own}`, !s.some(l => l.endsWith(own)) && existsSync(join(child, own)), s.join(', '))
   check('state advances to T3', readState(child).commit === T3)
   check('three-way mode names the upstream change', r.stdout.includes('scripts.docs:check  changed on the template since last sync'))
   check('missing deny rule listed', r.stdout.includes('permissions.deny Read(**/.pgpass)  missing here'), r.stdout)
   check('present rules not listed', !r.stdout.includes('Read(**/.env)') && !r.stdout.includes('Bash(git status:*)'), r.stdout)
-  check('changed hook command listed', r.stdout.includes('hooks.PreToolUse command  differs') && r.stdout.includes('template: node hooks.mts --strict') && r.stdout.includes('yours:    node hooks.mts'), r.stdout)
+  check('changed hook command listed', r.stdout.includes('hooks.PreToolUse  differs') && r.stdout.includes('template: matcher Bash, command node hooks.mts --strict') && r.stdout.includes('yours:    matcher Bash, command node hooks.mts\n'), r.stdout)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
@@ -284,6 +299,7 @@ const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: 
   for (const want of ['A .github/labels.yml', 'M scripts/docs/check-docs.mts', `A ${STATE}`])
     check(`fork stages ${want}`, s.includes(want), s.join(', '))
   check('fork keeps its own file', !s.some(l => l.endsWith('src/app.ts')) && existsSync(join(fork, 'src/app.ts')))
+  check('fork keeps its own skill', !s.some(l => l.endsWith('.claude/skills/fork-own/SKILL.md')) && existsSync(join(fork, '.claude/skills/fork-own/SKILL.md')), s.join(', '))
 }
 
 // 5. Lost baseline: the recorded commit is not in the template's history.
@@ -297,15 +313,69 @@ const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: 
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
-// 6. Corrupt state file.
-{
-  write(child, STATE, '{not json\n')
-  commit(child, 'chore: corrupt state')
+// 6. An invalid state file fails before anything is fetched or staged, so a hand-edit
+// typo cannot silently drop the url or the lists; only an invalid commit is a first sync.
+const VALID = { url: URL, commit: T3 }
+function refused(name: string, body: string, why: string): void {
+  write(child, STATE, body)
+  commit(child, `chore: ${name}`)
   const r = run(child)
-  check('corrupt state exits 0', r.status === 0, r.detail)
-  check('corrupt state warned', r.stderr.includes('unreadable'))
-  check('corrupt state rewritten', readState(child).commit === T3)
+  check(`${name} exits 1`, r.status === 1, r.detail)
+  check(`${name} names the problem`, r.stderr.startsWith(`✖ ${STATE} is invalid`) && r.stderr.includes(why), r.stderr)
+  check(`${name} stages nothing`, staged(child).length === 0, staged(child).join(', '))
+  check(`${name} leaves the state alone`, existsSync(join(child, STATE)) && readFileSync(join(child, STATE), 'utf8') === body)
+  gitSafe(child, 'reset', '-q', '--hard')
+}
+refused('corrupt state', '{not json\n', 'not valid JSON')
+refused('string exclude', json({ ...VALID, exclude: '.github/workflows/docs.yml' }), '"exclude"')
+refused('glob include', json({ ...VALID, include: ['*.config.ts'] }), '*.config.ts')
+check('glob include deletes nothing', existsSync(join(child, 'eslint.config.ts')) && existsSync(join(child, 'packages/a/vitest.config.ts')))
+refused('dot include', json({ ...VALID, include: ['.'] }), '"."')
+refused('parent include', json({ ...VALID, include: ['../x'] }), '"../x"')
+refused('magic exclude', json({ ...VALID, exclude: [':(glob)**'] }), ':(glob)**')
+refused('invalid url', json({ ...VALID, url: 'not a url' }), '"url"')
+refused('invalid ref', json({ ...VALID, ref: '-x' }), '"ref"')
+
+// 6b. A byte-order mark (Windows editors write one) is not an error in the state file,
+// package.json, or .claude/settings.json.
+{
+  const BOM = '\uFEFF'
+  const pkgText = readFileSync(join(child, 'package.json'), 'utf8')
+  const settingsText = readFileSync(join(child, '.claude/settings.json'), 'utf8')
+  write(child, STATE, `${BOM}${json(VALID)}`)
+  write(child, 'package.json', `${BOM}${pkgText}`)
+  write(child, '.claude/settings.json', `${BOM}${settingsText}`)
+  commit(child, 'chore: byte-order marks')
+  const r = run(child)
+  check('byte-order mark exits 0 without a warning', r.status === 0 && r.stderr === '', r.detail)
+  check('byte-order mark state is read', r.stdout.includes('unchanged since last sync') && staged(child).length === 0, r.stdout)
+  check('byte-order mark package.json and settings are read', !r.stdout.includes('not valid JSON'), r.stdout)
+  write(child, STATE, json(VALID))
+  write(child, 'package.json', pkgText)
+  write(child, '.claude/settings.json', settingsText)
+  commit(child, 'chore: drop byte-order marks')
+}
+
+// 6c. An invalid commit alone is a first sync that keeps the url and both lists; an
+// exclude entry that names no synced path is warned about.
+{
+  write(child, '.gemini/settings.json', '{ "own": true }\n')
+  write(child, STATE, json({ url: URL, commit: 'nope', exclude: ['.gemini/settings.json', '.claude/skills/x'], include: ['config'] }))
+  commit(child, 'chore: invalid commit')
+  const r = run(child)
+  check('invalid commit exits 0', r.status === 0, r.detail)
+  check('invalid commit warned', r.stderr.includes('"commit"') && r.stderr.includes('first sync'), r.stderr)
+  check('invalid commit is a first sync', r.stdout.includes('first sync'), r.stdout)
+  check('invalid commit keeps the exclusion', !staged(child).some(l => l.endsWith('.gemini/settings.json')) && readFileSync(join(child, '.gemini/settings.json'), 'utf8').includes('own'), staged(child).join(', '))
+  check('included path the template never shipped is kept', existsSync(join(child, 'config/lint.json')) && !staged(child).some(l => l.endsWith('config/lint.json')), staged(child).join(', '))
+  check('unmatched exclude warned', r.stderr.includes('".claude/skills/x"') && r.stderr.includes('matches no synced path'), r.stderr)
+  const st = readState(child)
+  check('invalid commit keeps the lists', JSON.stringify(st.exclude) === '[".gemini/settings.json",".claude/skills/x"]' && JSON.stringify(st.include) === '["config"]', JSON.stringify(st))
+  check('invalid commit records the head', st.commit === T3, st.commit ?? 'none')
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(child, '.gemini/settings.json', '{}\n')
+  write(child, STATE, json(VALID))
+  commit(child, 'chore: back to the plain state')
 }
 
 // 7. Dirty synced path refused, before any remote or fetch happens.
@@ -347,6 +417,7 @@ const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: 
   const r = run(child, 'file:///nonexistent/roots')
   check('bad url exits 1', r.status === 1, `status ${r.status}`)
   check('bad url explained', r.stderr.includes('Could not fetch'))
+  check('bad url carries git\'s reason', r.stderr.includes('git: fatal:'), r.stderr)
   check('bad url leaves state alone', readState(child).url === URL)
 }
 
@@ -369,7 +440,7 @@ write(template, '.github/workflows/docs.yml', 'v3\n')
 write(template, 'turbo.json', '{}\n')
 const T4 = commit(template, 'chore: turbo', T4_AT)
 {
-  write(child, STATE, `${JSON.stringify({ url: URL, commit: T3, exclude: ['.github/workflows/docs.yml'], include: ['turbo.json'] }, null, 2)}\n`)
+  write(child, STATE, json({ url: URL, commit: T3, exclude: ['.github/workflows/docs.yml'], include: ['turbo.json', 'config'] }))
   commit(child, 'chore: exclude and include')
   gitSafe(child, 'remote', 'remove', 'template')
   const r = run(child)
@@ -377,9 +448,29 @@ const T4 = commit(template, 'chore: turbo', T4_AT)
   const s = staged(child)
   check('excluded path not staged', !s.includes('M .github/workflows/docs.yml'), s.join(', '))
   check('included path staged', s.includes('A turbo.json'), s.join(', '))
+  check('included path the template never shipped is kept', !s.some(l => l.endsWith('config/lint.json')) && existsSync(join(child, 'config/lint.json')), s.join(', '))
   check('url taken from state re-adds the remote', gitSafe(child, 'remote', 'get-url', 'template').trim() === URL)
   check('exclude survives the rewrite', readFileSync(join(child, STATE), 'utf8').includes('"exclude"'))
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+}
+
+// 12b. A state written by hand before the first sync (url and exclude, no commit) is a
+// configuration, not an error: its url beats a stale remote and the exclusion holds.
+{
+  const pre = join(tmp, 'preconfig')
+  copyTree(template, pre)
+  git(pre, 'init', '-q', '-b', 'main')
+  write(pre, '.gemini/settings.json', '{ "own": true }\n')
+  write(pre, STATE, json({ url: URL, exclude: ['.gemini/settings.json'] }))
+  commit(pre, 'chore: init')
+  git(pre, 'remote', 'add', 'template', 'file:///nonexistent/stale')
+  const r = run(pre)
+  check('pre-sync config exits 0', r.status === 0, r.detail)
+  check('pre-sync config warns nothing', r.stderr === '', r.stderr)
+  check('pre-sync config url beats a stale remote', r.stdout.startsWith(`Template: ${URL}\n`), r.stdout)
+  check('pre-sync config exclusion holds', !staged(pre).some(l => l.endsWith('.gemini/settings.json')) && readFileSync(join(pre, '.gemini/settings.json'), 'utf8').includes('own'), staged(pre).join(', '))
+  const st = readState(pre)
+  check('pre-sync config keeps the exclusion and records the head', JSON.stringify(st.exclude) === '[".gemini/settings.json"]' && st.commit === T4, JSON.stringify(st))
 }
 
 // 13. Nothing to pull from a repo that is not a roots template.
@@ -393,6 +484,7 @@ const T4 = commit(template, 'chore: turbo', T4_AT)
   check('non-template exits 1', r.status === 1, `status ${r.status}`)
   check('non-template explained', r.stderr.includes('Nothing to pull'))
   check('state untouched by a failed run', existsSync(join(child, STATE)) && readState(child).url === URL)
+  check('index untouched by a failed run', staged(child).length === 0, staged(child).join(', '))
 }
 
 // 14. Pinning a template tag, syncing back to it, and unpinning again.
@@ -447,13 +539,15 @@ git(template, 'tag', '-a', 'v1.0.0', '-m', 'v1.0.0', T2)
 // smudge command carries a space so git runs it through `sh -c`, where `exit` is a builtin
 // on every platform; the clean side is `cat` and required, so `git add`, `git rm`, and
 // `git status` on the consumer's own files keep working. The consumer is case 8's bootstrap
-// shape plus one committed file under scripts/docs, so a deletion gets staged.
+// shape plus two committed files under scripts/docs: one the template retired, so a
+// deletion gets staged even with no baseline, and one it never shipped, which stays.
 function bootstrapWithFilter(name: string, pattern: string): string {
   const dir = join(tmp, name)
   mkdirSync(dir)
   git(dir, 'init', '-q', '-b', 'main')
   write(dir, 'package.json', pkg({ build: 'tsc', lint: 'eslint .' }))
-  write(dir, 'scripts/docs/retired.mts', '// not on the template\n')
+  write(dir, 'scripts/docs/gen-llms.mts', '// retired by the template at T2\n')
+  write(dir, 'scripts/docs/own.mts', '// never on the template\n')
   commit(dir, 'chore: init')
   write(dir, 'scripts/sync-template.mts', REAL_SCRIPT)
   write(dir, '.git/info/attributes', `${pattern} filter=boom\n`)
@@ -471,8 +565,9 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('one failed checkout prints the Skipped header', r.stdout.includes('Skipped (git checkout failed — fix and re-run):'), r.stdout)
   check('skipped line names the path and the git reason', r.stdout.includes('  scripts/docs  ') && r.stdout.includes('filter'), r.stdout)
   const s = staged(dir)
-  for (const want of ['A .github/workflows/ci.yml', 'A .claude/skills/x/SKILL.md', 'A scripts/sync-template.mts', 'D scripts/docs/retired.mts', `A ${STATE}`])
+  for (const want of ['A .github/workflows/ci.yml', 'A .claude/skills/x/SKILL.md', 'A scripts/sync-template.mts', 'D scripts/docs/gen-llms.mts', `A ${STATE}`])
     check(`one failed checkout still stages ${want}`, s.includes(want), s.join(', '))
+  check('file the template never shipped is kept without a baseline', !s.some(l => l.endsWith('scripts/docs/own.mts')) && existsSync(join(dir, 'scripts/docs/own.mts')), s.join(', '))
   check('skipped path is neither staged nor written', !s.some(l => l.endsWith('scripts/docs/check-docs.mts')) && !existsSync(join(dir, 'scripts/docs/check-docs.mts')), s.join(', '))
   check('one failed checkout records the head', readState(dir).commit === T4)
 }
@@ -485,9 +580,48 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('every failed checkout exits 1', r.status === 1, r.detail)
   check('every failed checkout explained', r.stderr.includes('Could not check out any synced path') && r.stderr.includes('scripts/docs  '), r.stderr)
   const s = staged(dir)
-  check('retired file staged for deletion', s.includes('D scripts/docs/retired.mts'), s.join(', '))
+  check('retired file staged for deletion', s.includes('D scripts/docs/gen-llms.mts'), s.join(', '))
   check('nothing but deletions staged', s.every(l => l.startsWith('D ')), s.join(', '))
   check('every failed checkout writes no state', !existsSync(join(dir, STATE)))
+}
+
+// 19. Settings follow-ups compare every hook registration, matcher included, and the
+// output style: a child hook registered ahead of the template's is no difference, and a
+// matcher-only change is one.
+{
+  const hook = (matcher: string, command: string): unknown => ({ matcher, hooks: [{ type: 'command', command }] })
+  const permissions = { allow: ['Bash(git status:*)'], deny: ['Read(**/.env)', 'Read(**/.pgpass)'] }
+  write(child, '.claude/settings.json', json({ permissions, hooks: { PreToolUse: [hook('Bash', 'node tools/fmt-hook.mts'), hook('Bash', 'node hooks.mts --strict')] } }))
+  commit(child, 'chore: own hook first')
+  const same = run(child)
+  check('own hook ahead of the template\'s is no difference', same.status === 0 && same.stdout.includes('Settings: none new.'), same.stdout)
+  write(template, '.claude/settings.json', json({ outputStyle: 'writing', permissions, hooks: { PreToolUse: [hook('Bash|PowerShell', 'node hooks.mts --strict'), hook('Write', 'node write-guard.mts')] } }))
+  commit(template, 'fix(hooks): guard powershell and writes')
+  const r = run(child)
+  check('settings change exits 0', r.status === 0, r.detail)
+  check('output style missing here', r.stdout.includes('  outputStyle writing  missing here'), r.stdout)
+  check('matcher-only change differs', r.stdout.includes('  hooks.PreToolUse  differs\n    template: matcher Bash|PowerShell, command node hooks.mts --strict\n    yours:    matcher Bash, command node hooks.mts --strict\n'), r.stdout)
+  check('second template hook missing here', r.stdout.includes('  hooks.PreToolUse  missing here\n    template: matcher Write, command node write-guard.mts\n'), r.stdout)
+  check('own hook never mentioned', !r.stdout.includes('fmt-hook'), r.stdout)
+  gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+}
+
+// 20. The 40-commit cap hides only non-breaking commits: a breaking one past it is listed
+// with its footer.
+{
+  write(template, 'docs/template/log.md', 'breaking\n')
+  const breaking = commit(template, 'feat(agents)!: session-wide writing rules\n\nBREAKING CHANGE: add "outputStyle": "writing" to .claude/settings.json.\n')
+  for (let i = 1; i <= 44; i++) {
+    write(template, 'docs/template/log.md', `${i}\n`)
+    commit(template, `docs: note ${i}`)
+  }
+  const r = run(child)
+  check('long log exits 0', r.status === 0, r.detail)
+  check('long log counts every commit', r.stdout.includes('45 commits since last sync'), r.stdout)
+  check('breaking commit past the cap listed', r.stdout.includes(`  ! ${breaking.slice(0, 7)} feat(agents)!: session-wide writing rules\n`), r.stdout)
+  check('its footer printed', r.stdout.includes('      BREAKING CHANGE: add "outputStyle": "writing" to .claude/settings.json.'), r.stdout)
+  check('cap names what it hides', r.stdout.includes('  … and 4 more, none breaking\n'), r.stdout)
+  check('cap still lists 40 others', r.stdout.includes('docs: note 5\n') && !r.stdout.includes('docs: note 4\n'), r.stdout)
 }
 
 if (fails.length > 0) {
