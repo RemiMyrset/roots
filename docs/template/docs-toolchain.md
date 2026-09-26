@@ -137,12 +137,21 @@ gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_ac
 
 `.devcontainer/devcontainer.json` ships an environment every tool can run in:
 the official TypeScript-and-node image at node 24, the Claude Code and GitHub
-CLI Dev Container features, `corepack enable && pnpm install` after creation,
-the editor extensions the repo already recommends, the two VitePress dev-server
-ports forwarded, and the pnpm store on a named volume so a rebuild re-links
-instead of re-downloading. Node 24 still bundles
-corepack; from node 25, install it with `npm install -g corepack` in the image
-or pin the feature's pnpm.
+CLI Dev Container features, `pnpm install` after creation, the editor
+extensions the repo already recommends, the two VitePress dev-server ports
+forwarded, and the pnpm store on a named volume, so a rebuild copies packages
+from it instead of downloading them again.
+
+The container runs as the non-root `node` user, and Docker creates the
+volume's mount point owned by root, so the post-create step first hands it to
+`node` with `sudo`. `pnpm_config_store_dir` then points pnpm at the volume:
+the checkout is a separate mount, and without the variable pnpm keeps its
+store inside the checkout.
+
+The `pnpm` on the container's path is the image's own. It switches to the
+version `packageManager` pins but, unlike corepack, does not check the
+download against the pin's hash. Corepack's shims would land in a root-owned
+directory behind it on the path, so the container does not enable corepack.
 
 Open it with VS Code's "Reopen in Container", a GitHub Codespace, or the
 `devcontainer` CLI. Inside it an unattended agent run cannot reach your keys,

@@ -7,11 +7,11 @@
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "postCreateCommand": "corepack enable && pnpm install",
+  "containerEnv": { "pnpm_config_store_dir": "/home/node/.local/share/pnpm/store" },
+  "postCreateCommand": "sudo chown node:node /home/node/.local /home/node/.local/share /home/node/.local/share/pnpm && pnpm install",
   "remoteUser": "node",
   // The two VitePress dev servers (internal, then public) bind the next free port from 5173.
   "forwardPorts": [5173, 5174],
-  // The pnpm store survives a container rebuild, so a rebuild re-links instead of re-downloading.
   "mounts": ["source=roots-pnpm-store,target=/home/node/.local/share/pnpm,type=volume"],
   "customizations": {
     "vscode": {

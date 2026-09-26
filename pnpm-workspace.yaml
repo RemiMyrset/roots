@@ -23,11 +23,15 @@ shellEmulator: true
 
 # No silently-downgraded publish trust.
 trustPolicy: no-downgrade
-# vite 5.x (pinned by vitepress 1.x) switched publish evidence from trusted
-# publisher to provenance attestation — a known false positive for the
-# no-downgrade policy, not a takeover. Remove when vitepress moves off vite 5.
+# vite 5.4.21 (pinned by vitepress 1.x) switched publish evidence from trusted
+# publisher to provenance attestation: a known false positive for no-downgrade,
+# not a takeover. The entry names that version alone: a bare `vite` would also
+# waive the check for the vite 7 that vitest runs, and ESLint rejects one. pnpm
+# takes exact versions but no range, so when vitepress resolves a newer 5.x and
+# the install fails, append it (vite@5.4.21 || 5.4.22). Remove when vitepress
+# moves off vite 5.
 trustPolicyExclude:
-  - vite
+  - vite@5.4.21
 # Workspace globs. The samples populate both; pnpm tolerates an empty glob once
 # a sample is removed.
 packages:
