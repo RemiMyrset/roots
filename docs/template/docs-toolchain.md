@@ -36,13 +36,14 @@ Template sync has its own recipe in [sync-template](./sync-template.md#recipe).
 
 ### Publish the public site on GitHub Pages
 
-`.github/workflows/pages.yml` is the standard, and it is synced. On a push to
-`main` that touches `docs/public/`, `docs/.shared/`, `package.json`, the
-lockfile, or the workflow file itself (and on manual dispatch) it builds the
-public site, and when GitHub Pages is enabled for the repository it also
-deploys it. Until then the run is green and says "the site was built but not
-deployed", so a repository that never wants a public site pays nothing and
-sees no red.
+`.github/workflows/pages.yml` is the standard, and it is synced. On a pull
+request or a push to `main` that touches `docs/public/`, `docs/.shared/`,
+`package.json`, the lockfile, or the workflow file itself (and on manual
+dispatch) it builds the public site. On `main`, when GitHub Pages is enabled
+for the repository, it also deploys it; a pull request only builds, so a
+broken build or action pin shows before merge. Until Pages is enabled the run
+is green and says "the site was built but not deployed", so a repository that
+never wants a public site pays nothing and sees no red.
 
 Enable it once, either under Settings → Pages → Build and deployment → Source:
 GitHub Actions, or:
@@ -55,14 +56,16 @@ gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/
 
 The site lands at `https://OWNER.github.io/REPO/` (a project site) or at the
 root of `OWNER.github.io` (a user site). A custom domain set under Settings →
-Pages is honoured too; add `docs/public/public/CNAME` holding the domain so the
-build keeps it.
+Pages is honoured too, and an Actions deployment needs no `CNAME` file.
 
 The workflow asks `actions/configure-pages` for the base path and URL and hands
 them to the build as `DOCS_BASE` and `DOCS_URL`, which
 `docs/public/.vitepress/config.ts` turns into VitePress `base`, a
 `sitemap.xml`, and absolute links in `llms.txt`. Local builds leave both unset
-and keep relative links.
+and keep relative links. The build checks out full history, because each
+page's "Last updated" date and its sitemap `lastmod` come from `git log`; a
+shallow clone stamps every page with the deploy commit's date, and
+`pnpm test:gates` refuses one.
 
 The public build emits `/llms.txt`, the [llms.txt](https://llmstxt.org/)
 standard that crawlers and agents fetch first, plus a clean markdown copy of
@@ -121,7 +124,9 @@ Two repository settings complete the picture and are worth applying on first
 run: vulnerability alerts, without which Renovate's security pull requests
 never fire (alerts are GitHub's advisory feed, not Dependabot pull requests),
 and required SHA pinning for actions, which makes GitHub refuse a workflow
-that references an action by a mutable tag.
+that references an action by a mutable tag. The check reaches inside a pinned
+composite action too, so before merging an action bump, read the new
+release's own `action.yml` for a tag-only `uses:`.
 
 ```sh
 gh api -X PUT repos/OWNER/REPO/vulnerability-alerts
