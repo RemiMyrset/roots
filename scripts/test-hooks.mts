@@ -521,6 +521,12 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep \'[a-z]*\' notes.txt' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'ls .env*' }, //                 lists names, reads nothing
 
+  // --- the release script's body, run through pnpm or pnpx ----------------------------
+  { guard: P, expect: D, cmd: 'pnpm changelogen --release --push --no-github' },
+  { guard: P, expect: D, cmd: 'pnpm run changelogen --push' },
+  { guard: P, expect: D, cmd: 'pnpx changelogen --push' },
+  { guard: P, expect: A, cmd: 'pnpm changelogen --release' },
+
   // --- dispatch: the registered hook fans out to every guard --------------------
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install' },
   { guard: 'dispatch.mts', expect: D, cmd: 'pnpm approve-builds' },

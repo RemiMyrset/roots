@@ -150,11 +150,11 @@ function isChangelogen(t: string): boolean {
 }
 
 // Index of the changelogen word: at the head (directly, or via pnpm exec/dlx unwrapping), or
-// behind npx and its flags (`npx -y changelogen@latest …`); -1 when absent.
+// behind npx or pnpx and their flags (`npx -y changelogen@latest …`); -1 when absent.
 function changelogenAt(toks: string[], i: number, head: string): number {
   if (isChangelogen(toks[i] ?? ''))
     return i
-  if (head !== 'npx')
+  if (head !== 'npx' && head !== 'pnpx')
     return -1
   let k = i + 1
   while (k < toks.length) {
@@ -197,7 +197,8 @@ export const verdict: Verdict = (cmd, ctx) => {
     }
     if (head === 'pnpm' && pnpmScript(toks, i) === 'release')
       return '`pnpm release` pushes to the default branch from inside changelogen. Human-only: prepare the release (release skill) and let the user run it.'
-    const cl = changelogenAt(toks, i, head)
+    // pnpm runs a local bin when no script matches, so `pnpm changelogen` is changelogen.
+    const cl = head === 'pnpm' && isChangelogen(pnpmScript(toks, i)) ? i : changelogenAt(toks, i, head)
     if (cl >= 0 && toks.slice(cl + 1).some(t => unquote(t) === '--push'))
       return '`changelogen --push` pushes to the default branch. Human-only: run it yourself in a terminal.'
   }
