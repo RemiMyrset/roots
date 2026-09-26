@@ -685,6 +685,7 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('breaking merge listed with its footer', r.stdout.includes(`  ! ${merge.slice(0, 7)} feat(docs)!: strict docs check (#12)\n      BREAKING CHANGE: add "docs:check": "node scripts/docs/check-docs.mts --strict" to package.json.\n`), r.stdout)
   check('merged commit listed', r.stdout.includes(`    ${side.slice(0, 7)} docs: rework a page\n`), r.stdout)
   check('plain merge left out and not counted', !r.stdout.includes('Merge branch') && r.stdout.includes('3 commits since last sync'), r.stdout)
+  check('count says how many merges it leaves out', r.stdout.includes('; 1 merge left out):\n'), r.stdout)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 

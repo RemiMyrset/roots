@@ -815,8 +815,11 @@ const fetchedAt = `Fetched ${label} at ${short(head)}`
 function listCommits(from: string): void {
   // A merge commit is noise unless it is breaking: a PR-title merge can carry the `!` and the
   // footer while the commits it merges carry neither.
-  const commits = commitsSince(from, head).filter(c => !c.merge || isBreaking(c))
-  const count = `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${since} (${short(from)}):`
+  const all = commitsSince(from, head)
+  const commits = all.filter(c => !c.merge || isBreaking(c))
+  const merges = all.length - commits.length
+  const left = merges > 0 ? `; ${merges} merge${merges === 1 ? '' : 's'} left out` : ''
+  const count = `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${since} (${short(from)}${left}):`
   if (recorded === undefined)
     out.push(count)
   else

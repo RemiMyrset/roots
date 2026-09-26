@@ -241,6 +241,8 @@ stdout, in order:
 Commit lines are `  ! <sha> <subject>` for breaking commits and
 `    <sha> <subject>` otherwise, newest first, merge commits left out unless
 breaking, with the `BREAKING CHANGE` paragraph indented beneath its commit.
+The count leaves out the same merges and says how many (`; N merges left
+out`), since the full log lists them.
 The cap is 40 non-breaking commits: every breaking commit is listed, and when
 any are hidden the list ends with `… and N more, none breaking`. Every list
 ends with `Full log: git log <from>..<head>`. Warnings and errors go to
@@ -264,7 +266,8 @@ stderr.
    them, lists them newest first with `!` on commits whose subject carries `!`
    or whose body has a `BREAKING CHANGE` footer, prints that footer's paragraph
    beneath the commit, and the state advances to the template head. A merge
-   commit is listed and counted only when it is breaking. Past 40 non-breaking
+   commit is listed and counted only when it is breaking, and the count says
+   how many merges it left out. Past 40 non-breaking
    commits the rest are counted, not listed, while every breaking commit is
    still listed with its footer.
 5. Given a recorded commit that is neither an ancestor nor a descendant of the
