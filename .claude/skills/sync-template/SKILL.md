@@ -8,7 +8,8 @@ description: Pull the roots template's shared mechanics into this repository. Bo
 `pnpm sync:template` stages the template's version of the synced paths, records
 the sync point in `.template-sync.json`, and prints the follow-ups a file copy
 cannot carry: the template commits since the last sync (breaking ones marked
-`!`) and the `package.json` scripts that differ. The synced paths, the recipe,
+`!`), the `package.json` scripts that differ, and the `.claude/settings.json`
+entries the template has and this repo lacks. The synced paths, the recipe,
 and the contract are in `docs/template/sync-template.md`.
 
 1. Bootstrap if needed. If `scripts/sync-template.mts` is missing, or there is
@@ -19,9 +20,12 @@ and the contract are in `docs/template/sync-template.md`.
    `mkdir -p scripts && git fetch --no-tags https://github.com/RemiMyrset/roots.git main && git show FETCH_HEAD:scripts/sync-template.mts > scripts/sync-template.mts`
 2. Start clean. The script refuses uncommitted changes under the synced paths;
    commit or stash them first, never discard them.
-3. Run `pnpm sync:template` (add the fork URL if this repo tracks a fork, or
-   `--ref <branch|tag>` to pin a template branch or tag; both are remembered).
-   Claude Code and Gemini run it without a prompt; Codex asks.
+3. Run `pnpm sync:template`, or `node scripts/sync-template.mts` while
+   `package.json` has no `sync:template` script (add the fork URL if this repo
+   tracks a fork, or `--ref <branch|tag>` to pin a template branch or tag; both
+   are remembered). Claude Code and Gemini run it without a prompt; Codex asks.
+   If it stops on an invalid `.template-sync.json`, fix the field it names;
+   deleting the file drops its `exclude` and `include`.
    Read the output top to bottom. On a first sync, the `Baseline:` line says how
    the starting point was found: `root time` is approximate, `none` means no
    commit list this run.
@@ -31,13 +35,17 @@ and the contract are in `docs/template/sync-template.md`.
    Apply each one, or tell the user why not.
 5. Review the staged diff with `git diff --cached`. Deliberate local divergence
    in a synced file is normal: discard that path with
-   `git restore --staged --worktree <path>`. A file of your own under a synced
-   directory shows up as a deletion; discard that hunk or move the file. A
-   `Skipped` block means a checkout failed; fix the path and re-run.
-6. Apply the follow-ups. "missing here" and "changed on the template" entries
-   are edits to make in `package.json`; "differs" (first sync) needs judgment;
-   "customized locally" is informational, leave those alone. Never edit
-   `.claude/settings.json` unless a breaking footer says so.
+   `git restore --staged --worktree <path>`. A `D` line is a file the template
+   shipped and retired; files of your own under a synced directory are never
+   staged. A `Skipped` block means a checkout failed; fix the path and re-run.
+6. Apply the follow-ups. `scripts.*` lines are `package.json` edits:
+   "missing here" and "changed on the template" entries are edits to make;
+   "differs" (first sync) needs judgment; "customized locally" is
+   informational, leave those alone. `Settings` lines are
+   `.claude/settings.json` edits: add each rule, output style, and hook
+   registration marked "missing here", and for a hook that "differs", change
+   your registration to the template's matcher and command. Edit by hand;
+   never copy the template's settings file over yours.
 7. Done gate. `pnpm install` if `package.json` changed, then `pnpm verify`; it
    stops at the first failure and names it. Fix at the source; never loosen a
    synced checker.
