@@ -121,7 +121,9 @@ Two repository settings complete the picture and are worth applying on first
 run: vulnerability alerts, without which Renovate's security pull requests
 never fire (alerts are GitHub's advisory feed, not Dependabot pull requests),
 and required SHA pinning for actions, which makes GitHub refuse a workflow
-that references an action by a mutable tag.
+that references an action by a mutable tag. The check reaches inside a pinned
+composite action too, so before merging an action bump, read the new
+release's own `action.yml` for a tag-only `uses:`.
 
 ```sh
 gh api -X PUT repos/OWNER/REPO/vulnerability-alerts
