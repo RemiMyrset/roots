@@ -64,9 +64,10 @@ CommonJS in a repo that sets `"type": "commonjs"`, which breaks its
 to stop pulling it (say `.gemini/settings.json` once you have local Gemini
 settings), or an extra path under `include` (for example `tsconfig.base.json`
 or `eslint.config.ts`) to pull it too. You can write the file by hand before
-the first sync; the sync fills in `commit`. Never edit `MECHANICS` in the
-script itself: the script is synced, and the edit would be staged for revert
-on the next run.
+the first sync and commit it; the sync fills in `commit`. An uncommitted state
+file is refused like any other change (behavior 7), and a stashed one takes
+its lists with it. Never edit `MECHANICS` in the script itself: the script is
+synced, and the edit would be staged for revert on the next run.
 
 A repo that predates the script, or holds an older copy that never recorded a
 sync point, bootstraps with plain git, so a private fork works with whatever

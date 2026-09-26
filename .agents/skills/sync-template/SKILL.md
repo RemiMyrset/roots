@@ -18,8 +18,10 @@ and the contract are in `docs/template/sync-template.md`.
    Overwrite it; behavior 7 says why. The `sync:template` script shows up as a
    missing follow-up on a first run:
    `mkdir -p scripts && git fetch --no-tags https://github.com/RemiMyrset/roots.git main && git show FETCH_HEAD:scripts/sync-template.mts > scripts/sync-template.mts`
-2. Start clean. The script refuses uncommitted changes under the synced paths;
-   commit or stash them first, never discard them.
+2. Start clean. The script refuses uncommitted changes under the synced paths
+   and in `.template-sync.json`; commit or stash them first, never discard
+   them. Commit an edited `.template-sync.json`, never stash it: the sync would
+   run without its `exclude` and `include`.
 3. Run `pnpm sync:template`, or `node scripts/sync-template.mts` while
    `package.json` has no `sync:template` script (add the fork URL if this repo
    tracks a fork, or `--ref <branch|tag>` to pin a template branch or tag; both
