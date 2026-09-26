@@ -2,13 +2,13 @@
  * deny-secret-reads guard (imported by dispatch.mts). Blocks shell reads of
  * secret files (.env*, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks, SSH private
  * keys, and the credential files of aws, gh, kube, docker, git, and postgres) — direct readers,
- * `<` redirects, pnpm-exec wrappers, `find -exec` at a secret literal, and a glob that can expand
- * to a secret name. `.env.example` is the one carve-out; other
+ * `<` redirects, pnpm-exec wrappers, `find -exec` at a secret name or pattern, and an unquoted
+ * glob that can expand to a secret name. `.env.example` is the one carve-out; other
  * placeholder spellings fail closed. Shared lexing in ./_lexer.mts. Scope and out-of-scope:
  * docs/template/guards.md.
  */
 import type { Verdict } from './_lexer.mts'
-import { resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+import { globTokens, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
 
 const READERS: ReadonlySet<string> = new Set([
   'cat', 'head', 'tail', 'less', 'more', 'bat', 'nl', 'tac', 'grep', 'egrep', 'fgrep', 'rg',
@@ -21,9 +21,16 @@ const READERS: ReadonlySet<string> = new Set([
 // scan). For grep/od/strings `-o` is a boolean flag whose next token is the INPUT file.
 const OUTPUT_O: ReadonlySet<string> = new Set(['sort', 'shuf'])
 
-function isSecret(arg: string): boolean {
-  // Both separators: a quoted Windows path keeps its backslashes through tokenize().
-  const p = unquote(arg).replace(/\)+$/, '').replace(/^(?:if|of)=/, '').replace(/\\/g, '/')
+// A word as a path: quotes dropped, a closing `)` and a dd `if=`/`of=` prefix trimmed. Both
+// separators: a quoted Windows path keeps its backslashes through tokenize().
+function asPath(arg: string): string {
+  return unquote(arg).replace(/\)+$/, '').replace(/^(?:if|of)=/, '').replace(/\\/g, '/')
+}
+
+// Whether a word reads a secret: its text names one, or a glob in `glob` (the same word as
+// globTokens() gives it, holding only the glob characters that expand) can expand to one.
+function isSecret(arg: string, glob: string): boolean {
+  const p = asPath(arg)
   if (/(?:^|\/)secrets(?:\/|$)/i.test(p))
     return true
   if (/\.(?:pem|key|p12|pfx|jks)$/i.test(p))
@@ -60,7 +67,7 @@ function isSecret(arg: string): boolean {
   // (safe direction, documented in docs/template/guards.md; never a bypass).
   if (/^\.env(?:rc)?(?:$|[.\-_~])/.test(b) && b !== '.env.example')
     return true
-  return globReadsSecret(p)
+  return globReadsSecret(asPath(glob))
 }
 
 // Secret paths a glob is tested against, matched segment by segment from the end: a glob that
@@ -126,39 +133,89 @@ function braceMembers(a: string): string[] {
   return m ? m[2]!.split(',').map(x => m[1]! + x + m[3]!) : [a]
 }
 
+// Whether word k of a segment reads a secret. `globs` lines up with `toks`: globTokens() of
+// the segment for a word bash expands, or `toks` itself for a pattern find matches unquoted.
+function secretAt(toks: string[], globs: string[], k: number): boolean {
+  const words = braceMembers(toks[k]!)
+  const expanded = braceMembers(globs[k] ?? toks[k]!)
+  return words.some((w, x) => isSecret(w, expanded[x] ?? w))
+}
+
+// The file a `<` redirect at word j reads (`<.env`, `< .env`, `<>.env`, `$(<.env)`), or null.
+function redirectSource(toks: string[], j: number): string | null {
+  const m = /^\d*<+(.*)$/.exec(toks[j]!)
+  if (!m)
+    return null
+  return m[1]!.replace(/^>/, '').replace(/\)+$/, '') || toks[j + 1] || null
+}
+
+// find's name and path tests: find matches their pattern as a glob itself, quoted or not.
+const FIND_TESTS: ReadonlySet<string> = new Set(['-name', '-iname', '-path', '-ipath', '-wholename', '-iwholename'])
+const FIND_EXEC = /^-(?:exec|ok)(?:dir)?$/
+
+// Whether a `-prune` that is followed by `-o` comes before the walk's -exec, cutting out what
+// the tests ahead of it match (`-path '*/.*' -prune -o …`).
+function pruned(toks: string[], from: number): boolean {
+  for (let k = from; k < toks.length; k++) {
+    const t = unquote(toks[k]!)
+    if (FIND_EXEC.test(t))
+      return false
+    if (t === '-prune') {
+      let j = k + 1
+      while (unquote(toks[j] ?? '') === ')') j++
+      if (/^-or?$/.test(unquote(toks[j] ?? '')))
+        return true
+    }
+  }
+  return false
+}
+
+// Whether a `find … -exec|-ok` walk is pointed at a secret: a word names one, or a name or
+// path test's pattern can match one. A negated test (`-not -path '*/.*'`) or a pruned one
+// keeps what it matches out of the walk, so its pattern is not probed. The program -exec runs
+// is not judged: `-exec sh -c …` can read what it is handed.
+function findReadsSecret(toks: string[], globs: string[], i: number): boolean {
+  if (!toks.some(t => FIND_EXEC.test(unquote(t))))
+    return false
+  let negated = false
+  for (let k = i + 1; k < toks.length; k++) {
+    const t = unquote(toks[k]!)
+    if (secretAt(toks, globs, k))
+      return true
+    if (FIND_TESTS.has(t) && k + 1 < toks.length && !negated && !pruned(toks, k + 2) && secretAt(toks, toks, k + 1))
+      return true
+    // `!` and `-not` negate the next test, or the group a `(` opens.
+    negated = (t === '!' || t === '-not') ? !negated : (t === '(' && negated)
+  }
+  return false
+}
+
 const DENY = 'reading secrets (.env*, .envrc, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks, SSH private keys, aws/gh/kube/docker/git/postgres credential files) via the shell is denied — same policy as the Read tool.'
 
 /** Denies a segment that reads, redirects from, or `find -exec`s over a secret-named path. */
 export const verdict: Verdict = (cmd) => {
   for (const seg of segments(cmd)) {
     const toks = tokenize(seg)
+    const globs = globTokens(seg)
     // `<` redirect into a secret (`$(<.env)`, `read x < .env`, `cat <.env`, `cat <>.env`),
     // regardless of the head command. Strip a leading `>` off the `<>` read-write target.
     for (let j = 0; j < toks.length; j++) {
-      const m = /^\d*<+(.*)$/.exec(toks[j]!)
-      if (!m)
-        continue
-      let tgt = m[1]!.replace(/^>/, '').replace(/\)+$/, '')
-      if (!tgt)
-        tgt = toks[j + 1] ?? ''
-      if (tgt && isSecret(tgt))
+      const tgt = redirectSource(toks, j)
+      if (tgt && isSecret(tgt, redirectSource(globs, j) ?? tgt))
         return DENY
     }
     const { i, head, probe } = resolveHead(toks)
     if (probe)
       continue
-    // find ... -exec|-ok <reader> {} pointed at a secret literal.
-    if (head === 'find' && toks.some(t => /^-(?:exec|ok)(?:dir)?$/.test(unquote(t))) && toks.slice(i + 1).flatMap(braceMembers).some(isSecret))
+    if (head === 'find' && findReadsSecret(toks, globs, i))
       return DENY
     if (!READERS.has(head))
       continue
-    const args: string[] = []
     for (let k = i + 1; k < toks.length; k++) {
       if (OUTPUT_O.has(head) && /^(?:-o|--output)$/.test(unquote(toks[k]!))) { k++; continue }
-      args.push(toks[k]!)
+      if (secretAt(toks, globs, k))
+        return DENY
     }
-    if (args.flatMap(braceMembers).some(isSecret))
-      return DENY
   }
   return null
 }

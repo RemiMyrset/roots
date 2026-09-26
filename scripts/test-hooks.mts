@@ -520,6 +520,35 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat .prettierrc*' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep \'[a-z]*\' notes.txt' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'ls .env*' }, //                 lists names, reads nothing
+  // Only a glob bash expands can reach a file: a quoted or escaped one is a pattern or a name.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep foo .*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ".env"*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/".ssh"/*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \\.env*' }, //               the escaped dot is still a dot
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep x < .env*' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep -rn "import .* from" packages' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep -o \'"version": ".*"\' package.json' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'pnpm test 2>&1 | grep -E "FAIL .*"' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep -rEn "process\\.env\\.[A-Z_]*" packages' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep -o \'id_[a-z0-9]*\' data.txt' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'awk \'/.* failed/ {print $1}\' v.log' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'diff -r -x \'.*\' a b' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat \'.env*\'' }, //              one file literally named `.env*`
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat .env\\*' },
+  // find matches a -name or -path pattern itself, quoted or not; a negated or pruned one
+  // keeps what it matches out of the walk. The program -exec runs is not judged.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find ~/.ssh -name \'id_*\' -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -iname \'.ENV*\' -exec cat {} \\;' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . ! ! -name \'.env*\' -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -name \'.env*\' -prune -exec cat {} +' }, // no -o: the match still runs
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -exec cat .env* \\;' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -name \'.env*\' -exec ls -la {} \\;' }, // documented over-block
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -type f -not -path \'*/.*\' -exec grep -l "TODO" {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . ! -path \'*/.*\' -type f -exec wc -l {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -not \\( -path \'*/.*\' \\) -exec grep -l x {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -path \'*/.*\' -prune -o -name \'*.md\' -exec wc -l {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . \\( -path ./node_modules -o -path \'*/.*\' \\) -prune -o -type f -exec grep -l x {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -name \'*.md\' -exec grep -l ".*" {} +' },
 
   // --- the release script's body, run through pnpm or pnpx ----------------------------
   { guard: P, expect: D, cmd: 'pnpm changelogen --release --push --no-github' },

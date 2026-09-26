@@ -363,6 +363,45 @@ export function tokenize(seg: string): string[] {
   return out
 }
 
+// A glob character bash leaves as text, hidden behind a byte no glob or separator uses.
+function hideGlob(c: string): string {
+  return c === '*' || c === '?' || c === '[' ? '\0' : c
+}
+
+/**
+ * tokenize(seg) with every glob character (`*`, `?`, `[`) that bash never expands, one inside
+ * quotes or after a backslash, replaced by NUL. It lines up word for word with tokenize(seg):
+ * read a word's text from that and the globs bash expands in it from this, so a quoted grep
+ * pattern (`".*"`) is never taken for a path glob.
+ */
+export function globTokens(seg: string): string[] {
+  let text = ''
+  let q = '' // the open quote: `"`, `'`, or `$` for ANSI-C `$'…'`
+  for (let n = 0; n < seg.length; n++) {
+    const c = seg[n]!
+    if (c === '\\' && q !== '\'') {
+      text += c + hideGlob(seg[n + 1] ?? '')
+      n++
+    }
+    else if (q) {
+      if (c === (q === '"' ? '"' : '\''))
+        q = ''
+      text += hideGlob(c)
+    }
+    else if (c === '$' && seg[n + 1] === '\'') {
+      q = '$'
+      text += '$\''
+      n++
+    }
+    else {
+      if (c === '"' || c === '\'')
+        q = c
+      text += c
+    }
+  }
+  return tokenize(text)
+}
+
 // A redirection word: an optional fd (`2`, `{fd}`), the operator, and a glued target.
 const REDIRECTION = /^(?:\d+|\{\w+\})?(?:&>>?|[<>]&|>>|>\||<>|<<<|<<-?|[<>])(.*)$/s
 
