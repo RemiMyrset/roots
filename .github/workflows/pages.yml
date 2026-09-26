@@ -62,15 +62,20 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Only a 404 means "not enabled"; any other API failure fails the run, so an outage
+      # never skips a deploy behind a green run and a misleading notice.
       - name: Is GitHub Pages enabled for this repository?
         id: pages-enabled
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh api "repos/${GITHUB_REPOSITORY}/pages" > /dev/null 2>&1; then
+          if err=$(gh api "repos/${GITHUB_REPOSITORY}/pages" 2>&1 > /dev/null); then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            case "$err" in
+              *"(HTTP 404)"*) echo "enabled=false" >> "$GITHUB_OUTPUT" ;;
+              *) echo "::error::Could not tell whether GitHub Pages is enabled: $err"; exit 1 ;;
+            esac
           fi
 
       - name: Resolve the Pages URL
