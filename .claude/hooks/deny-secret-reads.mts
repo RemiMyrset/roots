@@ -2,7 +2,8 @@
  * deny-secret-reads guard (imported by dispatch.mts). Blocks shell reads of
  * secret files (.env*, .netrc, .npmrc, secrets/, *.pem, *.key, *.p12, *.pfx, *.jks, SSH private
  * keys, and the credential files of aws, gh, kube, docker, git, and postgres) — direct readers,
- * `<` redirects, pnpm-exec wrappers, and `find -exec` at a secret literal. `.env.example` is the one carve-out; other
+ * `<` redirects, pnpm-exec wrappers, `find -exec` at a secret literal, and a glob that can expand
+ * to a secret name. `.env.example` is the one carve-out; other
  * placeholder spellings fail closed. Shared lexing in ./_lexer.mts. Scope and out-of-scope:
  * docs/template/guards.md.
  */
@@ -57,7 +58,67 @@ function isSecret(arg: string): boolean {
   // deliberate carve-out; other placeholder spellings (.env.sample/.template/.dist) fail closed
   // ON PURPOSE — a filename guard cannot verify they hold no real secret, so they are denied
   // (safe direction, documented in docs/template/guards.md; never a bypass).
-  return /^\.env(?:rc)?(?:$|[.\-_~])/.test(b) && b !== '.env.example'
+  if (/^\.env(?:rc)?(?:$|[.\-_~])/.test(b) && b !== '.env.example')
+    return true
+  return globReadsSecret(p)
+}
+
+// Secret paths a glob is tested against, matched segment by segment from the end: a glob that
+// can expand to one reads it (`.env*`, `~/.ssh/*`, `~/.docker/*.json`).
+const GLOB_PROBES: readonly string[][] = [
+  '.env', '.env~', '.env.local', '.env.production', '.envrc', '.netrc', '_netrc', '.npmrc',
+  '.git-credentials', '.pgpass', 'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', '.ssh/id_rsa',
+  '.ssh/id_dsa', '.ssh/id_ecdsa', '.ssh/id_ed25519', '.aws/credentials', '.config/gh/hosts.yml',
+  '.kube/config', '.docker/config.json',
+].map(p => p.split('/'))
+
+// One path segment of a bash glob as a case-insensitive regex, or null when it holds no glob.
+// As in bash without dotglob, a leading `*`, `?`, or `[…]` never matches a leading dot.
+function globSegment(seg: string): RegExp | null {
+  if (!/[*?[]/.test(seg))
+    return null
+  let re = /^[*?[]/.test(seg) ? '(?!\\.)' : ''
+  for (let n = 0; n < seg.length; n++) {
+    const c = seg[n]!
+    const close = c === '[' ? seg.indexOf(']', /^[!^]/.test(seg[n + 1] ?? '') ? n + 3 : n + 2) : -1
+    if (c === '*') {
+      re += '.*'
+    }
+    else if (c === '?') {
+      re += '.'
+    }
+    else if (close > 0) {
+      const set = seg.slice(n + 1, close)
+      re += `[${set.replace(/^[!^]/, '^').replace(/[\\\]]/g, '\\$&')}]`
+      n = close
+    }
+    else {
+      re += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    }
+  }
+  try {
+    return new RegExp(`^${re}$`, 'i')
+  }
+  catch {
+    return null // a range bash rejects too (`[z-a]`): compared as literal text below
+  }
+}
+
+// Whether a path holding a glob can expand to a probe. A lone name that opens with a wildcard
+// is not tested against the bare names, so `grep x *` stays open; a credential directory is.
+function globReadsSecret(p: string): boolean {
+  const segs = p.split('/')
+  if (!segs.some(s => /[*?[]/.test(s)))
+    return false
+  return GLOB_PROBES.some((probe) => {
+    const have = segs.slice(-probe.length)
+    if (have.length < probe.length || (probe.length === 1 && /^[*?[]/.test(have[0]!)))
+      return false
+    return probe.every((want, k) => {
+      const re = globSegment(have[k]!)
+      return re ? re.test(want) : have[k]!.toLowerCase() === want
+    })
+  })
 }
 
 function braceMembers(a: string): string[] {

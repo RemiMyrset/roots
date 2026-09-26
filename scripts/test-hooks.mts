@@ -501,6 +501,26 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '&>/dev/null npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\\>&npm install' }, // an escaped > is text, so & separates
 
+  // --- deny-secret-reads: a glob that can expand to a secret reads it ---------------------
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .env*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'head -n 50 .env*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -h API_KEY .env*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'head .env?' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .en[v]' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .e*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.ssh/id_*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.ssh/*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.aws/*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.docker/*.json' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.kube/*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -name ".env*" -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep foo *' }, //               a leading * never matches a dotfile
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat src/*.ts */package.json' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat ~/.ssh/*.pub' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat .prettierrc*' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep \'[a-z]*\' notes.txt' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'ls .env*' }, //                 lists names, reads nothing
+
   // --- dispatch: the registered hook fans out to every guard --------------------
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install' },
   { guard: 'dispatch.mts', expect: D, cmd: 'pnpm approve-builds' },
@@ -515,6 +535,7 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: D, cmd: 'git commit -m "$(cat <<\'EOF\'\nfix: x\nEOF\n)" --no-verify' },
   { guard: 'dispatch.mts', expect: D, cmd: '# Make sure we\'re up to date first\ngit push origin main' },
   { guard: 'dispatch.mts', expect: D, cmd: 'git push origin 2>&1 | tail -5', cwd: ON_MAIN },
+  { guard: 'dispatch.mts', expect: D, cmd: 'cat .env*' },
   // Same dispatcher, Codex-shaped and Gemini-shaped payloads.
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'Bash', extra: CODEX },
   { guard: 'dispatch.mts', expect: D, cmd: 'git push origin main', tool: 'Bash', extra: CODEX },

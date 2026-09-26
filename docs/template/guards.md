@@ -102,7 +102,8 @@ covers the common shell-read forms of the same set (`.env` and `.envrc` matched
 case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
 readable; `credentials`, `config`, and `hosts.yml` count only under their
 credential directory): direct readers, `<` redirects (including `$(<file)` and
-`<>`), `pnpm exec` wrappers, and `find -exec`.
+`<>`), `pnpm exec` wrappers, `find -exec`, and a glob that can expand to one of
+those names (`.env*`, `~/.ssh/*`).
 
 The guard is the broader of the two; the Read list stays a curated subset so
 `.env.example` remains openable. `.env.example` is the one carve-out; other
@@ -120,8 +121,9 @@ and are covered by the guard and the Read list only.
 
 Beyond the shared out-of-scope list, this guard cannot catch a recursive walker
 with no secret literal (`grep -r .`), a filename routed via xargs or a stdin
-pipe, or a glob that expands to a secret without the `.env` prefix (`.e*`). The
-backstop is `.gitignore`, the Read-tool deny list, and human review.
+pipe, or a glob that opens with a wildcard outside a credential directory
+(`*rc`) or stops short of a key extension (`key.*`). The backstop is
+`.gitignore`, the Read-tool deny list, and human review.
 
 Known over-block (safe direction, never a bypass): a reader whose
 secret-looking token is a search term or output prefix (`look .env`,
