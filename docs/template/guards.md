@@ -178,7 +178,8 @@ its place is denied, because pushing there sidesteps the remotes the list is
 written for.
 
 Out of scope, beyond the shared list: `cd elsewhere && git push` resolves the
-current branch in the project directory and ignores the `cd` target, and the
+current branch in the project directory and ignores the `cd` target, a lone
+substitution is taken for the current branch whatever it prints, and the
 remote's own default-branch name is never consulted. Configure the list.
 
 The server-side gate is a GitHub branch ruleset, created during first run with
