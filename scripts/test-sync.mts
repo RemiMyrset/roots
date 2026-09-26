@@ -514,6 +514,23 @@ git(template, 'tag', '-a', 'v1.0.0', '-m', 'v1.0.0', T2)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
+// 14b. A fresh clone over file:// holds none of the template's commits, so syncing back to
+// the tag must fetch the recorded commit by its hash to retire what the template added since.
+{
+  const clone = join(tmp, 'clone-fresh')
+  git(tmp, 'clone', '-q', pathToFileURL(child).href, clone)
+  check('fresh clone lacks the recorded commit', gitSafe(clone, 'cat-file', '-t', T4) === '')
+  const r = run(clone, '--ref', 'v1.0.0')
+  check('fresh clone pin exits 0', r.status === 0, r.detail)
+  check('fresh clone pin explains syncing back', r.stdout.includes('is ahead of it'), r.stdout)
+  const s = staged(clone)
+  for (const want of ['D .github/labels.yml', 'D turbo.json'])
+    check(`fresh clone pin stages ${want}`, s.includes(want), s.join(', '))
+  for (const own of OWN)
+    check(`fresh clone pin keeps own file: ${own}`, !s.some(l => l.endsWith(own)) && existsSync(join(clone, own)), s.join(', '))
+  check('fresh clone pin lists nothing as kept', !r.stdout.includes('Kept'), r.stdout)
+}
+
 // 15. Refused input leaves the state alone.
 {
   const before = readFileSync(join(child, STATE), 'utf8')
@@ -662,6 +679,35 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('merged commit listed', r.stdout.includes(`    ${side.slice(0, 7)} docs: rework a page\n`), r.stdout)
   check('plain merge left out and not counted', !r.stdout.includes('Merge branch') && r.stdout.includes('3 commits since last sync'), r.stdout)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+}
+
+// 22. The recorded commit is gone from the template (a force-push; here a URL for a copy that
+// never had it): nothing the template may have shipped is deleted, and every file under a
+// synced path that the template does not ship is listed as kept.
+{
+  git(template, 'branch', 'before')
+  write(template, 'docs/template/experimental.md', '# experimental\n')
+  commit(template, 'feat(docs): experimental page')
+  run(child)
+  gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  const rewritten = join(tmp, 'rewritten')
+  git(tmp, 'clone', '-q', '--single-branch', '--branch', 'before', URL, rewritten)
+  git(rewritten, 'branch', '-q', '-m', 'before', 'main')
+  write(rewritten, 'docs/template/rewritten.md', '# rewritten\n')
+  commit(rewritten, 'docs: rewritten history')
+  const clone = join(tmp, 'clone-lost')
+  git(tmp, 'clone', '-q', pathToFileURL(child).href, clone)
+  const r = run(clone, pathToFileURL(rewritten).href)
+  check('lost sync point exits 0', r.status === 0, r.detail)
+  check('lost sync point says the diff is not complete', r.stdout.includes('not in its history') && r.stdout.includes('git cannot fetch it either') && !r.stdout.includes('complete regardless'), r.stdout)
+  const s = staged(clone)
+  check('lost sync point still stages the template head', s.includes('A docs/template/rewritten.md'), s.join(', '))
+  check('lost sync point deletes nothing it cannot place', !s.some(l => l.endsWith('docs/template/experimental.md')) && existsSync(join(clone, 'docs/template/experimental.md')), s.join(', '))
+  const out = r.stdout.split('\n')
+  const at = out.findIndex(l => l.startsWith('Kept ('))
+  const kept = at < 0 ? [] : out.slice(at + 1)
+  for (const file of ['docs/template/experimental.md', ...OWN])
+    check(`lost sync point lists ${file} as kept`, kept.includes(`  ${file}`), r.stdout)
 }
 
 if (fails.length > 0) {

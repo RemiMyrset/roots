@@ -118,11 +118,16 @@ anywhere), so it syncs as plain files.
 
 A tracked file under a synced path that the template head does not ship is
 retired, and staged for deletion, only when the template shipped it. The test
-is the tree at the sync point when that point is exact: the recorded commit
-when git has it, or a `shared history` or `root tree` baseline. With a
-`root time` baseline, which is approximate, or none, the test is the
-template's whole history. Any other file there is the repository's own and is
-never touched.
+is the tree at the sync point when that point is exact: the recorded commit,
+fetched by its hash when this clone lacks it (a fresh clone syncing back to an
+older ref), or a `shared history` or `root tree` baseline. With a `root time`
+baseline, which is approximate, or none, the test is the template's whole
+history, so a file of the repository's own at a path the template once
+shipped is retired too. When the template no longer has the recorded commit
+(a force-push, or a URL for another fork), the test is also the template's
+whole history, and a file the template retired since cannot be told from the
+repository's own, so every file the test keeps is listed under `Kept`. Any
+other file there is the repository's own and is never touched.
 
 The state file `.template-sync.json` at the repo root is written with LF and
 staged whenever it changes:
@@ -198,7 +203,9 @@ stdout, in order:
    detection is off, so a rename is a `D` and an `A`), two spaces, the path,
    and for the script itself the suffix
    `(this script — the new version runs next time)`. Then, only when a checkout
-   failed, a `Skipped` header with one `<path>  <reason>` line each.
+   failed, a `Skipped` header with one `<path>  <reason>` line each, and only
+   when the recorded commit is lost, a `Kept` header with one line per file
+   kept (behavior 24).
 5. `Follow-ups: none new.`, `Follow-ups: skipped` with a reason, or a
    `Follow-ups` header followed by one block per script (the key, its label,
    `template:`, `yours:`, and an optional `note:` line), then an optional
@@ -249,7 +256,9 @@ stderr.
 5. Given a recorded commit that is neither an ancestor nor a descendant of the
    template head, when run, then stdout says the sync point is "not in its
    history", no commit list is printed, script follow-ups are computed
-   two-way, and the state is rewritten to the template head.
+   two-way, and the state is rewritten to the template head. stdout says the
+   staged diff is complete, or, when git cannot fetch the recorded commit,
+   that the files it cannot place are listed under `Kept` (behavior 24).
 6. Given a state file that is not a JSON object, or whose `url`, `ref`,
    `exclude`, or `include` fails validation, when run, then exit `1`, stderr
    says it "is invalid" and names the field, and nothing is fetched or staged.
@@ -343,10 +352,14 @@ stderr.
     restored or cleaned. The tests cover the abort case only.
 24. Given a tracked file under a synced path that the template head does not
     ship, when run, then it is staged for deletion only when the template
-    shipped it at an exact sync point (the recorded commit, or a
-    `shared history` or `root tree` baseline) or, with a `root time` baseline
-    or none, anywhere in its history. Otherwise it is the repository's own (a
-    skill, rule, guard, or included path) and stays untouched and unstaged.
+    shipped it at an exact sync point (the recorded commit, fetched by its
+    hash when this clone lacks it, or a `shared history` or `root tree`
+    baseline) or, with a `root time` baseline or none, anywhere in its
+    history. Otherwise it is the repository's own (a skill, rule, guard, or
+    included path) and stays untouched and unstaged. Given a recorded commit
+    the template no longer has, the test is the template's history, and every
+    tracked file under a synced path that the template head does not ship and
+    the test keeps is listed under `Kept`.
 
 ## Edge cases and gotchas
 
@@ -356,7 +369,7 @@ stderr.
   the file is shared through git, the remote is not.
 - `root time` is a heuristic: a template commit made long before it was pushed
   can predate a copy taken from an older head. The `Baseline:` note says so,
-  and the staged diff is exact regardless.
+  and the staged diff does not depend on it.
 - Template tags live under `refs/template-tags/`, so `git describe` and
   changelogen in this repository never see them and `git tag -l` stays clean.
 - Rename entries in `git status` are read as their destination path. The

@@ -658,6 +658,11 @@ const { head, kind } = fetched
 const label = kind === 'tag' ? `${REMOTE}/${ref} (tag)` : `${REMOTE}/${ref}`
 
 const recorded = state?.commit
+// A fresh clone holds only the template history the fetch above brought, so a recorded commit
+// off it (a sync back to an older ref, a switch to another ref) is fetched by its hash. It is
+// lost only when the template no longer has it (a force-push), or the URL is another fork.
+const hasCommit = (sha: string): boolean => tryGit(['cat-file', '-e', `${sha}^{commit}`]) !== null
+const recordedLost = recorded !== undefined && !hasCommit(recorded) && (tryGit(['fetch', '--no-tags', REMOTE, recorded]) === null || !hasCommit(recorded))
 const baseline = recorded === undefined ? inferBaseline(head, label, paths) : undefined
 const base = baseline?.commit ?? recorded
 const baseInHistory = baseline !== undefined || (recorded !== undefined && tryGit(['merge-base', '--is-ancestor', recorded, head]) !== null)
@@ -674,11 +679,13 @@ if ([...upstreamByPath.values()].every(files => files.size === 0))
   fail(`Nothing to pull — none of the synced paths exist on ${label}. Is ${url} a roots template?`)
 
 // A tracked file the template no longer ships is retired only if the template shipped it:
-// in the tree at the sync point when that point is exact (a recorded commit git still has,
-// shared history, or a root tree), else anywhere in the template's history (the root-time
-// baseline is approximate, and a bootstrap has none). Anything else is the repository's own
-// file, such as its own skill or rule under a synced directory, and stays.
-const exactBase = base !== undefined && baseline?.how !== 'root time' && tryGit(['cat-file', '-e', `${base}^{commit}`]) !== null ? base : undefined
+// in the tree at the sync point when that point is exact (the recorded commit, shared
+// history, or a root tree), else anywhere in the template's history (the root-time baseline
+// is approximate, a bootstrap has none, and a lost recorded commit is gone). Anything else is
+// the repository's own file, such as its own skill or rule under a synced directory, and
+// stays; with the recorded commit lost it may also be one the template retired since, so it
+// is listed as kept.
+const exactBase = base !== undefined && baseline?.how !== 'root time' && !recordedLost ? base : undefined
 const atBase = new Map<string, Set<string>>()
 function templateShipped(path: string, file: string): boolean {
   if (exactBase === undefined)
@@ -692,6 +699,7 @@ function templateShipped(path: string, file: string): boolean {
 }
 
 const deleted: string[] = []
+const kept: string[] = []
 const skipped: string[] = []
 let pulled = 0
 for (const [path, upstream] of upstreamByPath) {
@@ -703,7 +711,11 @@ for (const [path, upstream] of upstreamByPath) {
       skipped.push(`${path}  ${why}`)
   }
   for (const file of zList(tryGit(['ls-files', '-z', '--', path]))) {
-    if (!upstream.has(file) && templateShipped(path, file) && tryGit(['rm', '--quiet', '--', file]) !== null)
+    if (upstream.has(file))
+      continue
+    if (!templateShipped(path, file))
+      kept.push(file)
+    else if (tryGit(['rm', '--quiet', '--', file]) !== null)
       deleted.push(file)
   }
 }
@@ -789,7 +801,8 @@ else if (behind) {
   out.push(`${fetchedAt} — recorded sync point ${short(recorded)} is ahead of it; syncing back to an older ref. Skipping the commit list; the staged diff below is complete regardless.`)
 }
 else if (!baseInHistory) {
-  out.push(`${fetchedAt} — recorded sync point ${short(recorded)} is not in its history (template rebased or force-pushed, or the state file points at another fork). Skipping the commit list; the staged diff below is complete regardless.`)
+  const diff = recordedLost ? 'git cannot fetch it either, so a file the template retired since then cannot be told from yours; any such file is listed under Kept' : 'the staged diff below is complete regardless'
+  out.push(`${fetchedAt} — recorded sync point ${short(recorded)} is not in its history (template rebased or force-pushed, or the state file points at another fork). Skipping the commit list; ${diff}.`)
 }
 else if (recorded === head) {
   out.push(`${fetchedAt} — unchanged since last sync.`)
@@ -818,6 +831,11 @@ if (skipped.length > 0) {
   out.push('Skipped (git checkout failed — fix and re-run):')
   for (const s of skipped)
     out.push(`  ${s}`)
+}
+if (recordedLost && kept.length > 0) {
+  out.push('Kept (under a synced path and not on the template; each is yours or one the template retired — git rm the template\'s):')
+  for (const k of kept)
+    out.push(`  ${k}`)
 }
 
 out.push('')
