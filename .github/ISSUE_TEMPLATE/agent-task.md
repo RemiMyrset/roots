@@ -43,5 +43,5 @@ labels: agent-task
 <!-- New tests expected. The Commands section of AGENTS.md defines "done";
      `pnpm verify` runs it all. -->
 
-- Every non-interactive command in the `AGENTS.md` Commands section passes clean
-  (skip the `docs:*:dev` previews, which are dev servers).
+- `pnpm verify` passes clean after the last edit (the done gate in the
+  `AGENTS.md` Commands section).
