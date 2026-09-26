@@ -210,10 +210,10 @@ stdout, in order:
    `outputStyle <name>  missing here` line when the template sets an output
    style and this repository sets none, and one block per template hook
    registration (event, matcher, command) this repository lacks. The block
-   opens with `hooks.<event>  differs` when a registration here for the same
-   event shares its matcher or its command, else `hooks.<event>  missing here`,
-   then a `template:` line and one `yours:` line per such registration, each
-   reading `matcher <matcher>, command <command>`.
+   opens with `hooks.<event>  differs` when it replaced a registration here
+   (behavior 14), else `hooks.<event>  missing here`, then a `template:` line
+   and one `yours:` line per replaced registration, each reading
+   `matcher <matcher>, command <command>`.
 6. A `Next:` block with the review, discard, and commit commands, only when
    something is staged.
 
@@ -248,8 +248,8 @@ stderr.
    still listed with its footer.
 5. Given a recorded commit that is neither an ancestor nor a descendant of the
    template head, when run, then stdout says the sync point is "not in its
-   history", no commit list is printed, follow-ups are computed two-way, and
-   the state is rewritten to the template head.
+   history", no commit list is printed, script follow-ups are computed
+   two-way, and the state is rewritten to the template head.
 6. Given a state file that is not a JSON object, or whose `url`, `ref`,
    `exclude`, or `include` fails validation, when run, then exit `1`, stderr
    says it "is invalid" and names the field, and nothing is fetched or staged.
@@ -285,13 +285,18 @@ stderr.
     `permissions.deny` rule in the template's `.claude/settings.json` that this
     repository's file lacks is listed as "missing here", as is the template's
     `outputStyle` when this repository sets none, and so is every template
-    hook registration (event, matcher, command) absent here, as "differs" when
-    a registration here for the same event shares its matcher or command. The
-    repository's own rules and hooks are never listed on their own, a hook of
-    its own registered ahead of the template's is no difference, the file is
-    never edited, and a missing or unreadable file skips the block with a
-    reason. Script follow-ups compare
-    only the template's `scripts` keys, in template order. A
+    hook registration (event, matcher, command) absent here. It is "differs"
+    when it replaced a registration here that the template head lacks, and
+    each such registration gets a `yours:` line. One running the same command
+    for the same event was replaced by it (a changed matcher). One the
+    template shipped at the sync point was replaced by the template's new
+    registrations for that event with its command, else its matcher, else all
+    of them. Otherwise it is "missing here". The repository's own rules and
+    hooks are never listed, even beside the template's under the same
+    matcher; a hook of its own registered ahead of the template's is no
+    difference, the file is never edited, and a missing or unreadable file
+    skips the block with a reason. Script follow-ups compare only the
+    template's `scripts` keys, in template order. A
     key absent here is "missing here", unless the template at the baseline
     already had it, in which case it is listed as customized, "absent here"; a
     key whose local value differs from the template's is "changed on the

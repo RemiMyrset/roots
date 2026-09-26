@@ -541,7 +541,7 @@ function settingsOf(json: string | null): SettingsShape | undefined {
   return { allow: list(permissions.allow), deny: list(permissions.deny), hooks, ...(typeof outputStyle === 'string' ? { outputStyle } : {}) }
 }
 
-/** A template hook registration this repository lacks, with this repository's registrations for the same event that share its matcher or its command. */
+/** A template hook registration this repository lacks, with the registrations here it replaces. */
 interface HookFollowUp {
   template: Hook
   yours: Hook[]
@@ -554,12 +554,14 @@ interface SettingsFollowUps {
 }
 
 /**
- * Two-way compare of .claude/settings.json, which is never synced: template allow and deny
- * rules absent here, the template's output style when this repository sets none, and every
- * template hook registration (event, matcher, command) absent here. A child's own rules and
- * hooks are never mentioned on their own, and the file is never edited.
+ * Compare of .claude/settings.json, which is never synced: template allow and deny rules
+ * absent here, the template's output style when this repository sets none, and every
+ * template hook registration (event, matcher, command) absent here. A registration here is
+ * paired with one it was replaced by only when it runs the same command, or when the
+ * template shipped it at the sync point (`base`) and has since dropped it. A child's own
+ * rules and hooks are never mentioned, and the file is never edited.
  */
-function settingsFollowUps(template: SettingsShape | undefined, local: SettingsShape | undefined, localMissing: boolean): SettingsFollowUps {
+function settingsFollowUps(template: SettingsShape | undefined, base: SettingsShape | undefined, local: SettingsShape | undefined, localMissing: boolean): SettingsFollowUps {
   if (localMissing)
     return { missing: [], hooks: [], skipped: 'no .claude/settings.json here' }
   if (!template)
@@ -572,12 +574,20 @@ function settingsFollowUps(template: SettingsShape | undefined, local: SettingsS
     ...(template.outputStyle !== undefined && local.outputStyle === undefined ? [`outputStyle ${template.outputStyle}`] : []),
   ]
   const same = (a: Hook, b: Hook): boolean => a.event === b.event && a.matcher === b.matcher && a.command === b.command
-  const hooks = template.hooks
-    .filter(t => !local.hooks.some(l => same(t, l)))
-    .map(t => ({
-      template: t,
-      yours: local.hooks.filter(l => l.event === t.event && (l.matcher === t.matcher || l.command === t.command) && !template.hooks.some(u => same(u, l))),
-    }))
+  const absent = template.hooks.filter(t => !local.hooks.some(l => same(t, l)))
+  // What a registration here was replaced by: the template's registrations absent here with
+  // its command (a changed matcher); for one the template dropped since the sync point, else
+  // those with its matcher (a changed command), else every one for its event.
+  const replacedBy = (l: Hook): Hook[] => {
+    const inEvent = absent.filter(t => t.event === l.event)
+    const byCommand = inEvent.filter(t => t.command === l.command)
+    if (byCommand.length > 0 || !base?.hooks.some(b => same(b, l)))
+      return byCommand
+    const byMatcher = inEvent.filter(t => t.matcher === l.matcher)
+    return byMatcher.length > 0 ? byMatcher : inEvent
+  }
+  const replaced = local.hooks.filter(l => !template.hooks.some(t => same(t, l))).map(l => ({ l, by: replacedBy(l) }))
+  const hooks = absent.map(t => ({ template: t, yours: replaced.filter(r => r.by.includes(t)).map(r => r.l) }))
   return { missing, hooks }
 }
 
@@ -711,6 +721,7 @@ const followUps = scriptFollowUps(
 const SETTINGS = '.claude/settings.json'
 const settings = settingsFollowUps(
   settingsOf(tryGit(['show', `${head}:${SETTINGS}`])),
+  base !== undefined ? settingsOf(tryGit(['show', `${base}:${SETTINGS}`])) : undefined,
   existsSync(SETTINGS) ? settingsOf(readFileSync(SETTINGS, 'utf8')) : undefined,
   !existsSync(SETTINGS),
 )

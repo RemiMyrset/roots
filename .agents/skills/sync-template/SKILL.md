@@ -43,8 +43,10 @@ and the contract are in `docs/template/sync-template.md`.
    "differs" (first sync) needs judgment; "customized locally" is
    informational, leave those alone. `Settings` lines are
    `.claude/settings.json` edits: add each rule, output style, and hook
-   registration marked "missing here", and for a hook that "differs", change
-   your registration to the template's matcher and command. Edit by hand;
+   registration marked "missing here", beside your own hooks. For a hook that
+   "differs", the `yours:` lines are registrations the template replaced:
+   remove them and add the `template:` one, unless you changed that matcher
+   on purpose. Never remove a hook no `yours:` line names. Edit by hand;
    never copy the template's settings file over yours.
 7. Done gate. `pnpm install` if `package.json` changed, then `pnpm verify`; it
    stops at the first failure and names it. Fix at the source; never loosen a

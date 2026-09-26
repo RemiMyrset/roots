@@ -262,7 +262,7 @@ git(template, 'mv', 'docs/template/x.md', 'docs/template/y.md')
 write(template, 'scripts/docs/check-docs.mts', '// check v2\n')
 write(template, 'package.json', pkg({ ...T2_SCRIPTS, 'docs:check': 'node scripts/docs/check-docs.mts --strict' }))
 write(template, '.github/labels.yml', 'labels\n')
-write(template, '.claude/settings.json', settings(['Read(**/.env)', 'Read(**/.pgpass)'], 'node hooks.mts --strict'))
+write(template, '.claude/settings.json', settings(['Read(**/.env)', 'Read(**/.pgpass)'], 'node hooks.mts --strict', 'Bash|Monitor'))
 const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: docs:check now fails on stale review dates.\n', T3_AT)
 const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.claude/rules/api.md', '.claude/hooks/deny-prod-db.mts', 'docs/template/x1.md']
 {
@@ -285,7 +285,7 @@ const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.cla
   check('three-way mode names the upstream change', r.stdout.includes('scripts.docs:check  changed on the template since last sync'))
   check('missing deny rule listed', r.stdout.includes('permissions.deny Read(**/.pgpass)  missing here'), r.stdout)
   check('present rules not listed', !r.stdout.includes('Read(**/.env)') && !r.stdout.includes('Bash(git status:*)'), r.stdout)
-  check('changed hook command listed', r.stdout.includes('hooks.PreToolUse  differs') && r.stdout.includes('template: matcher Bash, command node hooks.mts --strict') && r.stdout.includes('yours:    matcher Bash, command node hooks.mts\n'), r.stdout)
+  check('hook the template replaced listed', r.stdout.includes('  hooks.PreToolUse  differs\n    template: matcher Bash|Monitor, command node hooks.mts --strict\n    yours:    matcher Bash, command node hooks.mts\n'), r.stdout)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
@@ -591,7 +591,7 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 {
   const hook = (matcher: string, command: string): unknown => ({ matcher, hooks: [{ type: 'command', command }] })
   const permissions = { allow: ['Bash(git status:*)'], deny: ['Read(**/.env)', 'Read(**/.pgpass)'] }
-  write(child, '.claude/settings.json', json({ permissions, hooks: { PreToolUse: [hook('Bash', 'node tools/fmt-hook.mts'), hook('Bash', 'node hooks.mts --strict')] } }))
+  write(child, '.claude/settings.json', json({ permissions, hooks: { PreToolUse: [hook('Bash', 'node tools/fmt-hook.mts'), hook('Bash|Monitor', 'node hooks.mts --strict')] } }))
   commit(child, 'chore: own hook first')
   const same = run(child)
   check('own hook ahead of the template\'s is no difference', same.status === 0 && same.stdout.includes('Settings: none new.'), same.stdout)
@@ -600,9 +600,26 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   const r = run(child)
   check('settings change exits 0', r.status === 0, r.detail)
   check('output style missing here', r.stdout.includes('  outputStyle writing  missing here'), r.stdout)
-  check('matcher-only change differs', r.stdout.includes('  hooks.PreToolUse  differs\n    template: matcher Bash|PowerShell, command node hooks.mts --strict\n    yours:    matcher Bash, command node hooks.mts --strict\n'), r.stdout)
+  check('matcher-only change differs', r.stdout.includes('  hooks.PreToolUse  differs\n    template: matcher Bash|PowerShell, command node hooks.mts --strict\n    yours:    matcher Bash|Monitor, command node hooks.mts --strict\n'), r.stdout)
   check('second template hook missing here', r.stdout.includes('  hooks.PreToolUse  missing here\n    template: matcher Write, command node write-guard.mts\n'), r.stdout)
   check('own hook never mentioned', !r.stdout.includes('fmt-hook'), r.stdout)
+  gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+}
+
+// 19b. A hook of the repository's own that shares a matcher with the template's is never
+// paired with it: a hook the template adds beside it is "missing here", and a command the
+// template changed pairs only with the registration the template shipped.
+{
+  const entry = (matcher: string, ...commands: string[]): unknown => ({ matcher, hooks: commands.map(command => ({ type: 'command', command })) })
+  const permissions = { allow: ['Bash(git status:*)'], deny: ['Read(**/.env)', 'Read(**/.pgpass)'] }
+  write(child, '.claude/settings.json', json({ outputStyle: 'writing', permissions, hooks: { PreToolUse: [entry('Bash|PowerShell', 'node hooks.mts --strict', 'node tools/fmt-hook.mts'), entry('Write', 'node write-guard.mts', 'node tools/own-write.mts')] } }))
+  commit(child, 'chore: apply settings follow-ups')
+  write(template, '.claude/settings.json', json({ outputStyle: 'writing', permissions, hooks: { PreToolUse: [entry('Bash|PowerShell', 'node hooks.mts --strict', 'node audit.mts'), entry('Write', 'node write-guard.mts --strict')] } }))
+  commit(template, 'fix(hooks): audit, stricter writes')
+  const r = run(child)
+  check('own hooks sharing a matcher exit 0', r.status === 0, r.detail)
+  check('added hook beside an own one is missing here, and the changed one pairs with the template\'s', r.stdout.includes('  hooks.PreToolUse  missing here\n    template: matcher Bash|PowerShell, command node audit.mts\n  hooks.PreToolUse  differs\n    template: matcher Write, command node write-guard.mts --strict\n    yours:    matcher Write, command node write-guard.mts\n\n'), r.stdout)
+  check('own hooks sharing a matcher never mentioned', !r.stdout.includes('fmt-hook') && !r.stdout.includes('own-write'), r.stdout)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
