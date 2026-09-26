@@ -82,7 +82,11 @@ template shipped and has since retired. An artifact the template retired
 elsewhere (a doc, a config line) stays behind as an orphan; the
 breaking-commit footer names it, so sweep it by hand. A file of your own under
 a synced directory (say `.claude/skills/my-skill/`, a path-scoped rule, or a
-`deny-*.mts` guard) stays; behavior 24 says how the sync tells it apart.
+`deny-*.mts` guard) stays, with two exceptions: at a path the template ships,
+the template's version replaces it (an `M` line), and with a `root time` or
+`none` baseline, one at a path the template once shipped is staged for
+deletion (a `D` line). Discard either like any other path. Behavior 24 has the
+rule.
 
 ## Contract
 
