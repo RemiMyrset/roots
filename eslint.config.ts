@@ -29,6 +29,49 @@ export default antfu(
         { selector: 'TSEnumDeclaration', message: 'Enums are banned. Use a `const` object plus a union type.' },
         { selector: 'ClassDeclaration', message: 'Classes are banned — use functions and plain objects. If a dependency requires a subclass: // eslint-disable-next-line no-restricted-syntax -- <reason>' },
         { selector: 'ClassExpression', message: 'Class expressions are banned — use functions and plain objects.' },
+        // The dynamic-import half of `repo/ts-import-specifiers` below, listed here because a
+        // second `no-restricted-syntax` block would discard the bans above. `\x2F` is a `/`,
+        // which an esquery regex cannot contain.
+        { selector: 'ImportExpression[source.value=/^\\.\\.?\\x2F.*\\.[cm]?jsx?$/]', message: 'Import the .ts/.mts source: node runs it as written and has no .js file to load.' },
+      ],
+    },
+  },
+  {
+    name: 'repo/typescript-only',
+    // No JavaScript source (AGENTS.md): a .js/.mjs file escapes the typecheck, since tsc has no
+    // `allowJs`. `ignores` keeps ```js fences in markdown legal. The escape is a whole-file
+    // disable because the report sits on `Program`; a next-line disable does not reach it.
+    files: ['**/*.{js,mjs,cjs,jsx}'],
+    ignores: ['**/*.md/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        { selector: 'Program', message: 'TypeScript only: rename this file to .ts or .mts. If a tool reads only a JavaScript config: /* eslint-disable no-restricted-syntax -- <reason> */ as line 1.' },
+      ],
+    },
+  },
+  {
+    name: 'repo/ts-import-specifiers',
+    // Node runs the TypeScript source directly and loads a relative specifier as written, so
+    // `./util.js` throws ERR_MODULE_NOT_FOUND at runtime while tsc (nodenext maps .js to .ts)
+    // and vitest both resolve it. Declarations keep the .js form they describe.
+    files: ['**/*.{ts,mts,cts,tsx}'],
+    ignores: ['**/*.d.?([cm])ts', '**/*.md/**'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{ regex: '^\\.\\.?/.*\\.[cm]?jsx?$', message: 'Import the .ts/.mts source: node runs it as written and has no .js file to load.' }],
+      }],
+    },
+  },
+  {
+    name: 'repo/trust-policy-exact-versions',
+    // A bare package name under `trustPolicyExclude` waives pnpm's no-downgrade check for every
+    // future release of that package, including a hijacked one; an entry names exact versions.
+    files: ['pnpm-workspace.yaml'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        { selector: 'YAMLPair[key.value=\'trustPolicyExclude\'] > YAMLSequence > YAMLScalar[value=/^@?[^@]+$/]', message: 'Exclude exact versions (name@1.2.3 || 1.2.4), never a whole package.' },
       ],
     },
   },

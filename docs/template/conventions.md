@@ -64,7 +64,12 @@ portability requirement. The choices, each with its why:
   or `enum`, functions and plain objects/union types only, enforced by ESLint
   `no-restricted-syntax` (enums also by `erasableSyntaxOnly`). When a dependency
   demands a subclass, escape with
-  `// eslint-disable-next-line no-restricted-syntax -- <reason>`.
+  `// eslint-disable-next-line no-restricted-syntax -- <reason>`. ESLint also
+  fails a JavaScript file, which tsc never checks, and a relative import ending
+  in `.js`, `.mjs`, or `.cjs`: node runs the source as written, so `./util.js`
+  passes tsc and vitest and then throws at runtime. When a tool reads only a
+  JavaScript config, escape with
+  `/* eslint-disable no-restricted-syntax -- <reason> */` as its first line.
 - Unit tests live in a sibling `test/` directory beside `src/`, never colocated:
   the unjs and antfu house layout. Every exported symbol carries a `/** */`
   block; ESLint `jsdoc/require-jsdoc` enforces presence, review enforces

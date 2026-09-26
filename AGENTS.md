@@ -51,7 +51,8 @@ passes clean after your last edit. When unsure which apply, run them all.
 - Test hooks: `pnpm test:hooks` (agent guard allow/deny fixtures)
 - Test sync: `pnpm test:sync` (template-sync fixtures)
 - Test docs: `pnpm test:docs` (docs checker fixtures)
-- Test gates: `pnpm test:gates` (verify and the workflows run the same steps)
+- Test gates: `pnpm test:gates` (verify and the workflows run the same steps; ESLint
+  rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
@@ -74,7 +75,8 @@ passes clean after your last edit. When unsure which apply, run them all.
   `npx` passes as a one-off runner, prefer `pnpm dlx`).
 - ALWAYS use TypeScript: no `.js`/`.mjs`, erasable syntax only, no `class`, explicit
   `.ts`/`.mts` on relative imports (tsc `erasableSyntaxOnly` and ESLint; the escape
-  hatch for a dependency that demands a subclass is in [conventions](./docs/template/conventions.md)).
+  hatches for a dependency that demands a subclass or a JavaScript config are in
+  [conventions](./docs/template/conventions.md)).
 - ALWAYS write docs as portable markdown (`pnpm docs:portability`; rules in
   [markdown-portability](./docs/template/markdown-portability.md)).
 - ALWAYS write Conventional Commits with a lowercase subject of at most 50 characters
