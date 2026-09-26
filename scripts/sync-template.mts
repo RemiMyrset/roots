@@ -716,18 +716,21 @@ const upstreamByPath = new Map(paths.map(path => [path, new Set(zList(tryGit(['l
 if ([...upstreamByPath.values()].every(files => files.size === 0))
   fail(`Nothing to pull — none of the synced paths exist on ${label}. Is ${url} a roots template?`)
 
-// A tracked file the template no longer ships is retired only if the template shipped it:
-// in the tree at the sync point when that point is exact (the recorded commit, shared
-// history, or a root tree), else anywhere in the template's history (the root-time baseline
-// is approximate, a bootstrap has none, and a lost recorded commit is gone). Anything else is
-// the repository's own file, such as its own skill or rule under a synced directory, and
-// stays; with the recorded commit lost it may also be one the template retired since, so it
-// is listed as kept.
+// A tracked file under a synced path that the template head lacks is retired only when it is
+// the template's: in the tree at the sync point when that point is exact (the recorded commit,
+// shared history, or a root tree; the root-time baseline is approximate, a bootstrap has none,
+// and a lost recorded commit is gone), or byte-identical to a version the template shipped at
+// that path, however it got here (an older script that recorded no sync point, a sync while
+// the path was excluded). Anything else stays. It is listed as kept when it may still be the
+// template's: at a path the template once shipped (a copy edited here, or the repository's own
+// file reusing the path), or, with the recorded commit lost, anywhere, since the template may
+// have shipped it only in the history it lost. Any other file, such as the repository's own
+// skill or rule under a synced directory, is never mentioned.
 const exactBase = base !== undefined && baseline?.how !== 'root time' && !recordedLost ? base : undefined
 const atBase = new Map<string, Set<string>>()
-function templateShipped(path: string, file: string): boolean {
+function inBaseTree(path: string, file: string): boolean {
   if (exactBase === undefined)
-    return Boolean(tryGit(['rev-list', '-1', head, '--', file])?.trim())
+    return false
   let files = atBase.get(path)
   if (!files) {
     files = new Set(zList(tryGit(['ls-tree', '-r', '-z', '--name-only', exactBase, '--', path])))
@@ -739,6 +742,8 @@ function templateShipped(path: string, file: string): boolean {
 const deleted: string[] = []
 const kept: string[] = []
 const skipped: string[] = []
+// Tracked files the template head lacks, with the synced path each is under and its blob id.
+const unplaced = new Map<string, { path: string, blob: string }>()
 let pulled = 0
 for (const [path, upstream] of upstreamByPath) {
   if (upstream.size > 0) {
@@ -748,13 +753,22 @@ for (const [path, upstream] of upstreamByPath) {
     else
       skipped.push(`${path}  ${why}`)
   }
-  for (const file of zList(tryGit(['ls-files', '-z', '--', path]))) {
-    if (upstream.has(file))
-      continue
-    if (!templateShipped(path, file))
-      kept.push(file)
-    else if (tryGit(['rm', '--quiet', '--', file]) !== null)
+  // `<mode> <blob> <stage>\t<file>`
+  for (const entry of zList(tryGit(['ls-files', '-s', '-z', '--', path]))) {
+    const file = entry.slice(entry.indexOf('\t') + 1)
+    if (!upstream.has(file) && !unplaced.has(file))
+      unplaced.set(file, { path, blob: entry.split(' ')[1] ?? '' })
+  }
+}
+const shippedVersions = versionsAt(historyRevs, [...new Set([...unplaced.values()].map(u => u.path))])
+for (const [file, { path, blob }] of unplaced) {
+  const versions = shippedVersions.get(file)
+  if (inBaseTree(path, file) || versions?.has(blob) === true) {
+    if (tryGit(['rm', '--quiet', '--', file]) !== null)
       deleted.push(file)
+  }
+  else if (recordedLost || versions !== undefined) {
+    kept.push(file)
   }
 }
 if (pulled === 0)
@@ -874,7 +888,7 @@ if (skipped.length > 0) {
   for (const s of skipped)
     out.push(`  ${s}`)
 }
-if (recordedLost && kept.length > 0) {
+if (kept.length > 0) {
   out.push('Kept (under a synced path and not on the template; each is yours or one the template retired — git rm the template\'s):')
   for (const k of kept)
     out.push(`  ${k}`)

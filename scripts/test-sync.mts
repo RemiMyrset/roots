@@ -281,6 +281,7 @@ const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.cla
   check('rename reported as a deletion and an addition', r.stdout.includes('  D  docs/template/x.md') && r.stdout.includes('  A  docs/template/y.md'), r.stdout)
   for (const own of OWN)
     check(`own file kept: ${own}`, !s.some(l => l.endsWith(own)) && existsSync(join(child, own)), s.join(', '))
+  check('own files at paths the template never shipped are not listed as kept', !r.stdout.includes('Kept ('), r.stdout)
   check('state advances to T3', readState(child).commit === T3)
   check('three-way mode names the upstream change', r.stdout.includes('scripts.docs:check  changed on the template since last sync'))
   check('missing deny rule listed', r.stdout.includes('permissions.deny Read(**/.pgpass)  missing here'), r.stdout)
@@ -556,15 +557,18 @@ git(template, 'tag', '-a', 'v1.0.0', '-m', 'v1.0.0', T2)
 // smudge command carries a space so git runs it through `sh -c`, where `exit` is a builtin
 // on every platform; the clean side is `cat` and required, so `git add`, `git rm`, and
 // `git status` on the consumer's own files keep working. The consumer is case 8's bootstrap
-// shape plus two committed files under scripts/docs: one the template retired, so a
-// deletion gets staged even with no baseline, and one it never shipped, which stays.
+// shape plus three committed files: a byte-identical copy of one the template retired, so a
+// deletion gets staged even with no baseline; one of its own at a path the template retired,
+// which stays and is listed as kept; and one at a path the template never shipped, which
+// stays unmentioned.
 function bootstrapWithFilter(name: string, pattern: string): string {
   const dir = join(tmp, name)
   mkdirSync(dir)
   git(dir, 'init', '-q', '-b', 'main')
   write(dir, 'package.json', pkg({ build: 'tsc', lint: 'eslint .' }))
-  write(dir, 'scripts/docs/gen-llms.mts', '// retired by the template at T2\n')
+  write(dir, 'scripts/docs/gen-llms.mts', '// gen\n') // the template's copy, retired at T2
   write(dir, 'scripts/docs/own.mts', '// never on the template\n')
+  write(dir, 'docs/template/x.md', '# own page at a path the template retired at T3\n')
   commit(dir, 'chore: init')
   write(dir, 'scripts/sync-template.mts', REAL_SCRIPT)
   write(dir, '.git/info/attributes', `${pattern} filter=boom\n`)
@@ -585,6 +589,9 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   for (const want of ['A .github/workflows/ci.yml', 'A .claude/skills/x/SKILL.md', 'A scripts/sync-template.mts', 'D scripts/docs/gen-llms.mts', `A ${STATE}`])
     check(`one failed checkout still stages ${want}`, s.includes(want), s.join(', '))
   check('file the template never shipped is kept without a baseline', !s.some(l => l.endsWith('scripts/docs/own.mts')) && existsSync(join(dir, 'scripts/docs/own.mts')), s.join(', '))
+  check('file the template never shipped is not listed as kept', !r.stdout.includes('scripts/docs/own.mts'), r.stdout)
+  check('own file at a retired template path is kept without a baseline', !s.some(l => l.endsWith('docs/template/x.md')) && existsSync(join(dir, 'docs/template/x.md')), s.join(', '))
+  check('own file at a retired template path is listed as kept', r.stdout.includes('\nKept (') && r.stdout.includes('\n  docs/template/x.md\n'), r.stdout)
   check('skipped path is neither staged nor written', !s.some(l => l.endsWith('scripts/docs/check-docs.mts')) && !existsSync(join(dir, 'scripts/docs/check-docs.mts')), s.join(', '))
   check('one failed checkout records the head', readState(dir).commit === T4)
 }
@@ -682,14 +689,17 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 }
 
 // 22. The recorded commit is gone from the template (a force-push; here a URL for a copy that
-// never had it): nothing the template may have shipped is deleted, and every file under a
-// synced path that the template does not ship is listed as kept.
+// never had it): nothing the template may have shipped is deleted, not even a file of the
+// repository's own at a path the template retired long before, and every file under a synced
+// path that the template does not ship is listed as kept.
 {
   git(template, 'branch', 'before')
   write(template, 'docs/template/experimental.md', '# experimental\n')
   commit(template, 'feat(docs): experimental page')
   run(child)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(child, 'docs/template/x.md', '# own page at a path the template retired at T3\n')
+  commit(child, 'docs: own page')
   const rewritten = join(tmp, 'rewritten')
   git(tmp, 'clone', '-q', '--single-branch', '--branch', 'before', URL, rewritten)
   git(rewritten, 'branch', '-q', '-m', 'before', 'main')
@@ -703,10 +713,11 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   const s = staged(clone)
   check('lost sync point still stages the template head', s.includes('A docs/template/rewritten.md'), s.join(', '))
   check('lost sync point deletes nothing it cannot place', !s.some(l => l.endsWith('docs/template/experimental.md')) && existsSync(join(clone, 'docs/template/experimental.md')), s.join(', '))
+  check('lost sync point keeps an own file at a path the template retired', !s.some(l => l.endsWith('docs/template/x.md')) && existsSync(join(clone, 'docs/template/x.md')), s.join(', '))
   const out = r.stdout.split('\n')
   const at = out.findIndex(l => l.startsWith('Kept ('))
   const kept = at < 0 ? [] : out.slice(at + 1)
-  for (const file of ['docs/template/experimental.md', ...OWN])
+  for (const file of ['docs/template/experimental.md', 'docs/template/x.md', ...OWN])
     check(`lost sync point lists ${file} as kept`, kept.includes(`  ${file}`), r.stdout)
 }
 
@@ -746,6 +757,66 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('renamed hook file staged as a deletion and an addition', s.includes('D .claude/hooks/dispatch.mts') && s.includes('A .claude/hooks/guard.mts'), s.join(', '))
   check('registration older than the sync point pairs with its replacement', renamed.stdout.includes(`  hooks.PreToolUse  differs\n    template: matcher Bash|PowerShell, command node .claude/hooks/guard.mts\n    yours:    matcher Bash, command ${DISPATCH}\n\n`), renamed.stdout)
   check('own registration still never listed', !renamed.stdout.includes('mcp__devbox__exec'), renamed.stdout)
+}
+
+// 24. A template file that got here by another route than the sync point (an older copy of
+// the script that recorded none, a sync while its path was excluded) is still the template's:
+// a byte-identical copy is retired once the template retires it, an edited copy stays and is
+// listed as kept, and the repository's own skill stays unmentioned.
+{
+  const routeTemplate = join(tmp, 'route-template')
+  mkdirSync(routeTemplate)
+  git(routeTemplate, 'init', '-q', '-b', 'main')
+  write(routeTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(routeTemplate, 'docs/template/a.md', '# a v1\n')
+  write(routeTemplate, '.claude/rules/tpl.md', '# tpl rule\n')
+  commit(routeTemplate, 'chore: t1', T1_AT)
+  const routeUrl = pathToFileURL(routeTemplate).href
+  const kid = join(tmp, 'route-child')
+  copyTree(routeTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  commit(kid, 'Initial commit', COPY_AT)
+  write(kid, '.claude/skills/own/SKILL.md', '# own\n')
+  commit(kid, 'feat: own skill')
+  write(routeTemplate, '.claude/rules/legacy.md', '# legacy rule\n')
+  write(routeTemplate, '.claude/hooks/deny-old.mts', '// a guard the template later retires\n')
+  write(routeTemplate, 'docs/template/new.md', '# new page\n')
+  commit(routeTemplate, 'feat: a rule, a guard, a page', T2_AT)
+  git(kid, 'fetch', '-q', routeUrl, 'main')
+  git(kid, 'checkout', 'FETCH_HEAD', '--', '.claude/rules', '.claude/hooks', 'docs/template')
+  write(kid, 'docs/template/new.md', '# new page, edited here\n')
+  commit(kid, 'chore: sync mechanics from template (older script)')
+  git(routeTemplate, 'rm', '-q', '.claude/rules/legacy.md', '.claude/hooks/deny-old.mts', 'docs/template/new.md')
+  commit(routeTemplate, 'refactor!: retire the rule, the guard, and the page', T3_AT)
+  const r = run(kid, routeUrl)
+  check('older-script copy exits 0', r.status === 0, r.detail)
+  check('older-script copy has a root-tree baseline', r.stdout.includes('(root tree)'), r.stdout)
+  const s = staged(kid)
+  for (const want of ['D .claude/rules/legacy.md', 'D .claude/hooks/deny-old.mts'])
+    check(`older-script copy stages ${want}`, s.includes(want), s.join(', '))
+  check('edited copy of a retired page stays', !s.some(l => l.endsWith('docs/template/new.md')) && existsSync(join(kid, 'docs/template/new.md')), s.join(', '))
+  check('edited copy of a retired page is listed as kept', r.stdout.includes('\nKept (') && r.stdout.includes('\n  docs/template/new.md\n'), r.stdout)
+  check('own skill stays unmentioned', !s.some(l => l.endsWith('.claude/skills/own/SKILL.md')) && existsSync(join(kid, '.claude/skills/own/SKILL.md')) && !r.stdout.includes('.claude/skills/own'), r.stdout)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+
+  write(routeTemplate, '.claude/rules/extra.md', '# extra rule\n')
+  commit(routeTemplate, 'feat: an extra rule', T4_AT)
+  run(kid)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(kid, STATE, json({ url: routeUrl, commit: readState(kid).commit, exclude: ['.claude/rules'] }))
+  commit(kid, 'chore: exclude the rules')
+  git(routeTemplate, 'rm', '-q', '.claude/rules/extra.md')
+  commit(routeTemplate, 'refactor: retire the extra rule')
+  const excluded = run(kid)
+  check('excluded path keeps the rule the template retired', excluded.status === 0 && !staged(kid).some(l => l.endsWith('.claude/rules/extra.md')), excluded.detail)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(routeTemplate, 'docs/template/a.md', '# a v2\n')
+  commit(routeTemplate, 'docs: a v2')
+  write(kid, STATE, json({ url: routeUrl, commit: readState(kid).commit }))
+  commit(kid, 'chore: sync the rules again')
+  const back = run(kid)
+  check('dropped exclusion exits 0', back.status === 0, back.detail)
+  check('dropped exclusion retires the rule the template retired meanwhile', staged(kid).includes('D .claude/rules/extra.md'), staged(kid).join(', '))
 }
 
 if (fails.length > 0) {

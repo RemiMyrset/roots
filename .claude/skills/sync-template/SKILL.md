@@ -35,14 +35,14 @@ and the contract are in `docs/template/sync-template.md`.
    Apply each one, or tell the user why not.
 5. Review the staged diff with `git diff --cached`. Deliberate local divergence
    in a synced file is normal: discard that path with
-   `git restore --staged --worktree <path>`. A `D` line is a file the template
-   shipped and retired, but with a `root time` or `none` baseline the check is
-   the template's whole history: if a `D` line is a file of your own, discard
-   it the same way. A file of your own at a path the template now ships shows
-   as `M`; discard it too. A `Kept` block means the recorded sync point is
-   gone: each file listed is yours or one the template retired; `git rm` the
-   template's. A `Skipped` block means a checkout failed; fix the path and
-   re-run.
+   `git restore --staged --worktree <path>`. A file of your own at a path the
+   template now ships shows as `M`; discard it too. A `D` line is a file the
+   template retired: one in its tree at the sync point, your edits included,
+   or a byte-identical copy of a version it shipped there. Discard it to keep
+   the file; an unedited one comes back as `D` next sync until you move it. A
+   `Kept` block lists files that stayed but may be the template's: each is
+   yours or one the template retired; `git rm` the template's. A `Skipped`
+   block means a checkout failed; fix the path and re-run.
 6. Apply the follow-ups. `scripts.*` lines are `package.json` edits:
    "missing here" and "changed on the template" entries are edits to make;
    "differs" (first sync) needs judgment; "customized locally" is
