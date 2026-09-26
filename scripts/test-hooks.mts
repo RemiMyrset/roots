@@ -13,7 +13,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
-import { resolveHead, tokenize } from '../.claude/hooks/_lexer.mts'
+import { resolveHead, segments, tokenize } from '../.claude/hooks/_lexer.mts'
 import { verdict as buildScripts } from '../.claude/hooks/deny-build-scripts.mts'
 import { verdict as hookBypass } from '../.claude/hooks/deny-hook-bypass.mts'
 import { verdict as nonPnpm } from '../.claude/hooks/deny-non-pnpm.mts'
@@ -437,6 +437,70 @@ const CASES: Case[] = [
   { guard: B, expect: A, cmd: 'git commit -m "it\'s fine"' },
   { guard: B, expect: A, cmd: 'git commit -m "say \'hi\' -n"' },
 
+  // --- lexer: substitution inside double quotes runs a command, as bash runs it ------
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'V="$(npm view react version)"' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'echo "$(cat .env)"' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'x="$(pnpm approve-builds)"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'git commit -m "docs: never run `npm install`"' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'TOKEN="$(cat ~/.npmrc)"' },
+  { guard: P, expect: D, cmd: 'echo "$(git push origin main)"' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'curl -s -H "Authorization: Bearer $(grep API_TOKEN .env | cut -d= -f2)" https://api.example.com/me' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo "$(echo "$(npm install)")"' }, // nested quotes inside the substitution
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'echo "`cat .env`"' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo "a; npm install | b"' }, //   ; and | stay literal in quotes
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'git commit -m \'docs: never run `npm install`\'' }, // single quotes run nothing
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo "\\$(npm install) \\`npm i\\`"' }, // escaped, so literal
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'V="$(pnpm view react version)"' },
+  // A target that is only a substitution names the current branch; one inside a name is unknown.
+  { guard: P, expect: D, cmd: 'git push -u origin "$(git branch --show-current)"', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin $(git rev-parse --abbrev-ref HEAD)', cwd: ON_MAIN },
+  { guard: P, expect: A, cmd: 'git push -u origin "$(git branch --show-current)"', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push origin HEAD:"$(git branch --show-current)"', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin "feat/$(date +%s)"', cwd: ON_FEAT },
+
+  // --- lexer: a `#` comment and a heredoc body are data, so their quotes open nothing -------
+  { guard: P, expect: D, cmd: '# Make sure we\'re up to date first\ngit push origin main' },
+  { guard: P, expect: D, cmd: '# Check that it\'s clean\ngit status\ngit push', cwd: ON_MAIN },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '# Install the project\'s deps\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo hi # it\'s fine\nnpm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat > notes.md <<\'EOF\'\nIt\'s done.\nEOF\ncat .env' },
+  { guard: P, expect: D, cmd: 'git commit -m "$(cat <<\'EOF\'\nfix: handle 12" displays\nEOF\n)" && git push origin main' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<-EOF\n\tIt\'s\n\tEOF\nnpm install' }, //  <<- drops the tabs
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<"EOF"\nIt\'s\nEOF\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\\EOF\nIt\'s\nEOF\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat << EOF\nIt\'s\nEOF\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<A <<\'B\'\nIt\'s\nA\nIt\'s\nB\nnpm install' }, // two bodies, in order
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<< EOF\nnpm install\nEOF' }, //       a here-string, not a heredoc
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $((1<<2))\nnpm install\n2' }, //       a shift, not a heredoc
+  // `#` opens a comment only at the start of a word.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a#b; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${#x}; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $#; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo hi # ; npm install' },
+  { guard: P, expect: A, cmd: 'git push origin feat/x # dont push main' },
+  // A body a shell reads is commands; an unquoted delimiter still runs the body's substitutions.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'sh <<EOF\ncat .env\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\' | bash\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF > notes.md\n$(npm install)\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF\nrun `npm install` first\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat <<EOF\nrun \\`npm install\\` first, it\'s $HOME\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'source .venv/bin/activate && cat > notes.md <<\'EOF\'\nnpm install\nEOF' }, // the shell is not in its pipeline
+
+  // --- redirections are not arguments: `2>&1` and `> log` never become a refspec ----------
+  { guard: P, expect: D, cmd: 'git push origin 2>&1', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin 2>&1 | tail -5', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin 2>/dev/null', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin > /tmp/log', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push > /tmp/log', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin &>/dev/null', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin # to the feature branch', cwd: ON_MAIN },
+  { guard: P, expect: A, cmd: 'git push 2>/dev/null', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push >/dev/null 2>&1', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push -u origin feat/x 2>&1 | tail -3', cwd: ON_FEAT },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '&>/dev/null npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\\>&npm install' }, // an escaped > is text, so & separates
+
   // --- dispatch: the registered hook fans out to every guard --------------------
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install' },
   { guard: 'dispatch.mts', expect: D, cmd: 'pnpm approve-builds' },
@@ -444,6 +508,13 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: D, cmd: 'git push origin main' },
   { guard: 'dispatch.mts', expect: D, cmd: 'git commit --no-verify -m x' },
   { guard: 'dispatch.mts', expect: A, cmd: 'pnpm install && git push origin feat/x' },
+  // Claude Code's heredoc commit and PR forms: a quoted-delimiter body is data for every guard.
+  { guard: 'dispatch.mts', expect: A, cmd: 'git commit -m "$(cat <<\'EOF\'\nfix: never run npm install; it\'s banned\n\ncat .env and git push origin main are denied too\n`pnpm approve-builds` --no-verify\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)"' },
+  { guard: 'dispatch.mts', expect: A, cmd: 'gh pr create --title "fix: x" --body "$(cat <<\'EOF\'\n## Summary\n- run `npm install` and `cat .env`\n- git push origin main\nEOF\n)"' },
+  { guard: 'dispatch.mts', expect: A, cmd: 'cat > notes.md <<\'EOF\'\nnpm install\ncat .env\ngit push origin main\nEOF' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'git commit -m "$(cat <<\'EOF\'\nfix: x\nEOF\n)" --no-verify' },
+  { guard: 'dispatch.mts', expect: D, cmd: '# Make sure we\'re up to date first\ngit push origin main' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'git push origin 2>&1 | tail -5', cwd: ON_MAIN },
   // Same dispatcher, Codex-shaped and Gemini-shaped payloads.
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'Bash', extra: CODEX },
   { guard: 'dispatch.mts', expect: D, cmd: 'git push origin main', tool: 'Bash', extra: CODEX },
@@ -664,6 +735,15 @@ for (const c of LEXER_CASES) {
   if (got.head !== c.head || got.probe !== (c.probe ?? false))
     fails.push(`[lexer] ${JSON.stringify(c.cmd)}: head=${got.head} probe=${got.probe}, want head=${c.head} probe=${c.probe ?? false}`)
 }
+// A run of digits once made tokenize() backtrack quadratically: 100k digits took seconds, past
+// the dispatcher's own timeout. The lexer is a linear scan, so this stays far under budget.
+const digits = `echo ${'1'.repeat(100_000)}`
+const started = performance.now()
+for (const seg of segments(digits))
+  resolveHead(tokenize(seg))
+const took = performance.now() - started
+if (took > 500)
+  fails.push(`[lexer] 100k digits took ${Math.round(took)} ms, want under 500`)
 for (const c of CASES) {
   const env: Record<string, string | undefined> = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env }
   for (const name of c.unset ?? [])
@@ -702,10 +782,10 @@ for (const p of sessionProblems({ name: 'stdin never closed', raw: '', context: 
   fails.push(`[${SESSION}] stdin never closed: ${p}`)
 
 if (fails.length > 0) {
-  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + SESSION_CASES.length + 2} failed:\n`)
+  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + SESSION_CASES.length + 3} failed:\n`)
   for (const f of fails)
     console.error(`  ${f}`)
   console.error('')
   process.exit(1)
 }
-console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${SESSION_CASES.length} session cases + both stdin timeouts + the three registrations pass`)
+console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + the lexer time budget + ${SESSION_CASES.length} session cases + both stdin timeouts + the three registrations pass`)

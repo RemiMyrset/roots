@@ -21,6 +21,14 @@ and quoted paths with either separator (`'C:\repo\.env'`). A
 regression suite (`pnpm test:hooks`) pins every covered case so a fix for one
 form never silently reopens another.
 
+The shared lexer splits a command where bash does, and the push guard never
+reads a redirection (`2>&1`, `> log`) as an argument. A `$()` or backtick
+substitution runs wherever bash runs it, inside double quotes and in a heredoc
+with an unquoted delimiter (`<<EOF`) too, while single-quoted text, a `#`
+comment, and a heredoc body are data, so a quote inside them cannot hide a
+later line. A body a shell reads (`bash <<'EOF'`, `cat <<'EOF' | sh`) is lexed
+as commands.
+
 ## Registration
 
 `dispatch.mts` is the one pre-tool hook, registered three times: as a Claude
@@ -66,10 +74,13 @@ on Windows registers the guards for its PowerShell tool as well as Bash; the
 lexer is bash-shaped, so PowerShell spellings are covered only where they
 coincide (`npm install`, `cat .env`, `git push origin main`).
 
-Known over-block for every guard (safe direction, never a bypass): backticks are
-read as command substitution, so a heredoc or commit message quoting
-`` `npm install` `` in backticks is denied. Write such text with a file tool or
-from a terminal.
+Known over-block for every guard (safe direction, never a bypass): a heredoc
+fed to a shell that runs a script file (`bash x.sh <<'EOF'`) has its body
+lexed as commands, although the script reads it as input. Backticks inside
+double quotes are not an over-block: bash runs them, so
+`` -m "never run `npm install`" `` is denied because it would run npm. Quote
+such text in single quotes or a quoted heredoc (`<<'EOF'`), which bash never
+expands.
 
 **For real isolation, run the agent under OS-level sandboxing** (a container,
 seccomp/AppArmor, a restricted `PATH`, or a VM). The guards are
@@ -139,8 +150,10 @@ block of `.claude/settings.json`) or, when unset, from that file itself, so
 Codex and Gemini honour the same list with nothing to configure per tool.
 
 A `git push` is denied when any target is protected (the remote side of each
-refspec, the current branch when no refspec is given, or `HEAD`) and when a
-target cannot be resolved (detached HEAD, not a checkout). Also denied on any
+refspec, or the current branch when no refspec is given or the target is `HEAD`
+or a lone substitution such as `"$(git branch --show-current)"`) and when a
+target cannot be resolved (detached HEAD, not a checkout, a substitution inside
+a longer name). Also denied on any
 branch: bare `--force` / `-f` / a `+refspec`, `--all` / `--branches` /
 `--mirror`, and any wildcard refspec (`refs/heads/*`), which the guard cannot
 evaluate against the remote. `--force-with-lease`, `--delete`, and tag pushes
