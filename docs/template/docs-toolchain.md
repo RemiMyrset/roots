@@ -56,8 +56,7 @@ gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/
 
 The site lands at `https://OWNER.github.io/REPO/` (a project site) or at the
 root of `OWNER.github.io` (a user site). A custom domain set under Settings →
-Pages is honoured too; add `docs/public/public/CNAME` holding the domain so the
-build keeps it.
+Pages is honoured too, and an Actions deployment needs no `CNAME` file.
 
 The workflow asks `actions/configure-pages` for the base path and URL and hands
 them to the build as `DOCS_BASE` and `DOCS_URL`, which
