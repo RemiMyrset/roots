@@ -25,8 +25,10 @@ passed the guards and the writing rules are off in that tool:
 - Claude Code asks once whether to trust the folder; hooks and settings load
   with it.
 - Codex loads `.codex/` only after the folder is trusted, then asks once more
-  to review and trust each hook definition via `/hooks`. Hooks are on by
-  default; no feature flag is needed.
+  to review and trust each hook definition via `/hooks`. Trust is recorded
+  against the definition's hash, so a changed hook, including one a template
+  sync brings, is skipped until it is trusted again. Hooks are on by default;
+  no feature flag is needed.
 - Gemini asks once whether to trust the folder; folder trust is on by
   default. Untrusted, it ignores `.gemini/settings.json` and `.agents/skills/`,
   so the rulebook, the guards, the writing rules, and the skills are all off.
@@ -78,20 +80,27 @@ Neither surface reaches Claude Code subagents. Codex truncates injected
 context past `additionalContextLimit`, 2,500 tokens by default (about 10,000
 characters), so `pnpm test:hooks` keeps the file under 8,000 characters.
 
-Neither SessionStart entry carries a `matcher`, so both fire on every start,
-`/clear` and compaction included. Gemini matches lifecycle hooks by exact
-source name, so a regex such as `startup|resume` never fires there, and Codex
-filters by source, so an entry that skipped `clear` or `compact` would drop the
-rules after `/clear` or an automatic compaction. `pnpm test:hooks` checks both
+Neither SessionStart entry carries a `matcher`, so each fires on every source
+its tool has. Codex filters by source, so an entry that skipped `clear` or
+`compact` would drop the rules after `/clear` or an automatic compaction.
+Gemini matches lifecycle hooks by exact source name, so a regex such as
+`startup|resume` never fires there. `pnpm test:hooks` checks both
 registrations structurally.
+
+Gemini's SessionStart sources are only startup, resume, and `/clear`, and it
+ignores a PreCompress hook's output, so no hook can put the rules back after
+chat compression. In a long Gemini session compression can summarize them
+away; `/clear` loads them again.
 
 ## Nested rulebooks
 
 Codex merges the `AGENTS.md` files from the project root down to the
-directory it starts in, and its built-in prompt tells the model to obey a
-nested file below that whenever it edits a file in the nested file's
-directory. Gemini loads a nested file when a tool first touches its directory.
-Claude Code walks nested `CLAUDE.md` only, so a scoped rulebook needs the
+directory it starts in. A nested file below that reaches the model only if the
+model reads it; some of Codex's built-in model prompts tell it to when it
+edits a file in that directory, and others do not.
+
+Gemini loads a nested file when a tool first touches its directory. Claude
+Code walks nested `CLAUDE.md` only, so a scoped rulebook needs the
 `CLAUDE.md` pairing described in the Monorepo map of the root `AGENTS.md`.
 
 ## Permission prompts
@@ -107,19 +116,27 @@ stash drop prompts. Scripts with a colon in the name are listed one by one
 `pnpm --filter <pkg> <script>` prompts once per repository by design; a
 `--filter` rule wide enough to match would also approve `pnpm --filter x exec`.
 
-The template gives Gemini no prompt-free list, so it asks before every shell
-command outside its own built-in read-only set (`git status` passes). Gemini's
-`tools.allowed` setting is deprecated, and any `run_shell_command(...)` entry
-in it denies every command it does not list, even in YOLO mode, so
-`pnpm test:hooks` fails if the key comes back. The replacement, a policy file
-under `.gemini/policies/`, is ignored at the workspace tier as of Gemini 0.60;
-a developer who wants fewer prompts adds allow rules under
-`~/.gemini/policies/`.
+The template gives Gemini no prompt-free list, so an interactive session asks
+before every shell command outside its own built-in read-only set
+(`git status` passes). Gemini's `tools.allowed` setting is deprecated, and any
+`run_shell_command(...)` entry in it denies every command it does not list,
+even in YOLO mode, so `pnpm test:hooks` fails if the key comes back. The
+replacement, a policy file under `.gemini/policies/`, is ignored at the
+workspace tier as of Gemini 0.60; a developer who wants fewer prompts adds
+allow rules under `~/.gemini/policies/`.
+
+A headless Gemini run (`gemini -p`) cannot ask, so it denies every shell
+command, `git status` included, unless it is started with
+`--approval-mode=yolo` or finds allow rules under `~/.gemini/policies/`. The
+guards run before the approval check, so YOLO mode keeps them.
 
 The template ships no Codex rules file either. In a trusted folder Codex's
-default sandbox runs commands that stay inside the workspace without a prompt
-and asks before anything that needs the network, such as `git push`, `gh`, or
-`pnpm install`. Codex does load a committed `.codex/rules/*.rules` once
-`.codex/` is trusted, but rules are experimental and an `allow` rule runs the
-command outside the sandbox, a wider grant than a Claude Code allow rule, so
-that choice stays in each developer's `~/.codex/rules/`.
+default sandbox runs commands that write only ordinary workspace files without
+a prompt. It asks before anything that needs the network (`git push`, `gh`,
+`pnpm install`) or writes `.git/`, `.agents/`, or `.codex/`, which it keeps
+read-only (`git commit`, `git switch`, `pnpm docs:gen`).
+
+Codex does load a committed `.codex/rules/*.rules` once `.codex/` is trusted,
+but rules are experimental and an `allow` rule runs the command outside the
+sandbox, a wider grant than a Claude Code allow rule, so that choice stays in
+each developer's `~/.codex/rules/`.

@@ -55,7 +55,8 @@ calls. Ask before any step whose input you would otherwise have to invent.
    `.claude/settings.json`. The trust prompts are the human's; mention them,
    do not attempt them: each tool asks to trust the folder, and Codex then
    asks to trust each hook via `/hooks`. Claude Code and Gemini load the
-   guards only when started at the repository root.
+   guards only when started at the repository root ("Trust and registration"
+   in `docs/template/agent-surfaces.md`).
 5. GitHub settings, only when `gh auth status` succeeds (the `gh repo edit`,
    `gh workflow run`, and `gh api` calls prompt in every tool, which is
    expected):
