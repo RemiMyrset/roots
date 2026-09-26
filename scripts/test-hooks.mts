@@ -486,6 +486,18 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF\nrun `npm install` first\nEOF' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat <<EOF\nrun \\`npm install\\` first, it\'s $HOME\nEOF' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'source .venv/bin/activate && cat > notes.md <<\'EOF\'\nnpm install\nEOF' }, // the shell is not in its pipeline
+  // A substitution a shell runs as its script, or under `-c` or `eval`, reads its heredoc as
+  // commands; one handed to a shell script as an argument is data.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash <(cat <<\'EOF\'\nnpm install\nEOF\n)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'source <(cat <<\'EOF\'\nnpm install\nEOF\n)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash -s < <(cat <<\'EOF\'\nnpm install\nEOF\n)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash -o pipefail -c "$(cat <<\'EOF\'\nnpm install\nEOF\n)"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval "$(cat <<\'EOF\'\nnpm install\nEOF\n)"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash <(echo "$(cat <<\'EOF\'\nnpm install\nEOF\n)")' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'bash x.sh "$(cat <<\'EOF\'\nnpm install\nEOF\n)"' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'sh ./pr-body.sh --body "$(cat <<\'EOF\'\n- run `npm install`\nEOF\n)"' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'diff <(cat <<\'EOF\'\nnpm install\nEOF\n) b.txt' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'bash <(cat <<\'EOF\'\ncat <<\'X\'\nnpm install\nX\nEOF\n)' }, // the script prints it
 
   // --- redirections are not arguments: `2>&1` and `> log` never become a refspec ----------
   { guard: P, expect: D, cmd: 'git push origin 2>&1', cwd: ON_MAIN },
@@ -792,14 +804,23 @@ for (const c of LEXER_CASES) {
     fails.push(`[lexer] ${JSON.stringify(c.cmd)}: head=${got.head} probe=${got.probe}, want head=${c.head} probe=${c.probe ?? false}`)
 }
 // A run of digits once made tokenize() backtrack quadratically: 100k digits took seconds, past
-// the dispatcher's own timeout. The lexer is a linear scan, so this stays far under budget.
-const digits = `echo ${'1'.repeat(100_000)}`
-const started = performance.now()
-for (const seg of segments(digits))
-  resolveHead(tokenize(seg))
-const took = performance.now() - started
-if (took > 500)
-  fails.push(`[lexer] 100k digits took ${Math.round(took)} ms, want under 500`)
+// the dispatcher's own timeout, and a shell check per heredoc did the same over thousands of
+// heredocs. The lexer is a linear scan, so each of these stays far under budget.
+const BUDGET: Record<string, string> = {
+  '100k digits': `echo ${'1'.repeat(100_000)}`,
+  '5000 heredocs on one line': `cat${' <<A'.repeat(5000)}\nA\n`,
+  '2500 heredocs in one pipeline': `${'cat <<A |'.repeat(2500)} cat\nA\n`,
+  '5000 heredocs after ;': `${'cat <<A;'.repeat(5000)}\nA\n`,
+  '2000 substitutions with a heredoc': `bash x.sh "${'$(cat <<A\nA\n)'.repeat(2000)}"`,
+}
+for (const [name, cmd] of Object.entries(BUDGET)) {
+  const started = performance.now()
+  for (const seg of segments(cmd))
+    resolveHead(tokenize(seg))
+  const took = performance.now() - started
+  if (took > 500)
+    fails.push(`[lexer] ${name} took ${Math.round(took)} ms, want under 500`)
+}
 for (const c of CASES) {
   const env: Record<string, string | undefined> = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env }
   for (const name of c.unset ?? [])
@@ -838,10 +859,10 @@ for (const p of sessionProblems({ name: 'stdin never closed', raw: '', context: 
   fails.push(`[${SESSION}] stdin never closed: ${p}`)
 
 if (fails.length > 0) {
-  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + SESSION_CASES.length + 3} failed:\n`)
+  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + SESSION_CASES.length + 2} failed:\n`)
   for (const f of fails)
     console.error(`  ${f}`)
   console.error('')
   process.exit(1)
 }
-console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + the lexer time budget + ${SESSION_CASES.length} session cases + both stdin timeouts + the three registrations pass`)
+console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${SESSION_CASES.length} session cases + both stdin timeouts + the three registrations pass`)

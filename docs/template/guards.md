@@ -27,7 +27,9 @@ substitution runs wherever bash runs it, inside double quotes and in a heredoc
 with an unquoted delimiter (`<<EOF`) too, while single-quoted text, a `#`
 comment, and a heredoc body are data, so a quote inside them cannot hide a
 later line. A body a shell reads (`bash <<'EOF'`, `cat <<'EOF' | sh`) is lexed
-as commands.
+as commands, and so is one inside a substitution a shell runs as its script,
+under `-c`, or under `eval` (`bash <(cat <<'EOF' …)`). A substitution passed to
+a script as an argument (`bash x.sh "$(cat <<'EOF' …)"`) stays data.
 
 ## Registration
 
