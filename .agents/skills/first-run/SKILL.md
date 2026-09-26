@@ -54,13 +54,13 @@ calls. Ask before any step whose input you would otherwise have to invent.
 4. Protected branches: ask whether `main` is the only one; if not, set
    `PROTECTED_BRANCHES` (comma-separated globs) in the `env` block of
    `.claude/settings.json`. The trust prompts are the human's; mention them,
-   do not attempt them: Codex asks to trust the folder and then each hook via
-   `/hooks`; Gemini asks only to confirm the hooks' fingerprints (its folder
-   trust is off by default); Claude Code asks nothing beyond the folder.
-5. GitHub settings, only when `gh auth status` succeeds (in Claude Code the
-   `gh repo edit`, `gh workflow run`, and `gh api` calls prompt, which is
-   expected; Codex prompts for every command; Gemini's `tools.allowed` covers
-   the read-only ones):
+   do not attempt them: each tool asks to trust the folder, and Codex then
+   asks to trust each hook via `/hooks`. Claude Code and Gemini load the
+   guards only when started at the repository root ("Trust and registration"
+   in `docs/template/agent-surfaces.md`).
+5. GitHub settings, only when `gh auth status` succeeds (the `gh repo edit`,
+   `gh workflow run`, and `gh api` calls prompt in every tool, which is
+   expected):
    `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --add-topic pnpm --add-topic turborepo --add-topic ai-agents --enable-wiki=false --enable-projects=false --delete-branch-on-merge`
    (add the product's own topics),
    then `gh workflow run labels.yml`,

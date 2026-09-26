@@ -1,7 +1,8 @@
 /**
  * Pre-tool dispatcher — the one hook registered in .claude/settings.json, .codex/hooks.json,
  * and .gemini/settings.json. Reads the tool-call JSON once, refuses anything that is not a
- * payload with a string tool_input.command (fail closed), and runs every `deny-*.mts` guard in
+ * payload with a string tool_input.command (fail closed; the one exception is a Claude Code
+ * Monitor call that opens a WebSocket, which runs no shell), and runs every `deny-*.mts` guard in
  * this directory against it in this one process: each guard exports a `verdict(cmd, ctx)` that
  * returns the deny reason or null, and the first reason denies the call (exit 2). Guards are
  * discovered by filename, so adding one needs no registration edit; a guard that exports no
@@ -68,9 +69,27 @@ async function dispatch(cmd: string): Promise<void> {
   process.exitCode = 0
 }
 
+// Claude Code's Monitor tool either runs a shell command, judged like Bash, or opens a WebSocket
+// (`tool_input.ws`, never combined with `command`), which runs no shell and has its own approval
+// prompt. Only that exact shape passes without a command; everything else still fails closed.
+function isMonitorSocket(raw: string): boolean {
+  try {
+    const parsed = JSON.parse(raw) as { tool_name?: unknown, tool_input?: { command?: unknown, ws?: unknown } | null } | null
+    const ws = parsed?.tool_input?.ws
+    return parsed?.tool_name === 'Monitor' && parsed.tool_input?.command === undefined && typeof ws === 'object' && ws !== null && !Array.isArray(ws)
+  }
+  catch {
+    return false
+  }
+}
+
 let input = ''
 process.stdin.on('data', (d) => { input += d }).on('end', () => {
   const cmd = commandOf(input)
+  if (cmd === null && isMonitorSocket(input)) {
+    process.exitCode = 0
+    return
+  }
   if (cmd === null) {
     process.stderr.write('guards: hook input is not a pre-tool payload with tool_input.command; denying by default (fail closed).\n')
     process.exitCode = 2

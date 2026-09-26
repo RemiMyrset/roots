@@ -32,4 +32,4 @@ step has a local twin, and the fix is local.
 5. Prove it. `pnpm verify` end to end, then commit with a Conventional subject
    (`fix(scope): what`, at most 50 chars) and push the same branch. Watch with
    `gh pr checks <n> --watch`; report the outcome and stop. In Claude Code the
-   `gh` calls run without a prompt; Codex asks for each.
+   `gh` calls run without a prompt; Codex and Gemini ask for each.

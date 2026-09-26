@@ -141,6 +141,10 @@ nested `AGENTS.md` directly.
      would repeat, add a one-line entry in the same PR; delete entries that stop
      being true. -->
 
+- Claude Code and Gemini CLI load project settings only from the directory
+  they start in: started below the repository root, the guards and writing
+  rules are off ([agent-surfaces](./docs/template/agent-surfaces.md#trust-and-registration)).
+  If this session did not start at the root, tell the user.
 - `pnpm docs:gen` mutates files; never run it inside a pre-commit hook.
 - automd swallows generator failures: it writes the error into the marker region
   as a comment, exits 0, and re-runs byte-identical, so the drift gate stays

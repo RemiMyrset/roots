@@ -99,9 +99,9 @@ flowchart LR
      `grep -rl '@repo/' --exclude-dir=node_modules --exclude-dir=.claude --exclude-dir=.agents .`
      lists every file to change. It skips the synced skills, which name
      `@repo/` only as the default.
-3. **Agent tools.** Say yes to the trust prompts or the guards stay off:
-   Codex asks for the folder and then for each hook (`/hooks`); Gemini asks
-   to confirm the hooks; Claude Code asks for the folder. Details in
+3. **Agent tools.** Start Claude Code and Gemini CLI at the repository root
+   and say yes to the trust prompts, or the guards stay off: each tool asks to
+   trust the folder, and Codex then asks for each hook (`/hooks`). Details in
    [agent-surfaces](./docs/template/agent-surfaces.md#trust-and-registration).
    If `main` is not your only protected branch, set `PROTECTED_BRANCHES` as
    [Push protection](./docs/template/guards.md#push-protection) in guards
