@@ -622,6 +622,29 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('its footer printed', r.stdout.includes('      BREAKING CHANGE: add "outputStyle": "writing" to .claude/settings.json.'), r.stdout)
   check('cap names what it hides', r.stdout.includes('  … and 4 more, none breaking\n'), r.stdout)
   check('cap still lists 40 others', r.stdout.includes('docs: note 5\n') && !r.stdout.includes('docs: note 4\n'), r.stdout)
+  gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+}
+
+// 21. A merge commit is listed only when it is breaking: a PR-title merge carries the `!` and
+// the footer while the commit it merges carries neither. A plain merge is left out.
+{
+  git(template, 'checkout', '-q', '-b', 'pr')
+  write(template, 'docs/template/pr.md', 'pr\n')
+  const side = commit(template, 'docs: rework a page')
+  git(template, 'checkout', '-q', 'main')
+  git(template, 'merge', '-q', '--no-ff', 'pr', '-m', 'feat(docs)!: strict docs check (#12)', '-m', 'BREAKING CHANGE: add "docs:check": "node scripts/docs/check-docs.mts --strict" to package.json.')
+  const merge = git(template, 'rev-parse', 'HEAD').trim()
+  git(template, 'checkout', '-q', '-b', 'plain')
+  write(template, 'docs/template/plain.md', 'plain\n')
+  commit(template, 'docs: plain page')
+  git(template, 'checkout', '-q', 'main')
+  git(template, 'merge', '-q', '--no-ff', 'plain', '-m', 'Merge branch \'plain\'')
+  const r = run(child)
+  check('merges exit 0', r.status === 0, r.detail)
+  check('breaking merge listed with its footer', r.stdout.includes(`  ! ${merge.slice(0, 7)} feat(docs)!: strict docs check (#12)\n      BREAKING CHANGE: add "docs:check": "node scripts/docs/check-docs.mts --strict" to package.json.\n`), r.stdout)
+  check('merged commit listed', r.stdout.includes(`    ${side.slice(0, 7)} docs: rework a page\n`), r.stdout)
+  check('plain merge left out and not counted', !r.stdout.includes('Merge branch') && r.stdout.includes('3 commits since last sync'), r.stdout)
+  gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
 if (fails.length > 0) {

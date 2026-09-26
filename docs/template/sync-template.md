@@ -2,7 +2,7 @@
 
 - **Source:** `scripts/sync-template.mts`
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
-- **Last reviewed:** 2026-09-26
+- **Last reviewed:** 2026-09-27
 
 The contract for `pnpm sync:template`. The tests pin behaviors 1 to 24; the
 per-file-error branch of behavior 23 is untested. The user-facing recipe is the
@@ -218,11 +218,12 @@ stdout, in order:
    something is staged.
 
 Commit lines are `  ! <sha> <subject>` for breaking commits and
-`    <sha> <subject>` otherwise, newest first, merge commits left out, with the
-`BREAKING CHANGE` paragraph indented beneath its commit. The cap is 40
-non-breaking commits: every breaking commit is listed, and when any are
-hidden the list ends with `… and N more, none breaking`. Every list ends with
-`Full log: git log <from>..<head>`. Warnings and errors go to stderr.
+`    <sha> <subject>` otherwise, newest first, merge commits left out unless
+breaking, with the `BREAKING CHANGE` paragraph indented beneath its commit.
+The cap is 40 non-breaking commits: every breaking commit is listed, and when
+any are hidden the list ends with `… and N more, none breaking`. Every list
+ends with `Full log: git log <from>..<head>`. Warnings and errors go to
+stderr.
 
 ## Behavior
 
@@ -241,9 +242,10 @@ hidden the list ends with `… and N more, none breaking`. Every list ends with
 4. Given template commits after the recorded one, when run, then stdout counts
    them, lists them newest first with `!` on commits whose subject carries `!`
    or whose body has a `BREAKING CHANGE` footer, prints that footer's paragraph
-   beneath the commit, and the state advances to the template head. Past 40
-   non-breaking commits the rest are counted, not listed, while every breaking
-   commit is still listed with its footer.
+   beneath the commit, and the state advances to the template head. A merge
+   commit is listed and counted only when it is breaking. Past 40 non-breaking
+   commits the rest are counted, not listed, while every breaking commit is
+   still listed with its footer.
 5. Given a recorded commit that is neither an ancestor nor a descendant of the
    template head, when run, then stdout says the sync point is "not in its
    history", no commit list is printed, follow-ups are computed two-way, and

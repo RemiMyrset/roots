@@ -367,17 +367,18 @@ interface Commit {
   sha: string
   subject: string
   breaking: string[]
+  merge: boolean
 }
 
-/** Template commits after `base` up to `head`, newest first, merges left out, with the BREAKING CHANGE paragraph when present. */
+/** Template commits after `base` up to `head`, newest first, merges flagged, with the BREAKING CHANGE paragraph when present. */
 function commitsSince(base: string, head: string): Commit[] {
-  const raw = git(['log', '--no-merges', '--format=%H%x00%s%x00%b%x1e', `${base}..${head}`])
+  const raw = git(['log', '--format=%H%x00%P%x00%s%x00%b%x1e', `${base}..${head}`])
   return raw
     .split('\x1E')
     .map(rec => rec.replace(/^\r?\n/, ''))
     .filter(Boolean)
     .map((rec) => {
-      const [sha = '', subject = '', body = ''] = rec.split('\0')
+      const [sha = '', parents = '', subject = '', body = ''] = rec.split('\0')
       const breaking: string[] = []
       const bodyLines = body.replace(/\r/g, '').split('\n')
       const start = bodyLines.findIndex(l => BREAKING_FOOTER_RE.test(l))
@@ -388,7 +389,7 @@ function commitsSince(base: string, head: string): Commit[] {
           breaking.push(l)
         }
       }
-      return { sha, subject: subject.replace(/\r$/, ''), breaking }
+      return { sha, subject: subject.replace(/\r$/, ''), breaking, merge: parents.trim().split(' ').length > 1 }
     })
 }
 
@@ -733,7 +734,9 @@ if (!state || state.url !== url || state.commit !== head || (state.ref ?? DEFAUL
 const out: string[] = [`Template: ${url}`]
 const fetchedAt = `Fetched ${label} at ${short(head)}`
 function listCommits(from: string): void {
-  const commits = commitsSince(from, head)
+  // A merge commit is noise unless it is breaking: a PR-title merge can carry the `!` and the
+  // footer while the commits it merges carry neither.
+  const commits = commitsSince(from, head).filter(c => !c.merge || isBreaking(c))
   const count = `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${since} (${short(from)}):`
   if (recorded === undefined)
     out.push(count)
