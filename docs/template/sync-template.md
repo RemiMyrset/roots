@@ -185,8 +185,9 @@ stdout, in order:
    `Settings: skipped` with a reason, or a `Settings` header followed by one
    `<rule>  missing here` line per `permissions.allow` or `permissions.deny`
    entry the template has and this repository lacks, and a
-   `hooks.PreToolUse command  differs` block with `template:` and `yours:`
-   lines when the hook command differs.
+   `hooks.PreToolUse command  differs` or `hooks.PreToolUse matcher  differs`
+   block with `template:` and `yours:` lines when the hook command or its
+   matcher differs.
 6. A `Next:` block with the review, discard, and commit commands, only when
    something is staged.
 
@@ -245,10 +246,11 @@ Warnings and errors go to stderr.
 14. Settings follow-ups are two-way: every `permissions.allow` and
     `permissions.deny` rule in the template's `.claude/settings.json` that this
     repository's file lacks is listed as "missing here", and the first
-    `PreToolUse` hook command is listed when it differs; the repository's own
-    rules are never mentioned, the file is never edited, and a missing or
-    unreadable file skips the block with a reason. Script follow-ups compare
-    only the template's `scripts` keys, in template order. A
+    `PreToolUse` hook's command and matcher are each listed when they differ
+    (a new tool in the matcher is a tool the guards now cover); the
+    repository's own rules are never mentioned, the file is never edited, and
+    a missing or unreadable file skips the block with a reason. Script
+    follow-ups compare only the template's `scripts` keys, in template order. A
     key absent here is "missing here", unless the template at the baseline
     already had it, in which case it is listed as customized, "absent here"; a
     key whose local value differs from the template's is "changed on the

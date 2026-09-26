@@ -430,17 +430,19 @@ interface SettingsShape {
   allow: string[]
   deny: string[]
   hook?: string
+  matcher?: string
 }
 
-/** The allow and deny rules and the first PreToolUse hook command of a settings.json text; undefined when it is not JSON. */
+/** The allow and deny rules and the first PreToolUse hook's command and matcher of a settings.json text; undefined when it is not JSON. */
 function settingsOf(json: string | null): SettingsShape | undefined {
   if (json === null)
     return undefined
   try {
-    const parsed = JSON.parse(json) as { permissions?: { allow?: unknown, deny?: unknown }, hooks?: { PreToolUse?: { hooks?: { command?: unknown }[] }[] } }
+    const parsed = JSON.parse(json) as { permissions?: { allow?: unknown, deny?: unknown }, hooks?: { PreToolUse?: { matcher?: unknown, hooks?: { command?: unknown }[] }[] } }
     const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
     const hook = parsed.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command
-    return { allow: list(parsed.permissions?.allow), deny: list(parsed.permissions?.deny), ...(typeof hook === 'string' ? { hook } : {}) }
+    const matcher = parsed.hooks?.PreToolUse?.[0]?.matcher
+    return { allow: list(parsed.permissions?.allow), deny: list(parsed.permissions?.deny), ...(typeof hook === 'string' ? { hook } : {}), ...(typeof matcher === 'string' ? { matcher } : {}) }
   }
   catch {
     return undefined
@@ -450,13 +452,20 @@ function settingsOf(json: string | null): SettingsShape | undefined {
 interface SettingsFollowUps {
   missing: string[]
   hook?: { template: string, yours?: string }
+  matcher?: { template: string, yours?: string }
   skipped?: string
+}
+
+/** A template value that differs from the local one, with the local value when there is one. */
+function differs(template: string | undefined, yours: string | undefined): { template: string, yours?: string } | undefined {
+  return template !== undefined && template !== yours ? { template, ...(yours !== undefined ? { yours } : {}) } : undefined
 }
 
 /**
  * Two-way compare of .claude/settings.json, which is never synced: template allow and deny
- * rules absent here, and a PreToolUse hook command that differs. A child's own rules are
- * never mentioned, and the file is never edited.
+ * rules absent here, and a PreToolUse hook command or matcher that differs (a matcher that
+ * names a new tool routes that tool through the guards). A child's own rules are never
+ * mentioned, and the file is never edited.
  */
 function settingsFollowUps(template: SettingsShape | undefined, local: SettingsShape | undefined, localMissing: boolean): SettingsFollowUps {
   if (localMissing)
@@ -469,8 +478,9 @@ function settingsFollowUps(template: SettingsShape | undefined, local: SettingsS
     ...template.allow.filter(r => !local.allow.includes(r)).map(r => `permissions.allow ${r}`),
     ...template.deny.filter(r => !local.deny.includes(r)).map(r => `permissions.deny ${r}`),
   ]
-  const hook = template.hook !== undefined && template.hook !== local.hook ? { template: template.hook, ...(local.hook !== undefined ? { yours: local.hook } : {}) } : undefined
-  return { missing, ...(hook ? { hook } : {}) }
+  const hook = differs(template.hook, local.hook)
+  const matcher = differs(template.matcher, local.matcher)
+  return { missing, ...(hook ? { hook } : {}), ...(matcher ? { matcher } : {}) }
 }
 
 // ---------------------------------------------------------------------------------
@@ -692,18 +702,20 @@ out.push('')
 if (settings.skipped) {
   out.push(`Settings: skipped — ${settings.skipped}.`)
 }
-else if (settings.missing.length === 0 && !settings.hook) {
+else if (settings.missing.length === 0 && !settings.hook && !settings.matcher) {
   out.push('Settings: none new.')
 }
 else {
   out.push(`Settings — ${SETTINGS} is yours, sync never edits it. Apply by hand where they apply:`)
   for (const m of settings.missing)
     out.push(`  ${m}  missing here`)
-  if (settings.hook) {
-    out.push('  hooks.PreToolUse command  differs')
-    out.push(`    template: ${settings.hook.template}`)
-    if (settings.hook.yours !== undefined)
-      out.push(`    yours:    ${settings.hook.yours}`)
+  for (const [field, d] of [['command', settings.hook], ['matcher', settings.matcher]] as const) {
+    if (!d)
+      continue
+    out.push(`  hooks.PreToolUse ${field}  differs`)
+    out.push(`    template: ${d.template}`)
+    if (d.yours !== undefined)
+      out.push(`    yours:    ${d.yours}`)
   }
 }
 

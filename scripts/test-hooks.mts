@@ -73,6 +73,11 @@ const B = 'deny-hook-bypass.mts'
 // tool_input.command, so these shapes must deny and allow exactly like Claude Code.
 const CODEX = { cwd: process.cwd(), hook_event_name: 'PreToolUse', model: 'x', permission_mode: 'default', session_id: 's', tool_use_id: 't', transcript_path: null, turn_id: 'u' }
 const GEMINI = { cwd: process.cwd(), hook_event_name: 'BeforeTool', session_id: 's', timestamp: '2026-01-01T00:00:00Z', transcript_path: '/tmp/t.json' }
+// Claude Code's Monitor tool runs a shell command under the Bash permission rules, or opens a
+// WebSocket (`ws`, never combined with `command`), which runs no shell and has nothing to judge.
+function monitor(input: Record<string, unknown>, tool = 'Monitor'): string {
+  return JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: { description: 'd', timeout_ms: 300000, ...input } })
+}
 
 const CASES: Case[] = [
   // --- deny-non-pnpm: this repo is pnpm-only ---------------------------------
@@ -440,6 +445,16 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'run_shell_command', extra: GEMINI },
   { guard: 'dispatch.mts', expect: D, cmd: 'cat .env', tool: 'run_shell_command', extra: GEMINI },
   { guard: 'dispatch.mts', expect: A, cmd: 'pnpm install', tool: 'run_shell_command', extra: GEMINI },
+  // Monitor-shaped payloads: a command is judged like Bash; a WebSocket watch passes.
+  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: npm install>', raw: monitor({ command: 'npm install' }) },
+  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: cat .env>', raw: monitor({ command: 'tail -f .env' }) },
+  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: push main>', raw: monitor({ command: 'until git push origin main; do sleep 5; done' }) },
+  { guard: 'dispatch.mts', expect: A, cmd: '<monitor: pnpm dev>', raw: monitor({ command: 'pnpm dev 2>&1 | grep --line-buffered -E "ready|error"' }) },
+  { guard: 'dispatch.mts', expect: A, cmd: '<monitor: ws>', raw: monitor({ ws: { url: 'wss://events.example.com/stream' } }) },
+  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: ws with bad command>', raw: monitor({ ws: { url: 'wss://x' }, command: ['npm', 'i'] }) },
+  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: ws not an object>', raw: monitor({ ws: 'wss://x' }) },
+  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: neither>', raw: monitor({}) },
+  { guard: 'dispatch.mts', expect: D, cmd: '<bash: ws shape>', raw: monitor({ ws: { url: 'wss://x' } }, 'Bash') }, // only Monitor opens sockets
 
   // --- fail closed: unparseable or shapeless hook input is denied, never allowed ----
   { guard: 'dispatch.mts', expect: D, cmd: '<raw: empty>', raw: '' },
@@ -560,17 +575,23 @@ function sessionProblems(c: SessionCase, status: number | null, stdout: string, 
 // The registrations each vendor reads, checked structurally, since no fixture can run the
 // tools themselves: Gemini matches lifecycle hooks by exact source string (a regex alternation
 // never fires) and tool hooks by regex; Codex filters SessionStart by source name; Claude Code's
-// hook matcher must name both shell tools; and a Claude allow rule's trailing `:*` is a
+// hook matcher must name every tool that runs a shell command (Monitor uses the
+// Bash allow rules), its command must use the braced `${CLAUDE_PROJECT_DIR}` that PowerShell
+// understands, and its Read deny rules reach the home directory only through `~/` (a `**/` rule
+// anchors at the working directory); and a Claude allow rule's trailing `:*` is a
 // space-wildcard, so `Bash(pnpm test:*)` never matches a `test:hooks` script — colon scripts are
 // listed one by one, and a wildcard before the last word matches nothing at all.
 const REPO = join(HOOKS, '..', '..')
-interface Registration { matcher?: string }
+interface Registration { matcher?: string, hooks?: { command?: string }[] }
 interface Hooks { SessionStart?: Registration[], BeforeTool?: Registration[], PreToolUse?: Registration[] }
 const gemini = JSON.parse(readFileSync(join(REPO, '.gemini', 'settings.json'), 'utf8')) as { hooks?: Hooks, tools?: { allowed?: string[] } }
 const codex = JSON.parse(readFileSync(join(REPO, '.codex', 'hooks.json'), 'utf8')) as { hooks?: Hooks }
-const claude = JSON.parse(readFileSync(join(HOOKS, '..', 'settings.json'), 'utf8')) as { permissions?: { allow?: string[] }, hooks?: Hooks }
+const claude = JSON.parse(readFileSync(join(HOOKS, '..', 'settings.json'), 'utf8')) as { permissions?: { allow?: string[], deny?: string[] }, hooks?: Hooks }
 const scriptNames = Object.keys((JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }).scripts ?? {})
-const CODEX_SOURCES: ReadonlySet<string> = new Set(['startup', 'resume', 'clear', 'compact'])
+const CODEX_SOURCES: readonly string[] = ['startup', 'resume', 'clear', 'compact']
+const SHELL_TOOLS: readonly string[] = ['Bash', 'PowerShell', 'Monitor']
+// The credentials a developer machine holds in the home directory, outside any repository.
+const HOME_CREDENTIALS: readonly string[] = ['.ssh/id_*', '.aws/credentials', '.config/gh/hosts.yml', '.git-credentials', '.kube/config', '.docker/config.json', '.pgpass', '.netrc', '_netrc', '.npmrc']
 const structural: string[] = []
 for (const e of gemini.hooks?.SessionStart ?? []) {
   if (e.matcher !== undefined)
@@ -586,7 +607,7 @@ for (const a of gemini.tools?.allowed ?? []) {
 }
 for (const e of codex.hooks?.SessionStart ?? []) {
   for (const source of (e.matcher ?? '').split('|').filter(Boolean)) {
-    if (!CODEX_SOURCES.has(source))
+    if (!CODEX_SOURCES.includes(source))
       structural.push(`.codex/hooks.json: SessionStart matcher "${source}" is not a Codex session source`)
   }
 }
@@ -595,10 +616,18 @@ for (const e of codex.hooks?.PreToolUse ?? []) {
     structural.push(`.codex/hooks.json: PreToolUse matcher "${e.matcher ?? ''}" is not Bash`)
 }
 for (const e of claude.hooks?.PreToolUse ?? []) {
-  for (const tool of ['Bash', 'PowerShell']) {
+  for (const tool of SHELL_TOOLS) {
     if (!(e.matcher ?? '').split('|').includes(tool))
       structural.push(`.claude/settings.json: PreToolUse matcher "${e.matcher ?? ''}" leaves the ${tool} tool unguarded`)
   }
+  for (const h of e.hooks ?? []) {
+    if ((h.command ?? '').includes('$CLAUDE_PROJECT_DIR'))
+      structural.push(`.claude/settings.json: PreToolUse command ${h.command ?? ''} uses the bare $CLAUDE_PROJECT_DIR, which PowerShell resolves to nothing; write \${CLAUDE_PROJECT_DIR}`)
+  }
+}
+for (const name of HOME_CREDENTIALS) {
+  if (!(claude.permissions?.deny ?? []).includes(`Read(~/${name})`))
+    structural.push(`.claude/settings.json: no Read(~/${name}) deny rule; a **/ rule never reaches the home directory`)
 }
 for (const rule of claude.permissions?.allow ?? []) {
   const body = /^Bash\((.*)\)$/.exec(rule)?.[1]

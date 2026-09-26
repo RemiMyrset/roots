@@ -24,19 +24,22 @@ form never silently reopens another.
 ## Registration
 
 `dispatch.mts` is the one pre-tool hook, registered three times: as a Claude
-Code PreToolUse hook (`.claude/settings.json`), a Codex PreToolUse hook
-(`.codex/hooks.json`), and a Gemini CLI BeforeTool hook
-(`.gemini/settings.json`). All three deliver the command as
-`tool_input.command` and treat exit 2 with a reason on stderr as a block, so
-the guards are shared verbatim; the fixture suite pipes each tool's payload
-shape through the dispatcher.
+Code PreToolUse hook for the Bash, PowerShell, and Monitor tools
+(`.claude/settings.json`), a Codex PreToolUse hook (`.codex/hooks.json`), and a
+Gemini CLI BeforeTool hook (`.gemini/settings.json`). Monitor is on the list
+because it runs a shell command under the Bash allow rules. All three deliver
+the command as `tool_input.command` and treat exit 2 with a reason on stderr as
+a block, so the guards are shared verbatim; the fixture suite pipes each tool's
+payload shape through the dispatcher.
 
 The dispatcher imports every `deny-*.mts` in the directory and runs its
 `verdict(cmd, ctx)` in the same process; the first reason returned denies the
 call, and a guard that throws or exports no verdict denies too. It also denies
 when the hook input is not a payload with a string `tool_input.command`
 (malformed JSON, a missing or null field) and when stdin never closes within
-five seconds. One process, not one per guard, keeps a shell call's overhead
+five seconds. The one shape without a command that passes is a Monitor call
+that opens a WebSocket (`tool_input.ws`), which runs no shell and has its own
+approval prompt. One process, not one per guard, keeps a shell call's overhead
 near node's own startup. Node builtins only, so the guards work
 before `pnpm install` and in any repo they are synced into.
 
@@ -80,7 +83,10 @@ Two layers keep secrets out of the agent. The `.claude/settings.json`
 `*.pfx` / `*.jks` names, plus the credentials a developer machine holds outside
 any repo: SSH private keys (`.ssh/id_*`), `.aws/credentials`,
 `.config/gh/hosts.yml`, `.git-credentials`, `.kube/config`,
-`.docker/config.json`, and `.pgpass`. The Bash-path guard `deny-secret-reads`
+`.docker/config.json`, and `.pgpass`. Those, `.netrc`, `_netrc`, and `.npmrc`
+are listed twice, as `Read(**/…)` for a copy under the project and `Read(~/…)`
+for the real file: a `**/` rule anchors at the working directory and never
+reaches the home directory. The Bash-path guard `deny-secret-reads`
 covers the common shell-read forms of the same set (`.env` and `.envrc` matched
 case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
 readable; `credentials`, `config`, and `hosts.yml` count only under their
