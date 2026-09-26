@@ -45,11 +45,12 @@ calls. Ask before any step whose input you would otherwise have to invent.
    - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact link becomes the contact
      the user names.
    - Package scope, only if the user wants something other than `@repo/`:
-     `grep -rl '@repo/' --exclude-dir=node_modules .` (the README's command)
-     lists every file. Edit each except `pnpm-lock.yaml` and the
-     `.agents/skills` copies, then `pnpm install` (the lockfile is regenerated,
-     never hand-edited; CI installs with `--frozen-lockfile`) and
-     `pnpm docs:gen` (the mirror rewrites the copies).
+     `grep -rl '@repo/' --exclude-dir=node_modules --exclude-dir=.claude --exclude-dir=.agents .`
+     (the README's command) lists every file. Edit each except
+     `pnpm-lock.yaml`, then `pnpm install` (the lockfile is regenerated,
+     never hand-edited; CI installs with `--frozen-lockfile`). Leave the
+     skills alone: they are synced, name `@repo/` only as the default, and the
+     next sync would revert the edit.
 4. Protected branches: ask whether `main` is the only one; if not, set
    `PROTECTED_BRANCHES` (comma-separated globs) in the `env` block of
    `.claude/settings.json`. The trust prompts are the human's; mention them,
@@ -81,7 +82,10 @@ calls. Ask before any step whose input you would otherwise have to invent.
    push). Print the two things that wait: the branch ruleset, whose command and
    timing are under "Push protection" in `docs/template/guards.md`, and the
    reminder that `packages/example-package`, `apps/example-app`, and the two
-   `docs/public/` stubs are still placeholders. Then `grep -rn 'RemiMyrset\|remimyrset' --exclude-dir=node_modules --exclude-dir=.git .`
-   must list only `docs/template/` and the provenance line in the README.
+   `docs/public/` stubs are still placeholders. Then
+   `git grep -n -i remimyrset -- . ':!docs/template' ':!.claude/skills' ':!.agents/skills' ':!scripts/sync-template.mts'`
+   must print only the provenance line in the README. The excluded paths are
+   synced and name the template on purpose (the sync URL, the bootstrap
+   command); never edit them.
 
 If the request carries the pitch or a package scope, use them.

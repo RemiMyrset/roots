@@ -39,13 +39,13 @@ generated `.agents/skills/` mirror); path-scoped rules live in `.claude/rules/`
 
 ## Commands
 
-A task is complete only when every command below that your change can affect
-passes clean after your last edit. When unsure which apply, run them all.
+A task is complete only when every gate command below that your change can
+affect passes clean after your last edit. When unsure which apply, run
+`pnpm verify`, which runs them all.
 
-- Done gate: `pnpm verify` (the frozen-lockfile install, then everything below, in CI
+- Done gate: `pnpm verify` (the frozen-lockfile install, then the gate commands below, in CI
   order; stops at the first failure; `pnpm verify <gate>` resumes there,
   `pnpm verify --only <gate>` runs one)
-- Install: `pnpm install` (node 24 per `.node-version`; `corepack enable` provides pnpm)
 - Build: `pnpm build` (turbo; packages that define `build`)
 - Test: `pnpm test` (turbo; single package: `pnpm --filter @repo/example-package test`)
 - Test hooks: `pnpm test:hooks` (agent guard allow/deny fixtures)
@@ -58,8 +58,12 @@ passes clean after your last edit. When unsure which apply, run them all.
 - Docs, regenerate: `pnpm docs:gen` (automd indexes and the `.agents/skills` mirror)
 - Docs, validate: `pnpm docs:check && pnpm docs:portability`
 - Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`
-- Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev`
-- Sync: `pnpm sync:template` (stages the template's mechanics; the sync-template skill)
+
+Other commands, never part of done and never run to prove it:
+
+- Install: `pnpm install` (node 24 per `.node-version`; `corepack enable` provides pnpm)
+- Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev` (dev servers; they never exit)
+- Sync: `pnpm sync:template` (only when asked; stages the template's mechanics; the sync-template skill)
 - Release: `pnpm release` (human-run; the push guard denies it to agents)
 
 ## Non-negotiable rules

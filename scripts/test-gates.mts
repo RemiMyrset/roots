@@ -101,7 +101,7 @@ for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f)).sor
 
 for (const step of steps) {
   if (!gates.has(step.script))
-    problems.push(`${step.where} runs \`pnpm ${step.script}\` but scripts/verify.mts has no such gate`)
+    problems.push(`${step.where} runs \`pnpm ${step.script}\` but scripts/verify.mts has no such gate; if the step is deliberately not a gate, end that line with \`# not a gate\``)
 }
 const run = new Set(steps.map(s => s.script))
 for (const gate of gates) {
