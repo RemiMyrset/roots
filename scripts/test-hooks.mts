@@ -66,6 +66,12 @@ const SETTINGS_CLAUDE = join(tmp, 'settings-claude')
 cpSync(join(HOOKS, '..'), SETTINGS_CLAUDE, { recursive: true })
 writeFileSync(join(SETTINGS_CLAUDE, 'settings.json'), JSON.stringify({ env: { PROTECTED_BRANCHES: 'release/*' } }))
 const SETTINGS_HOOKS = join(SETTINGS_CLAUDE, 'hooks')
+// A child may protect another branch than main (guards.md, Push protection), and Claude Code
+// exports that list into this process. So every case runs with PROTECTED_BRANCHES=main unless
+// it sets or unsets the variable, and the one case that reads the real settings.json pushes to
+// the first branch that file protects (a `*` filled in; `main` when it sets none).
+const realList = (JSON.parse(readFileSync(join(HOOKS, '..', 'settings.json'), 'utf8')) as { env?: { PROTECTED_BRANCHES?: unknown } }).env?.PROTECTED_BRANCHES
+const REAL_PROTECTED = (typeof realList === 'string' ? realList : '').split(',').map(p => p.trim()).find(Boolean)?.replace(/\*/g, 'x') ?? 'main'
 const B = 'deny-hook-bypass.mts'
 
 // Codex and Gemini CLI register the same dispatcher. Their payloads carry other
@@ -383,7 +389,7 @@ const CASES: Case[] = [
   // No env var at all: the list comes from .claude/settings.json next to the hooks.
   { guard: P, expect: D, cmd: 'git push origin release/1.x', unset: ['PROTECTED_BRANCHES'], hooksDir: SETTINGS_HOOKS },
   { guard: P, expect: A, cmd: 'git push origin main', unset: ['PROTECTED_BRANCHES'], hooksDir: SETTINGS_HOOKS },
-  { guard: P, expect: D, cmd: 'git push origin main', unset: ['PROTECTED_BRANCHES'] }, // the real settings.json protects main
+  { guard: P, expect: D, cmd: `git push origin ${REAL_PROTECTED}`, unset: ['PROTECTED_BRANCHES'] }, // the real settings.json
   // The release script pushes from inside changelogen; a `git push` rule never sees it.
   { guard: P, expect: D, cmd: 'pnpm release' },
   { guard: P, expect: D, cmd: 'pnpm run release' },
@@ -659,7 +665,7 @@ for (const c of LEXER_CASES) {
     fails.push(`[lexer] ${JSON.stringify(c.cmd)}: head=${got.head} probe=${got.probe}, want head=${c.head} probe=${c.probe ?? false}`)
 }
 for (const c of CASES) {
-  const env: Record<string, string | undefined> = { ...process.env, ...c.env }
+  const env: Record<string, string | undefined> = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env }
   for (const name of c.unset ?? [])
     delete env[name]
   if (c.guard === 'dispatch.mts') {
