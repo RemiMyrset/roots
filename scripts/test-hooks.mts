@@ -574,8 +574,10 @@ function sessionProblems(c: SessionCase, status: number | null, stdout: string, 
 
 // The registrations each vendor reads, checked structurally, since no fixture can run the
 // tools themselves: Gemini matches lifecycle hooks by exact source string (a regex alternation
-// never fires) and tool hooks by regex; Codex filters SessionStart by source name; Claude Code's
-// hook matcher must name every tool that runs a shell command (Monitor uses the
+// never fires) and tool hooks by regex, and its deprecated tools.allowed turns every unlisted shell
+// command into a hard deny, even in YOLO mode; Codex filters SessionStart by source name, and a
+// matcher that skips `clear` or `compact` drops the writing rules after /clear or compaction;
+// Claude Code's hook matcher must name every tool that runs a shell command (Monitor uses the
 // Bash allow rules), its command must use the braced `${CLAUDE_PROJECT_DIR}` that PowerShell
 // understands, and its Read deny rules reach the home directory only through `~/` (a `**/` rule
 // anchors at the working directory); and a Claude allow rule's trailing `:*` is a
@@ -601,15 +603,17 @@ for (const e of gemini.hooks?.BeforeTool ?? []) {
   if (e.matcher !== 'run_shell_command')
     structural.push(`.gemini/settings.json: BeforeTool matcher "${e.matcher ?? ''}" is not run_shell_command`)
 }
-for (const a of gemini.tools?.allowed ?? []) {
-  if (!/^run_shell_command\([^()]+\)$/.test(a))
-    structural.push(`.gemini/settings.json: tools.allowed entry "${a}" is not a run_shell_command(prefix) form`)
-}
+if (gemini.tools?.allowed !== undefined)
+  structural.push('.gemini/settings.json: tools.allowed is deprecated and denies every shell command it does not list, even in YOLO mode; leave it out')
 for (const e of codex.hooks?.SessionStart ?? []) {
-  for (const source of (e.matcher ?? '').split('|').filter(Boolean)) {
+  const sources = (e.matcher ?? '').split('|').filter(Boolean)
+  for (const source of sources) {
     if (!CODEX_SOURCES.includes(source))
       structural.push(`.codex/hooks.json: SessionStart matcher "${source}" is not a Codex session source`)
   }
+  const skipped = CODEX_SOURCES.filter(s => !sources.includes(s))
+  if (sources.length > 0 && skipped.length > 0)
+    structural.push(`.codex/hooks.json: SessionStart matcher "${e.matcher ?? ''}" skips ${skipped.join(', ')}, so the writing rules vanish there; omit the matcher`)
 }
 for (const e of codex.hooks?.PreToolUse ?? []) {
   if (e.matcher !== 'Bash')

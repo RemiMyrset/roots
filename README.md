@@ -97,9 +97,9 @@ flowchart LR
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
      Bash on Windows), `grep -rl '@repo/' --exclude-dir=node_modules .` lists
      every file.
-3. **Agent tools.** Say yes to the trust prompts or the guards stay off:
-   Codex asks for the folder and then for each hook (`/hooks`); Gemini asks
-   to confirm the hooks; Claude Code asks for the folder. Details in
+3. **Agent tools.** Start Claude Code and Gemini CLI at the repository root
+   and say yes to the trust prompts, or the guards stay off: each tool asks to
+   trust the folder, and Codex then asks for each hook (`/hooks`). Details in
    [agent-surfaces](./docs/template/agent-surfaces.md#trust-and-registration).
    If `main` is not your only protected branch, set `PROTECTED_BRANCHES` as
    [Push protection](./docs/template/guards.md#push-protection) in guards

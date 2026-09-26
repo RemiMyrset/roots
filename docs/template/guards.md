@@ -169,8 +169,9 @@ and open a PR without a prompt: `Bash(git push:*)`, `Bash(git fetch:*)`,
 `Bash(gh auth status)`, `Bash(gh repo view:*)`, `Bash(gh pr create:*)`,
 `Bash(gh pr view:*)`, `Bash(gh pr list:*)`, `Bash(gh pr checks:*)`,
 `Bash(gh pr diff:*)`, `Bash(gh run list:*)`, `Bash(gh run view:*)`,
-`Bash(gh run watch:*)`, `Bash(gh issue view:*)`, `Bash(gh issue list:*)`; the
-same set is `tools.allowed` in `.gemini/settings.json`. That
+`Bash(gh run watch:*)`, `Bash(gh issue view:*)`, `Bash(gh issue list:*)`;
+Codex and Gemini prompt for them
+([agent-surfaces](./agent-surfaces.md#permission-prompts) says why). That
 convenience rests on this guard (the guard runs before an allowed command), and
 the out-of-scope list under [Limits](#limits) (nested interpreters first) is
 why the server-side ruleset is the boundary that matters. `gh pr merge` stays off the
