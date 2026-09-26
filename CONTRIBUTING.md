@@ -21,8 +21,8 @@ following them is a matter of running the commands.
    the same PR; a load-bearing choice gets a decision record. The rules are in
    [spec-discipline](./docs/template/spec-discipline.md).
 7. **Where docs go.** Decisions and specs under `docs/internal/`, user-facing
-   pages under `docs/public/`. `docs/template/` is synced from the template and
-   never edited here. Every doc follows
+   pages under `docs/public/`. `docs/template/` is synced from the template,
+   and a child never edits it. Every doc follows
    [markdown-portability](./docs/template/markdown-portability.md).
 8. **Open the PR** with `.github/PULL_REQUEST_TEMPLATE.md` filled in honestly.
    Bugs go through the bug issue template; security issues follow

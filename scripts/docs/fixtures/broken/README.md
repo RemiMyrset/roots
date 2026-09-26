@@ -36,3 +36,11 @@ A [broken anchor](./AGENTS.md#nope).
 ## Title ###
 
 ## Title
+
+A `{{ vue }}` in inline code is still evaluated.
+
+> [!NOTE] Custom title
+> A titled alert.
+
+> [!NOTE]-
+> A folded alert.

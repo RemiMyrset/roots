@@ -8,7 +8,7 @@
  * fails here and not only in CI. Runs from the repository root whatever the cwd. Node builtins only, so it runs in any repo it is synced into. The
  * generated-docs drift check needs a git checkout; outside one it is skipped with a
  * note rather than failing. Gates marked template mechanics test code synced from
- * the roots template: a failure there means re-sync, not a bug in this repo.
+ * the roots template: a failure there means re-sync, unless it names a file this repo owns.
  */
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
@@ -23,7 +23,7 @@ const PNPM = WIN ? 'cmd.exe' : 'pnpm'
 interface Gate {
   name: string
   run: () => boolean
-  /** Template mechanics synced from roots: a failure means re-sync (or report upstream), not a bug in this repo's code. */
+  /** Template mechanics synced from roots: a failure means re-sync or report upstream, unless it names a file this repo owns. */
   template?: true
 }
 
@@ -101,8 +101,10 @@ for (const gate of selected) {
   console.log(`\n▶ ${gate.name}${gate.template ? '  (template mechanics)' : ''}`)
   if (!gate.run()) {
     console.error(`\n✖ verify — failed at ${gate.name}. Fix it, then resume with: pnpm verify ${script(gate)}`)
-    if (gate.template)
-      console.error('  This gate tests mechanics synced from the roots template, not this repo\'s code: run `pnpm sync:template` to pick up the fix, or report it upstream — do not patch the synced files here.')
+    if (gate.template) {
+      console.error('  This gate tests mechanics synced from the roots template. If the failure names a file this repo owns (its own workflow, .claude/settings.json, package.json), fix that file here.')
+      console.error('  If it names only synced files, the fix belongs in the template: in a child, run `pnpm sync:template` to pick it up or report it upstream, and do not patch the synced files.')
+    }
     process.exit(1)
   }
 }

@@ -172,6 +172,10 @@ changelogen for `changesets` the day packages need independent versions.
 
 ### Optional CI additions
 
+- A workflow step of your own that runs `pnpm <script>` but is not a gate,
+  such as an e2e or deploy step, ends its line with `# not a gate`.
+  Otherwise `pnpm test:gates`, which keeps `pnpm verify` and the workflows
+  running the same steps, fails on it.
 - typos (crate-ci/typos) spell-checks docs; add it as an advisory step in
   `docs.yml`.
 - lychee checks external URLs; run it scheduled (weekly) and advisory, since

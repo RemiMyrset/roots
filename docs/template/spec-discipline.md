@@ -73,7 +73,8 @@ fails on drift. The checks:
   a superseded status links the newer record and that record exists, and its
   Date is real
 - a spec's Source and Tests paths resolve, and its Last reviewed date is real
-  (a warning after 180 days)
+  (a warning after 180 days); a Source or Tests value that opens with
+  `(pending)` is a warning instead, and HTML comments on the line are ignored
 - specs sit one level below an area, never at the top or nested deeper
 - a template page with a Source bullet meets the spec rules above
 - no committed automd warning comment, and every automd region under `docs/`

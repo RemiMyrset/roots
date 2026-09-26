@@ -21,8 +21,9 @@ frontmatter.
 2. **Callouts** use only GitHub-alert syntax with the five UPPERCASE types:
    `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`.
    All three renderers style these natively. The checker rejects any other
-   type, a lowercase one, and Obsidian's foldable `]+` and `]-` forms. Never
-   VitePress `:::` containers.
+   type, a lowercase one, Obsidian's foldable `]+` and `]-` forms, and a title
+   after the bracket, which GitHub renders as a plain quote. Never VitePress
+   `:::` containers.
 3. **No YAML frontmatter** in docs. Metadata that matters lives in visible bold
    bullets (decision Status/Date, spec Source/Tests/Last reviewed); frontmatter
    is invisible in VitePress and renders as a table on GitHub. The cost is
@@ -51,9 +52,11 @@ frontmatter.
 8. **Emoji** are real Unicode characters, never `:shortcode:` colon codes
    (Obsidian renders those literally).
 9. **HTML** is limited to `<details>`/`<summary>` and `<br>`; the checker
-   rejects every other tag and `{{ }}`. A bare `{` or a stray `<` in prose
-   also breaks VitePress, which compiles every page as a Vue template, and is
-   not checked: put it in backticks.
+   rejects every other tag. VitePress compiles every page as a Vue template
+   and evaluates two opening braces in a row as an interpolation, in inline
+   code as much as in prose, so the checker rejects them anywhere but fenced
+   code: show one in a fenced block. A single brace, or a `<` that opens no
+   tag, renders as plain text.
 10. **Single-sourcing** goes through automd; never VitePress `@include` or `<<<`
     snippet syntax.
 11. GFM tables (kept simple), task lists, footnotes, fenced code with language

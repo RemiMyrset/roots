@@ -95,8 +95,10 @@ flowchart LR
    - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` in both links.
    - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact becomes yours.
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
-     Bash on Windows), `grep -rl '@repo/' --exclude-dir=node_modules .` lists
-     every file.
+     Bash on Windows),
+     `grep -rl '@repo/' --exclude-dir=node_modules --exclude-dir=.claude --exclude-dir=.agents .`
+     lists every file to change. It skips the synced skills, which name
+     `@repo/` only as the default.
 3. **Agent tools.** Say yes to the trust prompts or the guards stay off:
    Codex asks for the folder and then for each hook (`/hooks`); Gemini asks
    to confirm the hooks; Claude Code asks for the folder. Details in
