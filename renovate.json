@@ -7,14 +7,14 @@
     ":semanticCommits",
     ":dependencyDashboard"
   ],
-  "schedule": ["before 6am on monday"],
+  "schedule": ["* 0-5 * * 1"],
   "timezone": "UTC",
   "minimumReleaseAge": "2 days",
   "prConcurrentLimit": 3,
   "labels": ["dependencies"],
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 6am on the first day of the month"]
+    "schedule": ["* 0-5 1 * *"]
   },
   "packageRules": [
     {
@@ -37,6 +37,6 @@
   ],
   "vulnerabilityAlerts": {
     "labels": ["security"],
-    "schedule": ["at any time"]
+    "automerge": false
   }
 }
