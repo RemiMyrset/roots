@@ -21,6 +21,16 @@ and quoted paths with either separator (`'C:\repo\.env'`). A
 regression suite (`pnpm test:hooks`) pins every covered case so a fix for one
 form never silently reopens another.
 
+The shared lexer splits a command where bash does, and the push guard never
+reads a redirection (`2>&1`, `> log`) as an argument. A `$()` or backtick
+substitution runs wherever bash runs it, inside double quotes and in a heredoc
+with an unquoted delimiter (`<<EOF`) too, while single-quoted text, a `#`
+comment, and a heredoc body are data, so a quote inside them cannot hide a
+later line. A body a shell reads (`bash <<'EOF'`, `cat <<'EOF' | sh`) is lexed
+as commands, and so is one inside a substitution a shell runs as its script,
+under `-c`, or under `eval` (`bash <(cat <<'EOF' …)`). A substitution passed to
+a script as an argument (`bash x.sh "$(cat <<'EOF' …)"`) stays data.
+
 ## Registration
 
 `dispatch.mts` is the one pre-tool hook, registered three times: as a Claude
@@ -66,10 +76,13 @@ on Windows registers the guards for its PowerShell tool as well as Bash; the
 lexer is bash-shaped, so PowerShell spellings are covered only where they
 coincide (`npm install`, `cat .env`, `git push origin main`).
 
-Known over-block for every guard (safe direction, never a bypass): backticks are
-read as command substitution, so a heredoc or commit message quoting
-`` `npm install` `` in backticks is denied. Write such text with a file tool or
-from a terminal.
+Known over-block for every guard (safe direction, never a bypass): a heredoc
+fed to a shell that runs a script file (`bash x.sh <<'EOF'`) has its body
+lexed as commands, although the script reads it as input. Backticks inside
+double quotes are not an over-block: bash runs them, so
+`` -m "never run `npm install`" `` is denied because it would run npm. Quote
+such text in single quotes or a quoted heredoc (`<<'EOF'`), which bash never
+expands.
 
 **For real isolation, run the agent under OS-level sandboxing** (a container,
 seccomp/AppArmor, a restricted `PATH`, or a VM). The guards are
@@ -91,7 +104,14 @@ covers the common shell-read forms of the same set (`.env` and `.envrc` matched
 case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
 readable; `credentials`, `config`, and `hosts.yml` count only under their
 credential directory): direct readers, `<` redirects (including `$(<file)` and
-`<>`), `pnpm exec` wrappers, and `find -exec`.
+`<>`), `pnpm exec` wrappers, and a glob that can expand to one of those names
+(`.env*`, `~/.ssh/*`). A glob counts only where bash expands it: a quoted or
+escaped `*`, `?`, or `[` is text, so a search pattern such as
+`grep "import .* from"` passes. `find -exec` and `-ok` are denied when a word
+names a secret or a `-name` or `-path` pattern can match one, quoted or not,
+because find matches it itself. A negated or pruned pattern
+(`-not -path '*/.*'`, `-path '*/.*' -prune -o`) keeps those files out and
+passes.
 
 The guard is the broader of the two; the Read list stays a curated subset so
 `.env.example` remains openable. `.env.example` is the one carve-out; other
@@ -109,13 +129,15 @@ and are covered by the guard and the Read list only.
 
 Beyond the shared out-of-scope list, this guard cannot catch a recursive walker
 with no secret literal (`grep -r .`), a filename routed via xargs or a stdin
-pipe, or a glob that expands to a secret without the `.env` prefix (`.e*`). The
-backstop is `.gitignore`, the Read-tool deny list, and human review.
+pipe, or a glob that opens with a wildcard outside a credential directory
+(`*rc`) or stops short of a key extension (`key.*`). The backstop is
+`.gitignore`, the Read-tool deny list, and human review.
 
 Known over-block (safe direction, never a bypass): a reader whose
 secret-looking token is a search term or output prefix (`look .env`,
-`split in .env_`) is denied although it reads no secret. Rephrase or run it in
-a terminal.
+`split in .env_`) is denied although it reads no secret. `find` pointed at a
+secret with `-exec` is denied whatever program it runs (`-exec ls`), because
+`-exec sh -c …` can read what it is handed. Rephrase or run it in a terminal.
 
 ## Secrets in commits
 
@@ -139,8 +161,10 @@ block of `.claude/settings.json`) or, when unset, from that file itself, so
 Codex and Gemini honour the same list with nothing to configure per tool.
 
 A `git push` is denied when any target is protected (the remote side of each
-refspec, the current branch when no refspec is given, or `HEAD`) and when a
-target cannot be resolved (detached HEAD, not a checkout). Also denied on any
+refspec, or the current branch when no refspec is given or the target is `HEAD`
+or a lone substitution such as `"$(git branch --show-current)"`) and when a
+target cannot be resolved (detached HEAD, not a checkout, a substitution inside
+a longer name). Also denied on any
 branch: bare `--force` / `-f` / a `+refspec`, `--all` / `--branches` /
 `--mirror`, and any wildcard refspec (`refs/heads/*`), which the guard cannot
 evaluate against the remote. `--force-with-lease`, `--delete`, and tag pushes
@@ -154,7 +178,8 @@ its place is denied, because pushing there sidesteps the remotes the list is
 written for.
 
 Out of scope, beyond the shared list: `cd elsewhere && git push` resolves the
-current branch in the project directory and ignores the `cd` target, and the
+current branch in the project directory and ignores the `cd` target, a lone
+substitution is taken for the current branch whatever it prints, and the
 remote's own default-branch name is never consulted. Configure the list.
 
 The server-side gate is a GitHub branch ruleset, created during first run with

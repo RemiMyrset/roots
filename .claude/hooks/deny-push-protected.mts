@@ -4,13 +4,14 @@
  * happens inside changelogen, invisible to a `git push` rule). Protected patterns come from
  * PROTECTED_BRANCHES (comma-separated globs, `*` matches any run of characters) in the
  * `env` block of .claude/settings.json; unset means `main`. Implicit targets (`git push`,
- * `HEAD`) resolve through `git symbolic-ref` in the cwd; an unresolvable target is denied.
+ * `HEAD`, a lone command substitution) resolve through `git symbolic-ref` in the cwd; an
+ * unresolvable target is denied. Redirections are not refspecs: bash never passes them to git.
  * Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md.
  */
 import type { GuardContext, Verdict } from './_lexer.mts'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { base, gitSubcommand, PNPM_VALUE_FLAG, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+import { base, gitSubcommand, PNPM_VALUE_FLAG, resolveHead, segments, SUBST, tokenize, unquote, withoutRedirects } from './_lexer.mts'
 
 const ENV_VAR = 'PROTECTED_BRANCHES'
 
@@ -59,8 +60,9 @@ function currentBranch(cwd: string): string | null {
 const PUSH_VALUE_OPT: ReadonlySet<string> = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec'])
 
 // Returns the deny reason for a `git push` argv (tokens after `push`), or null to allow.
-function pushVerdict(args: string[], ctx: GuardContext): string | null {
+function pushVerdict(words: string[], ctx: GuardContext): string | null {
   const protectedRefs = protection(ctx)
+  const args = withoutRedirects(words)
   let remote: string | undefined
   const refspecs: string[] = []
   let del = false
@@ -122,11 +124,16 @@ function pushVerdict(args: string[], ctx: GuardContext): string | null {
     targets.push(cur)
   }
   for (let t of targets) {
-    if (t === 'HEAD') {
+    // A lone substitution (`"$(git branch --show-current)"`) names the current branch, as HEAD
+    // does; one inside a longer name leaves the target unknown.
+    if (t === 'HEAD' || t.replace(/^refs\/heads\//, '') === SUBST) {
       const cur = currentBranch(ctx.cwd)
       if (!cur)
         return 'HEAD is not on a branch, so the push target is unknown'
       t = cur
+    }
+    else if (t.includes(SUBST)) {
+      return `"${t}" is built by a command substitution, so the push target is unknown`
     }
     if (protectedRefs.test(t))
       return `"${t}" is a protected branch (${ENV_VAR}="${protectedRefs.patterns.join(',')}" in .claude/settings.json env; default "main"). Push a feature branch and open a PR instead`
@@ -143,11 +150,11 @@ function isChangelogen(t: string): boolean {
 }
 
 // Index of the changelogen word: at the head (directly, or via pnpm exec/dlx unwrapping), or
-// behind npx and its flags (`npx -y changelogen@latest …`); -1 when absent.
+// behind npx or pnpx and their flags (`npx -y changelogen@latest …`); -1 when absent.
 function changelogenAt(toks: string[], i: number, head: string): number {
   if (isChangelogen(toks[i] ?? ''))
     return i
-  if (head !== 'npx')
+  if (head !== 'npx' && head !== 'pnpx')
     return -1
   let k = i + 1
   while (k < toks.length) {
@@ -190,7 +197,8 @@ export const verdict: Verdict = (cmd, ctx) => {
     }
     if (head === 'pnpm' && pnpmScript(toks, i) === 'release')
       return '`pnpm release` pushes to the default branch from inside changelogen. Human-only: prepare the release (release skill) and let the user run it.'
-    const cl = changelogenAt(toks, i, head)
+    // pnpm runs a local bin when no script matches, so `pnpm changelogen` is changelogen.
+    const cl = head === 'pnpm' && isChangelogen(pnpmScript(toks, i)) ? i : changelogenAt(toks, i, head)
     if (cl >= 0 && toks.slice(cl + 1).some(t => unquote(t) === '--push'))
       return '`changelogen --push` pushes to the default branch. Human-only: run it yourself in a terminal.'
   }
