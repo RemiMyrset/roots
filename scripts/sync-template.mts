@@ -16,8 +16,8 @@
  * After staging it prints what a file copy cannot carry: the template commits since
  * the last sync (breaking ones marked `!` with their BREAKING CHANGE paragraph), the
  * package.json `scripts` that differ from the template's, and the .claude/settings.json
- * allow and deny rules and hook command the template has and this repo lacks, as
- * follow-ups to apply by hand. A first sync infers where this repo branched off the template — shared
+ * allow and deny rules, hook registrations, and output style the template has and this
+ * repo lacks, as follow-ups to apply by hand. A first sync infers where this repo branched off the template — shared
  * history, the root commit's tree, or the root commit's time — so the list starts
  * there. The sync point (template URL, ref, commit) is recorded in .template-sync.json
  * and staged with the rest, so the next run knows where to start.
@@ -97,11 +97,15 @@ interface StateFile {
   include?: string[]
 }
 
-/** The committed sync point: where the mechanics came from, which ref is tracked, and which template commit they match. */
+/**
+ * The committed sync point: where the mechanics came from, which ref is tracked, and which
+ * template commit they match. Only `commit` is written by the sync alone; a file without it
+ * is a configuration written before the first sync.
+ */
 interface SyncState {
-  url: string
+  url?: string
   ref?: string
-  commit: string
+  commit?: string
   exclude?: string[]
   include?: string[]
 }
@@ -119,8 +123,12 @@ function isRef(ref: string): boolean {
   return REF_RE.test(ref) && !ref.includes('..')
 }
 
+// Every path argument is a literal path, never a glob or pathspec magic: `git rm -- x[1].md`
+// would otherwise also delete x1.md, and `ls-files -- '*.config.ts'` matches at any depth.
+const GIT_ENV = { ...process.env, GIT_LITERAL_PATHSPECS: '1' }
+
 function git(args: string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return execFileSync('git', args, { encoding: 'utf8', env: GIT_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
 function tryGit(args: string[]): string | null {
@@ -157,9 +165,43 @@ function short(sha: string): string {
   return sha.slice(0, 7)
 }
 
+/**
+ * Every version (blob id) of every file under `paths` in the history of `revs`, by file. Both
+ * sides of each change count and a merge is diffed against each parent, so a version that only a
+ * merge wrote counts too.
+ */
+function versionsAt(revs: string[], paths: string[]): Map<string, Set<string>> {
+  const versions = new Map<string, Set<string>>()
+  if (paths.length === 0)
+    return versions
+  const parts = zList(tryGit(['log', '--format=', '--raw', '-z', '--no-abbrev', '--no-renames', '--full-history', '-m', ...revs, '--', ...paths]))
+  for (let i = 0; i < parts.length; i++) {
+    const meta = parts[i] ?? ''
+    if (!meta.startsWith(':'))
+      continue
+    const file = parts[++i] ?? ''
+    const [, , from = '', to = ''] = meta.split(' ')
+    let set = versions.get(file)
+    if (!set) {
+      set = new Set()
+      versions.set(file, set)
+    }
+    for (const blob of [from, to]) {
+      if (/^[0-9a-f]+$/.test(blob) && !/^0+$/.test(blob))
+        set.add(blob)
+    }
+  }
+  return versions
+}
+
 function fail(message: string): never {
   console.error(`✖ ${message}`)
   process.exit(1)
+}
+
+/** JSON.parse that ignores a leading byte-order mark, which some Windows editors write. */
+function parseJson(text: string): unknown {
+  return JSON.parse(text.startsWith('\uFEFF') ? text.slice(1) : text) as unknown
 }
 
 interface Args {
@@ -189,43 +231,83 @@ function parseArgs(argv: string[]): Args {
   return args
 }
 
-function readState(): { state?: SyncState, warning?: string } {
-  if (!existsSync(STATE_FILE))
-    return {}
-  const bad = (why: string): { warning: string } => ({
-    warning: `${STATE_FILE} is unreadable (${why}) — treating this as a first sync; it will be rewritten.`,
-  })
-  let raw: unknown
-  try {
-    raw = JSON.parse(readFileSync(STATE_FILE, 'utf8'))
-  }
-  catch {
-    return bad('not valid JSON')
-  }
-  if (typeof raw !== 'object' || raw === null)
-    return bad('not an object')
-  const o = raw as RawState
-  if (typeof o.url !== 'string' || !URL_RE.test(o.url))
-    return bad('missing or invalid "url"')
-  if (typeof o.commit !== 'string' || !SHA_RE.test(o.commit))
-    return bad('missing or invalid "commit"')
-  if (o.ref !== undefined && (typeof o.ref !== 'string' || !isRef(o.ref)))
-    return bad('invalid "ref"')
-  const list = (v: unknown): string[] | undefined =>
-    Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : undefined
-  const state: SyncState = { url: o.url, commit: o.commit }
-  if (typeof o.ref === 'string')
-    state.ref = o.ref
-  const exclude = list(o.exclude)
-  if (exclude)
-    state.exclude = exclude
-  const include = list(o.include)
-  if (include)
-    state.include = include
-  return { state }
+/** Why a state-file path entry is refused, or undefined for a literal repo-relative path. */
+function badEntry(entry: string): string | undefined {
+  if (entry === '')
+    return 'it is empty'
+  if (entry.startsWith('/') || entry.includes('\\') || /^[a-z]:/i.test(entry))
+    return 'it is not a repo-relative path with forward slashes'
+  if (entry.startsWith(':'))
+    return 'pathspec magic is not supported'
+  if (/[*?]/.test(entry))
+    return 'entries are literal paths, not globs'
+  if (entry.replace(/\/+$/, '').split('/').some(s => s === '' || s === '.' || s === '..'))
+    return 'it has an empty, "." or ".." segment'
+  return undefined
 }
 
-function writeState(state: SyncState): void {
+function invalidState(why: string): never {
+  fail(`${STATE_FILE} is invalid: ${why}. Fix it and re-run; nothing was fetched or staged.`)
+}
+
+/**
+ * The state file, validated field by field. A missing file, or one without `commit`, is a
+ * first sync; an invalid `commit` alone is a first sync with a warning. Anything else that
+ * fails validation stops the run before anything is fetched or staged, because dropping the
+ * field would silently switch the template URL or ref, or overwrite an excluded path.
+ */
+function readState(): { state?: SyncState, warnings: string[] } {
+  if (!existsSync(STATE_FILE))
+    return { warnings: [] }
+  let raw: unknown
+  try {
+    raw = parseJson(readFileSync(STATE_FILE, 'utf8'))
+  }
+  catch (err) {
+    invalidState(`not valid JSON (${(err as Error).message})`)
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+    invalidState('not a JSON object')
+  const o = raw as RawState
+  const state: SyncState = {}
+  const warnings: string[] = []
+  if (o.url !== undefined) {
+    if (typeof o.url !== 'string' || !URL_RE.test(o.url))
+      invalidState(`"url" must be a git URL or path matching ${String(URL_RE)}`)
+    state.url = o.url
+  }
+  if (o.ref !== undefined) {
+    if (typeof o.ref !== 'string' || !isRef(o.ref))
+      invalidState(`"ref" must be a branch or tag name matching ${String(REF_RE)}`)
+    state.ref = o.ref
+  }
+  if (o.commit !== undefined) {
+    if (typeof o.commit === 'string' && SHA_RE.test(o.commit))
+      state.commit = o.commit
+    else
+      warnings.push(`${STATE_FILE} has an invalid "commit" (not 40 hex characters) — treating this as a first sync; it will be rewritten.`)
+  }
+  for (const key of ['exclude', 'include'] as const) {
+    const v = o[key]
+    if (v === undefined)
+      continue
+    if (!Array.isArray(v) || !v.every((e): e is string => typeof e === 'string'))
+      invalidState(`"${key}" must be an array of path strings`)
+    for (const e of v) {
+      const why = badEntry(e)
+      if (why)
+        invalidState(`"${key}" entry ${JSON.stringify(e)} is refused: ${why}`)
+    }
+    state[key] = v.map(e => e.replace(/\/+$/, ''))
+  }
+  for (const e of state.exclude ?? []) {
+    if (!MECHANICS.includes(e))
+      warnings.push(`${STATE_FILE} "exclude" entry ${JSON.stringify(e)} matches no synced path, so nothing is excluded by it; an entry must equal a whole entry of MECHANICS in ${SELF}.`)
+  }
+  return { state, warnings }
+}
+
+function writeState(state: SyncState & { url: string, commit: string }): void {
   // Field order in the file: url, ref, commit, exclude, include.
   const out: StateFile = {
     $comment: 'Written by scripts/sync-template.mts: the template URL, the branch or tag it tracks ("ref", absent means main), and the last template commit synced into this repo. Commit it together with the sync. "exclude" (synced paths to skip) and "include" (extra paths to pull) are yours to edit.',
@@ -248,19 +330,20 @@ interface Fetched {
   kind: 'branch' | 'tag'
 }
 
-/** Fetches `ref` as a branch first, then as a tag (into the private tag namespace); null when neither exists. */
-function fetchRef(ref: string): Fetched | null {
-  if (tryGit(['fetch', '--no-tags', REMOTE, `+refs/heads/${ref}:refs/remotes/${REMOTE}/${ref}`]) !== null) {
+/** Fetches `ref` as a branch first, then as a tag (into the private tag namespace); when neither exists, git's reason for the branch attempt. */
+function fetchRef(ref: string): Fetched | { error: string } {
+  const branchError = gitError(['fetch', '--no-tags', REMOTE, `+refs/heads/${ref}:refs/remotes/${REMOTE}/${ref}`])
+  if (branchError === null) {
     const sha = tryGit(['rev-parse', '-q', '--verify', `refs/remotes/${REMOTE}/${ref}^{commit}`])?.trim()
     if (sha)
       return { head: sha, kind: 'branch' }
   }
-  if (tryGit(['fetch', '--no-tags', REMOTE, `+refs/tags/${ref}:${TAG_NS}/${ref}`]) !== null) {
+  if (gitError(['fetch', '--no-tags', REMOTE, `+refs/tags/${ref}:${TAG_NS}/${ref}`]) === null) {
     const sha = tryGit(['rev-parse', '-q', '--verify', `${TAG_NS}/${ref}^{commit}`])?.trim()
     if (sha)
       return { head: sha, kind: 'tag' }
   }
-  return null
+  return { error: branchError ?? `refs/heads/${ref} is not a commit` }
 }
 
 interface Baseline {
@@ -313,17 +396,18 @@ interface Commit {
   sha: string
   subject: string
   breaking: string[]
+  merge: boolean
 }
 
-/** Template commits after `base` up to `head`, newest first, with the BREAKING CHANGE paragraph when present. */
+/** Template commits after `base` up to `head`, newest first, merges flagged, with the BREAKING CHANGE paragraph when present. */
 function commitsSince(base: string, head: string): Commit[] {
-  const raw = git(['log', '--format=%H%x00%s%x00%b%x1e', `${base}..${head}`])
+  const raw = git(['log', '--format=%H%x00%P%x00%s%x00%b%x1e', `${base}..${head}`])
   return raw
     .split('\x1E')
     .map(rec => rec.replace(/^\r?\n/, ''))
     .filter(Boolean)
     .map((rec) => {
-      const [sha = '', subject = '', body = ''] = rec.split('\0')
+      const [sha = '', parents = '', subject = '', body = ''] = rec.split('\0')
       const breaking: string[] = []
       const bodyLines = body.replace(/\r/g, '').split('\n')
       const start = bodyLines.findIndex(l => BREAKING_FOOTER_RE.test(l))
@@ -334,7 +418,7 @@ function commitsSince(base: string, head: string): Commit[] {
           breaking.push(l)
         }
       }
-      return { sha, subject: subject.replace(/\r$/, ''), breaking }
+      return { sha, subject: subject.replace(/\r$/, ''), breaking, merge: parents.trim().split(' ').length > 1 }
     })
 }
 
@@ -349,7 +433,7 @@ function scriptsOf(json: string | null): Scripts | undefined {
   if (json === null)
     return undefined
   try {
-    const parsed = JSON.parse(json) as { scripts?: unknown }
+    const parsed = parseJson(json) as { scripts?: unknown }
     const s = parsed.scripts
     if (typeof s !== 'object' || s === null)
       return {}
@@ -425,62 +509,125 @@ function scriptFollowUps(
   return { items, customized }
 }
 
+/** One hook registration: the event, the matcher (empty when absent, which matches everything), and the command. */
+interface Hook {
+  event: string
+  matcher: string
+  command: string
+}
+
 /** The parts of a Claude Code settings file a template ships and a child must carry by hand. */
 interface SettingsShape {
   allow: string[]
   deny: string[]
-  hook?: string
-  matcher?: string
+  hooks: Hook[]
+  outputStyle?: string
 }
 
-/** The allow and deny rules and the first PreToolUse hook's command and matcher of a settings.json text; undefined when it is not JSON. */
+// What a settings file may hold before validation, declared like RawState above.
+interface RawSettings {
+  permissions?: { allow?: unknown, deny?: unknown }
+  hooks?: unknown
+  outputStyle?: unknown
+}
+interface RawHookEntry {
+  matcher?: unknown
+  hooks?: unknown
+}
+
+/** `v` as a JSON object whose fields are still unchecked, or undefined for anything else. */
+function asObject<T extends object>(v: unknown): T | undefined {
+  return typeof v === 'object' && v !== null && !Array.isArray(v) ? v as T : undefined
+}
+
+/** The allow and deny rules, every command hook registration, and the output style of a settings.json text; undefined when it is not JSON. */
 function settingsOf(json: string | null): SettingsShape | undefined {
   if (json === null)
     return undefined
+  let parsed: unknown
   try {
-    const parsed = JSON.parse(json) as { permissions?: { allow?: unknown, deny?: unknown }, hooks?: { PreToolUse?: { matcher?: unknown, hooks?: { command?: unknown }[] }[] } }
-    const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
-    const hook = parsed.hooks?.PreToolUse?.[0]?.hooks?.[0]?.command
-    const matcher = parsed.hooks?.PreToolUse?.[0]?.matcher
-    return { allow: list(parsed.permissions?.allow), deny: list(parsed.permissions?.deny), ...(typeof hook === 'string' ? { hook } : {}), ...(typeof matcher === 'string' ? { matcher } : {}) }
+    parsed = parseJson(json)
   }
   catch {
     return undefined
   }
+  const root = asObject<RawSettings>(parsed) ?? {}
+  const permissions = asObject<NonNullable<RawSettings['permissions']>>(root.permissions) ?? {}
+  const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
+  const hooks: Hook[] = []
+  for (const [event, entries] of Object.entries(asObject<Record<string, unknown>>(root.hooks) ?? {})) {
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      const e = asObject<RawHookEntry>(entry)
+      const matcher = typeof e?.matcher === 'string' ? e.matcher : ''
+      for (const h of Array.isArray(e?.hooks) ? e.hooks : []) {
+        const command = asObject<{ command?: unknown }>(h)?.command
+        if (typeof command === 'string')
+          hooks.push({ event, matcher, command })
+      }
+    }
+  }
+  const outputStyle = root.outputStyle
+  return { allow: list(permissions.allow), deny: list(permissions.deny), hooks, ...(typeof outputStyle === 'string' ? { outputStyle } : {}) }
+}
+
+/** A template hook registration this repository lacks, with the registrations here it replaces. */
+interface HookFollowUp {
+  template: Hook
+  yours: Hook[]
 }
 
 interface SettingsFollowUps {
   missing: string[]
-  hook?: { template: string, yours?: string }
-  matcher?: { template: string, yours?: string }
+  hooks: HookFollowUp[]
   skipped?: string
 }
 
-/** A template value that differs from the local one, with the local value when there is one. */
-function differs(template: string | undefined, yours: string | undefined): { template: string, yours?: string } | undefined {
-  return template !== undefined && template !== yours ? { template, ...(yours !== undefined ? { yours } : {}) } : undefined
-}
-
 /**
- * Two-way compare of .claude/settings.json, which is never synced: template allow and deny
- * rules absent here, and a PreToolUse hook command or matcher that differs (a matcher that
- * names a new tool routes that tool through the guards). A child's own rules are never
- * mentioned, and the file is never edited.
+ * Compare of .claude/settings.json, which is never synced: template allow and deny rules
+ * absent here, the template's output style when this repository sets none, and every
+ * template hook registration (event, matcher, command) absent here. `shipped` is every
+ * registration any version of the template's file held. A registration here that the
+ * template shipped and has since dropped is paired with its replacement; one it never shipped
+ * is the repository's own, paired only as an edited matcher of the template's command. A
+ * child's own rules and hooks are never mentioned, and the file is never edited.
  */
-function settingsFollowUps(template: SettingsShape | undefined, local: SettingsShape | undefined, localMissing: boolean): SettingsFollowUps {
+function settingsFollowUps(template: SettingsShape | undefined, shipped: Hook[], local: SettingsShape | undefined, localMissing: boolean): SettingsFollowUps {
   if (localMissing)
-    return { missing: [], skipped: 'no .claude/settings.json here' }
+    return { missing: [], hooks: [], skipped: 'no .claude/settings.json here' }
   if (!template)
-    return { missing: [], skipped: 'the template has no readable .claude/settings.json' }
+    return { missing: [], hooks: [], skipped: 'the template has no readable .claude/settings.json' }
   if (!local)
-    return { missing: [], skipped: '.claude/settings.json here is not valid JSON' }
+    return { missing: [], hooks: [], skipped: '.claude/settings.json here is not valid JSON' }
   const missing = [
     ...template.allow.filter(r => !local.allow.includes(r)).map(r => `permissions.allow ${r}`),
     ...template.deny.filter(r => !local.deny.includes(r)).map(r => `permissions.deny ${r}`),
+    ...(template.outputStyle !== undefined && local.outputStyle === undefined ? [`outputStyle ${template.outputStyle}`] : []),
   ]
-  const hook = differs(template.hook, local.hook)
-  const matcher = differs(template.matcher, local.matcher)
-  return { missing, ...(hook ? { hook } : {}), ...(matcher ? { matcher } : {}) }
+  const same = (a: Hook, b: Hook): boolean => a.event === b.event && a.matcher === b.matcher && a.command === b.command
+  const fromTemplate = (h: Hook): boolean => template.hooks.some(t => same(t, h)) || shipped.some(s => same(s, h))
+  const absent = template.hooks.filter(t => !local.hooks.some(l => same(t, l)))
+  // What a registration here was replaced by. One the template shipped at any point and has
+  // since dropped: the template's registrations absent here with its command (a changed
+  // matcher), else with its matcher (a changed command), else every one for its event. One it
+  // never shipped is the repository's own, or its edit of the template's matcher: paired with
+  // those running its command only when it is the one registration here that runs it.
+  const replacedBy = (l: Hook): Hook[] => {
+    const inEvent = absent.filter(t => t.event === l.event)
+    const byCommand = inEvent.filter(t => t.command === l.command)
+    if (!fromTemplate(l))
+      return local.hooks.filter(o => o.event === l.event && o.command === l.command).length === 1 ? byCommand : []
+    if (byCommand.length > 0)
+      return byCommand
+    const byMatcher = inEvent.filter(t => t.matcher === l.matcher)
+    return byMatcher.length > 0 ? byMatcher : inEvent
+  }
+  const replaced = local.hooks.filter(l => !template.hooks.some(t => same(t, l))).map(l => ({ l, by: replacedBy(l) }))
+  const hooks = absent.map(t => ({ template: t, yours: replaced.filter(r => r.by.includes(t)).map(r => r.l) }))
+  return { missing, hooks }
+}
+
+function describeHook(h: Hook): string {
+  return `matcher ${h.matcher === '' ? '(none)' : h.matcher}, command ${h.command}`
 }
 
 // ---------------------------------------------------------------------------------
@@ -490,9 +637,9 @@ if (toplevel === null)
   fail('Not a git repository — run this from inside your project.')
 process.chdir(toplevel.trim())
 
-const { state, warning } = readState()
-if (warning)
-  console.error(`Warning: ${warning}`)
+const { state, warnings } = readState()
+for (const w of warnings)
+  console.error(`Warning: ${w}`)
 
 const args = parseArgs(process.argv.slice(2))
 const existingRemote = tryGit(['remote', 'get-url', REMOTE])?.trim()
@@ -540,17 +687,25 @@ else
 git(['config', `remote.${REMOTE}.tagOpt`, '--no-tags'])
 
 const fetched = fetchRef(ref)
-if (fetched === null)
-  fail(`Could not fetch ${ref} (as a branch or a tag) from ${url}. Check the URL (git remote -v), the ref, and your network.`)
+if ('error' in fetched)
+  fail(`Could not fetch ${ref} (as a branch or a tag) from ${url}. Check the URL (git remote -v), the ref, and your network.\n  git: ${fetched.error}`)
 const { head, kind } = fetched
 const label = kind === 'tag' ? `${REMOTE}/${ref} (tag)` : `${REMOTE}/${ref}`
 
 const recorded = state?.commit
+// A fresh clone holds only the template history the fetch above brought, so a recorded commit
+// off it (a sync back to an older ref, a switch to another ref) is fetched by its hash. It is
+// lost only when the template no longer has it (a force-push), or the URL is another fork.
+const hasCommit = (sha: string): boolean => tryGit(['cat-file', '-e', `${sha}^{commit}`]) !== null
+const recordedLost = recorded !== undefined && !hasCommit(recorded) && (tryGit(['fetch', '--no-tags', REMOTE, recorded]) === null || !hasCommit(recorded))
 const baseline = recorded === undefined ? inferBaseline(head, label, paths) : undefined
 const base = baseline?.commit ?? recorded
 const baseInHistory = baseline !== undefined || (recorded !== undefined && tryGit(['merge-base', '--is-ancestor', recorded, head]) !== null)
 const behind = recorded !== undefined && !baseInHistory && tryGit(['merge-base', '--is-ancestor', head, recorded]) !== null
 const since = recorded === undefined ? 'the baseline' : 'last sync'
+// The template history that says what it shipped: the head's, and the sync point's when git has
+// it and it is off that history (a sync back to an older ref, or a switch to another one).
+const historyRevs = base !== undefined && base !== head && !recordedLost ? [head, base] : [head]
 
 // Take the template's version of every synced path it still ships, then stage removals
 // for tracked files under those paths that the template retired — a file inside a path
@@ -560,8 +715,35 @@ const since = recorded === undefined ? 'the baseline' : 'last sync'
 const upstreamByPath = new Map(paths.map(path => [path, new Set(zList(tryGit(['ls-tree', '-r', '-z', '--name-only', head, '--', path])))] as const))
 if ([...upstreamByPath.values()].every(files => files.size === 0))
   fail(`Nothing to pull — none of the synced paths exist on ${label}. Is ${url} a roots template?`)
+
+// A tracked file under a synced path that the template head lacks is retired only when it is
+// the template's: in the tree at the sync point when that point is exact (the recorded commit,
+// shared history, or a root tree; the root-time baseline is approximate, a bootstrap has none,
+// and a lost recorded commit is gone), or byte-identical to a version the template shipped at
+// that path, however it got here (an older script that recorded no sync point, a sync while
+// the path was excluded). Anything else stays. It is listed as kept when it may still be the
+// template's: at a path the template once shipped (a copy edited here, or the repository's own
+// file reusing the path), or, with the recorded commit lost, anywhere, since the template may
+// have shipped it only in the history it lost. Any other file, such as the repository's own
+// skill or rule under a synced directory, is never mentioned.
+const exactBase = base !== undefined && baseline?.how !== 'root time' && !recordedLost ? base : undefined
+const atBase = new Map<string, Set<string>>()
+function inBaseTree(path: string, file: string): boolean {
+  if (exactBase === undefined)
+    return false
+  let files = atBase.get(path)
+  if (!files) {
+    files = new Set(zList(tryGit(['ls-tree', '-r', '-z', '--name-only', exactBase, '--', path])))
+    atBase.set(path, files)
+  }
+  return files.has(file)
+}
+
 const deleted: string[] = []
+const kept: string[] = []
 const skipped: string[] = []
+// Tracked files the template head lacks, with the synced path each is under and its blob id.
+const unplaced = new Map<string, { path: string, blob: string }>()
 let pulled = 0
 for (const [path, upstream] of upstreamByPath) {
   if (upstream.size > 0) {
@@ -571,9 +753,22 @@ for (const [path, upstream] of upstreamByPath) {
     else
       skipped.push(`${path}  ${why}`)
   }
-  for (const file of zList(tryGit(['ls-files', '-z', '--', path]))) {
-    if (!upstream.has(file) && tryGit(['rm', '--quiet', '--', file]) !== null)
+  // `<mode> <blob> <stage>\t<file>`
+  for (const entry of zList(tryGit(['ls-files', '-s', '-z', '--', path]))) {
+    const file = entry.slice(entry.indexOf('\t') + 1)
+    if (!upstream.has(file) && !unplaced.has(file))
+      unplaced.set(file, { path, blob: entry.split(' ')[1] ?? '' })
+  }
+}
+const shippedVersions = versionsAt(historyRevs, [...new Set([...unplaced.values()].map(u => u.path))])
+for (const [file, { path, blob }] of unplaced) {
+  const versions = shippedVersions.get(file)
+  if (inBaseTree(path, file) || versions?.has(blob) === true) {
+    if (tryGit(['rm', '--quiet', '--', file]) !== null)
       deleted.push(file)
+  }
+  else if (recordedLost || versions !== undefined) {
+    kept.push(file)
   }
 }
 if (pulled === 0)
@@ -587,21 +782,26 @@ const followUps = scriptFollowUps(
   deleted,
 )
 
+// Every hook registration the template shipped, from every version of its settings file in
+// its history and the sync point's: a registration here that lags the sync point is still the
+// template's, and one in no version is the repository's own.
 const SETTINGS = '.claude/settings.json'
+const settingsVersions = versionsAt(historyRevs, [SETTINGS]).get(SETTINGS) ?? new Set<string>()
 const settings = settingsFollowUps(
   settingsOf(tryGit(['show', `${head}:${SETTINGS}`])),
+  [...settingsVersions].flatMap(blob => settingsOf(tryGit(['cat-file', 'blob', blob]))?.hooks ?? []),
   existsSync(SETTINGS) ? settingsOf(readFileSync(SETTINGS, 'utf8')) : undefined,
   !existsSync(SETTINGS),
 )
 
-const next: SyncState = { url, commit: head }
+const next: SyncState & { url: string, commit: string } = { url, commit: head }
 if (ref !== DEFAULT_REF)
   next.ref = ref
 if (state?.exclude)
   next.exclude = state.exclude
 if (state?.include)
   next.include = state.include
-if (!state || state.url !== url || state.commit !== head || (state.ref ?? DEFAULT_REF) !== ref || warning) {
+if (!state || state.url !== url || state.commit !== head || (state.ref ?? DEFAULT_REF) !== ref) {
   writeState(next)
   git(['add', '--', STATE_FILE])
 }
@@ -613,19 +813,34 @@ if (!state || state.url !== url || state.commit !== head || (state.ref ?? DEFAUL
 const out: string[] = [`Template: ${url}`]
 const fetchedAt = `Fetched ${label} at ${short(head)}`
 function listCommits(from: string): void {
-  const commits = commitsSince(from, head)
-  const count = `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${since} (${short(from)}):`
+  // A merge commit is noise unless it is breaking: a PR-title merge can carry the `!` and the
+  // footer while the commits it merges carry neither.
+  const all = commitsSince(from, head)
+  const commits = all.filter(c => !c.merge || isBreaking(c))
+  const merges = all.length - commits.length
+  const left = merges > 0 ? `; ${merges} merge${merges === 1 ? '' : 's'} left out` : ''
+  const count = `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${since} (${short(from)}${left}):`
   if (recorded === undefined)
     out.push(count)
   else
     out.push(`${fetchedAt} — ${count}`)
-  for (const c of commits.slice(0, LOG_CAP)) {
-    out.push(`  ${isBreaking(c) ? '!' : ' '} ${short(c.sha)} ${c.subject}`)
+  // The cap hides only non-breaking commits: a breaking one names a hand-edit to make.
+  let shown = 0
+  let hidden = 0
+  for (const c of commits) {
+    const breaking = isBreaking(c)
+    if (!breaking && shown >= LOG_CAP) {
+      hidden++
+      continue
+    }
+    if (!breaking)
+      shown++
+    out.push(`  ${breaking ? '!' : ' '} ${short(c.sha)} ${c.subject}`)
     for (const line of c.breaking)
       out.push(`      ${line}`)
   }
-  if (commits.length > LOG_CAP)
-    out.push(`  … and ${commits.length - LOG_CAP} more`)
+  if (hidden > 0)
+    out.push(`  … and ${hidden} more, none breaking`)
   out.push(`  Full log: git log ${short(from)}..${short(head)}`)
 }
 if (recorded === undefined) {
@@ -645,7 +860,8 @@ else if (behind) {
   out.push(`${fetchedAt} — recorded sync point ${short(recorded)} is ahead of it; syncing back to an older ref. Skipping the commit list; the staged diff below is complete regardless.`)
 }
 else if (!baseInHistory) {
-  out.push(`${fetchedAt} — recorded sync point ${short(recorded)} is not in its history (template rebased or force-pushed, or the state file points at another fork). Skipping the commit list; the staged diff below is complete regardless.`)
+  const diff = recordedLost ? 'git cannot fetch it either, so a file the template retired since then cannot be told from yours; any such file is listed under Kept' : 'the staged diff below is complete regardless'
+  out.push(`${fetchedAt} — recorded sync point ${short(recorded)} is not in its history (template rebased or force-pushed, or the state file points at another fork). Skipping the commit list; ${diff}.`)
 }
 else if (recorded === head) {
   out.push(`${fetchedAt} — unchanged since last sync.`)
@@ -654,7 +870,9 @@ else {
   listCommits(recorded)
 }
 
-const staged = zList(tryGit(['diff', '--cached', '--name-status', '-z', '--', ...paths, STATE_FILE]))
+// Rename detection off: a rename would pair a deletion with an unrelated addition and show
+// only the destination, hiding which file is removed.
+const staged = zList(tryGit(['diff', '--cached', '--no-renames', '--name-status', '-z', '--', ...paths, STATE_FILE]))
 out.push('')
 if (staged.length === 0) {
   out.push('Already up to date — nothing staged.')
@@ -663,8 +881,6 @@ else {
   out.push('Staged (review with git diff --cached):')
   for (let i = 0; i < staged.length; i += 2) {
     const status = (staged[i] ?? '').slice(0, 1)
-    if (status === 'R' || status === 'C')
-      i++ // rename: status, source, destination; report the destination
     const file = staged[i + 1] ?? ''
     const note = file === SELF ? '   (this script — the new version runs next time)' : ''
     out.push(`  ${status}  ${file}${note}`)
@@ -674,6 +890,11 @@ if (skipped.length > 0) {
   out.push('Skipped (git checkout failed — fix and re-run):')
   for (const s of skipped)
     out.push(`  ${s}`)
+}
+if (kept.length > 0) {
+  out.push('Kept (under a synced path and not on the template; each is yours or one the template retired — git rm the template\'s):')
+  for (const k of kept)
+    out.push(`  ${k}`)
 }
 
 out.push('')
@@ -702,20 +923,18 @@ out.push('')
 if (settings.skipped) {
   out.push(`Settings: skipped — ${settings.skipped}.`)
 }
-else if (settings.missing.length === 0 && !settings.hook && !settings.matcher) {
+else if (settings.missing.length === 0 && settings.hooks.length === 0) {
   out.push('Settings: none new.')
 }
 else {
   out.push(`Settings — ${SETTINGS} is yours, sync never edits it. Apply by hand where they apply:`)
   for (const m of settings.missing)
     out.push(`  ${m}  missing here`)
-  for (const [field, d] of [['command', settings.hook], ['matcher', settings.matcher]] as const) {
-    if (!d)
-      continue
-    out.push(`  hooks.PreToolUse ${field}  differs`)
-    out.push(`    template: ${d.template}`)
-    if (d.yours !== undefined)
-      out.push(`    yours:    ${d.yours}`)
+  for (const h of settings.hooks) {
+    out.push(`  hooks.${h.template.event}  ${h.yours.length > 0 ? 'differs' : 'missing here'}`)
+    out.push(`    template: ${describeHook(h.template)}`)
+    for (const y of h.yours)
+      out.push(`    yours:    ${describeHook(y)}`)
   }
 }
 

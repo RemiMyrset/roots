@@ -60,7 +60,8 @@ One word per concept, used the same way in every page, skill, and script.
   The **baseline** is the template commit a first sync starts its commit list
   from, inferred when no sync point exists.
 - The **follow-ups** are what the sync prints and cannot apply: the template
-  commits since, and the `package.json` scripts that differ.
+  commits since, and the `package.json` scripts and `.claude/settings.json`
+  entries that differ.
 - The **house shape** is the package layout `new-package` scaffolds: catalog
   dependencies, the base tsconfig, source-direct exports, vitest, and tests
   under `test/`.
