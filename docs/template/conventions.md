@@ -99,7 +99,10 @@ portability requirement. The choices, each with its why:
   app, and an account with its vendor, on every repository made from the
   template, and the app holds write access. Dependabot was rejected for
   opening one pull request per dependency. The cost: nothing proposes an
-  update until someone asks. The recipe is in
+  update until someone asks, and first run does not turn on GitHub's
+  Dependabot alerts, so an advisory surfaces only when someone runs
+  `pnpm audit`. `gh api -X PUT repos/OWNER/REPO/vulnerability-alerts` turns
+  the alerts on, and they open no pull requests. The recipe is in
   [docs-toolchain](./docs-toolchain.md#keep-dependencies-current).
 - One pre-tool dispatcher runs node-only `deny-*` guards in all three tools, no
   shell shims and no npm dependencies, so they work before `pnpm install`. What
