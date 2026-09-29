@@ -19,8 +19,9 @@
  * Node builtins only in this first half.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, join } from 'node:path'
 import process from 'node:process'
 
 const root = join(import.meta.dirname, '..')
@@ -146,10 +147,14 @@ if (problems.length > 0) {
 console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} workflow steps`)
 
 // The second half holds the gates to what AGENTS.md says they enforce: ESLint must reject each
-// probe below, linted from stdin under a path that is never written, and turbo's cache key
-// must cover the node version. It runs the installed eslint and turbo under node, so it
-// needs the install that verify and CI run first.
+// probe below, linted from stdin under a path that is never written; turbo's cache key must
+// cover the node version; and the install hook must set up the git hooks in a checkout and
+// leave a linked worktree alone. It runs the installed eslint, turbo, and simple-git-hooks, so
+// it needs the install that verify and CI run first. The probes that need files write them to
+// a temp directory only.
 const failures: string[] = []
+const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
+process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 
 /** Runs a CLI that ships as a node script under node_modules, from the root, with CI set as `pnpm lint` does. */
 function runTool(script: string, args: string[], input?: string): { stdout: string, stderr: string } {
@@ -224,6 +229,41 @@ for (const probe of probes) {
   }
 }
 
+// The install hook, run the way `pnpm install` runs it (the installed binaries on PATH): in a
+// checkout it installs the git hooks; in a linked worktree, whose .git is a file, it leaves them
+// to the main checkout instead of letting simple-git-hooks fail on `.git/hooks`.
+{
+  const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH'
+  const env: NodeJS.ProcessEnv = {
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith('GIT_') && k !== 'SKIP_INSTALL_SIMPLE_GIT_HOOKS')),
+    [pathKey]: [join(root, 'node_modules', '.bin'), process.env[pathKey] ?? ''].join(delimiter),
+    GIT_CONFIG_GLOBAL: join(tmp, 'gitconfig'),
+    GIT_CONFIG_NOSYSTEM: '1',
+  }
+  writeFileSync(join(tmp, 'gitconfig'), '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n')
+  const inRepo = (cwd: string, command: string, ...args: string[]): { status: number | null, out: string } => {
+    const r = spawnSync(command, args, { cwd, env, encoding: 'utf8' })
+    return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error?.message ?? ''}` }
+  }
+  const repo = join(tmp, 'hooks-repo')
+  mkdirSync(repo)
+  writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ 'simple-git-hooks': { 'pre-commit': 'true' } })}\n`)
+  const setup = [inRepo(repo, 'git', 'init', '-q'), inRepo(repo, 'git', 'add', '-A'), inRepo(repo, 'git', 'commit', '-q', '-m', 'init'), inRepo(repo, 'git', 'worktree', 'add', '-q', join(tmp, 'hooks-worktree'))]
+  const broken = setup.find(r => r.status !== 0)
+  if (broken) {
+    failures.push(`could not set up the git repository for the install hook probe: ${broken.out.trim()}`)
+  }
+  else {
+    const prepare = join(root, 'scripts', 'prepare.mts')
+    const main = inRepo(repo, process.execPath, prepare)
+    if (main.status !== 0 || !existsSync(join(repo, '.git', 'hooks', 'pre-commit')))
+      failures.push(`scripts/prepare.mts installed no pre-commit hook in a checkout (exit ${main.status}): ${main.out.trim()}`)
+    const worktree = inRepo(join(tmp, 'hooks-worktree'), process.execPath, prepare)
+    if (worktree.status !== 0 || /\[ERROR\]|Error/.test(worktree.out))
+      failures.push(`scripts/prepare.mts failed in a linked worktree (exit ${worktree.status}): ${worktree.out.trim()}`)
+  }
+}
+
 if (failures.length > 0) {
   console.error(`\n✖ gates — ${failures.length} rule(s) the gates do not hold:\n`)
   for (const f of failures)
@@ -231,4 +271,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; prepare installs the git hooks and skips a linked worktree`)

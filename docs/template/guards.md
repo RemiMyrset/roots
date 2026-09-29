@@ -257,10 +257,11 @@ binding); the admin bypass above still lets a human release:
 ## Hook bypass
 
 The git hooks are installed by `scripts/prepare.mts` at `pnpm install` through
-simple-git-hooks: pre-commit runs lint-staged (ESLint on staged TypeScript,
-the portability checker when a markdown file is staged, secretlint on every
-staged file), with `CI=1` so the antfu config lints the same way it does in
-CI rather than in editor mode; commit-msg runs commitlint. `deny-hook-bypass` keeps them in force. It denies
+simple-git-hooks, in the main checkout only: a linked worktree shares its
+hooks. Pre-commit runs lint-staged (ESLint on staged TypeScript, the
+portability checker when a markdown file is staged, secretlint on every staged
+file), with `CI=1` so the antfu config lints the same way it does in CI rather
+than in editor mode; commit-msg runs commitlint. `deny-hook-bypass` keeps them in force. It denies
 `--no-verify` (and its unique abbreviations) on `git commit`, `git push`, and
 `git merge`; `-n` on `git commit` (its `--no-verify` alias; `git push -n` is
 dry-run and passes); a `core.hooksPath` override through `git -c` or
