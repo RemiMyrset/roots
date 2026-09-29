@@ -215,7 +215,8 @@ your own:
 
 ### Toolchain pinning beyond node
 
-`.node-version` is the portable pin, read by fnm, mise, and Netlify. nvm reads
+`.node-version` is the portable pin, read by fnm and Netlify, and by mise once
+its `idiomatic_version_file_enable_tools` setting includes node. nvm reads
 only `.nvmrc` and Volta only the `volta` field in `package.json`, so a team on
 either adds that beside it. For one file covering node, pnpm, and other tools,
 add `mise.toml` and keep `.node-version` for compatibility. The `packageManager`

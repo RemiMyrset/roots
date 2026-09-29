@@ -112,9 +112,8 @@ portability requirement. The choices, each with its why:
   paths, records the sync point, and prints the follow-ups a file copy cannot
   carry, for template copies, forks, and pre-existing repos alike. Only the
   synced paths are copied, so a template change to any other file it ships
-  (`package.json`, `.claude/settings.json`, `AGENTS.md`, the devcontainer,
-  `.gitignore`, the ESLint and turbo configs) ships as a breaking Conventional
-  Commit whose footer names the edit; recipe and contract are in
+  goes out as a breaking Conventional Commit whose footer names the edit; the
+  files, the recipe, and the contract are in
   [sync-template](./sync-template.md).
 
 ## Consequences
