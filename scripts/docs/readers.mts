@@ -1,19 +1,29 @@
 /**
- * Readers and renderers for the decisions/specs system. The index tables automd writes,
- * the region currency check in check-docs.mts, and the VitePress sidebars all go through
- * these functions, so they cannot drift. ZERO npm imports: check-docs.mts runs in a repo
- * that synced scripts/docs without installing the docs toolchain. An absent directory
- * reads as empty, so a repo without decisions or specs still generates, checks, and
- * builds; an index page that links a page which is gone fails in VitePress, by design.
+ * Readers and renderers for the decisions/specs system. Every list is derived from the
+ * files when read: the VitePress sidebars, `pnpm docs:list`, the tables automd writes into
+ * a page that keeps a region, and the region currency check in check-docs.mts all go
+ * through these functions, so they cannot drift. ZERO npm imports: check-docs.mts runs in
+ * a repo that synced scripts/docs without installing the docs toolchain. An absent
+ * directory reads as empty, so a repo without decisions or specs still generates, checks,
+ * and builds; an index page that links a page which is gone fails in VitePress, by design.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { byCodeUnit, DECISION_FILE_RE, DECISION_H1_RE, DECISIONS_DIR, H1_RE, repoRoot, SPECS_DIR, STATUS_BULLET_RE, stripFences } from './root.mts'
+import { byCodeUnit, DECISION_H1_RE, decisionIdentity, DECISIONS_DIR, H1_RE, repoRoot, SPECS_DIR, STATUS_BULLET_RE, stripFences } from './root.mts'
 
-/** One decision record as read from its file: number, title, and the Status bullet. */
+/** One decision record as read from its file: identity, title, and the Status bullet. */
 export interface DecisionEntry {
   file: string
+  /** What a supersede link's text names: NNNN for a legacy record, the filename stem for a dated one. */
+  id: string
+  /**
+   * The display label: NNNN for a legacy record, the filename date (YYYY-MM-DD) for a dated
+   * one. Named for the numbers it held alone before dated records, so site code written
+   * against it keeps working; it is not a number, so never parse it as one.
+   */
   num: string
+  /** True for a numbered NNNN- record, which lists before every dated one. */
+  legacy: boolean
   title: string
   status: string
 }
@@ -32,6 +42,7 @@ export interface SidebarItem {
 }
 
 const MD_EXT_RE = /\.md$/
+const WHITESPACE_RE = /\s/
 const UNESCAPED_PIPE_RE = /(?<!\\)\|/g
 
 /** Regular files directly inside `dir`, sorted; empty when `dir` is absent. */
@@ -45,21 +56,27 @@ function filesIn(dir: string): string[] {
 }
 
 /**
- * Every decision record under `root`, by filename. Metadata comes from the visible bold
- * bullets (`- **Status:** accepted`), never frontmatter, and fenced examples are ignored;
- * a record missing its H1 or Status reads as its filename and `unknown` (check-docs.mts
- * rejects those). Default root: the repository this script runs in.
+ * Every decision record under `root`, legacy NNNN- records first, then dated ones, each by
+ * filename, so dated records read oldest first. The explicit legacy-first order keeps a
+ * numbered record at 2100 or above ahead of the dated ones too. Metadata comes from the
+ * visible bold bullets (`- **Status:** accepted`), never frontmatter, and fenced examples
+ * are ignored; the title is the text after `NNNN. ` in a legacy H1 and the whole H1 in a
+ * dated one. A record missing its H1 or Status reads as its filename and `unknown`
+ * (check-docs.mts rejects those). Default root: the repository this script runs in.
  */
 export function readDecisions(root = repoRoot()): DecisionEntry[] {
   const dir = join(root, DECISIONS_DIR)
-  return filesIn(dir)
-    .filter(f => DECISION_FILE_RE.test(f))
-    .map((file) => {
-      const text = stripFences(readFileSync(join(dir, file), 'utf8'))
-      const title = text.match(DECISION_H1_RE)?.[2]?.trim() ?? file
-      const status = text.match(STATUS_BULLET_RE)?.[1]?.trim() ?? 'unknown'
-      return { file, num: file.slice(0, 4), title, status }
-    })
+  const entries: DecisionEntry[] = []
+  for (const file of filesIn(dir)) {
+    const identity = decisionIdentity(file)
+    if (!identity)
+      continue
+    const text = stripFences(readFileSync(join(dir, file), 'utf8'))
+    const title = (identity.legacy ? text.match(DECISION_H1_RE)?.[2] : text.match(H1_RE)?.[1])?.trim() ?? file
+    const status = text.match(STATUS_BULLET_RE)?.[1]?.trim() ?? 'unknown'
+    entries.push({ file, id: identity.id, num: identity.label, legacy: identity.legacy, title, status })
+  }
+  return entries.sort((a, b) => Number(b.legacy) - Number(a.legacy) || byCodeUnit(a.file, b.file))
 }
 
 /**
@@ -90,15 +107,22 @@ export function escapeCell(s: string): string {
   return s.replace(UNESCAPED_PIPE_RE, '\\|')
 }
 
-/** The decisions index table as automd writes it into `docs/internal/decisions/index.md`; a placeholder line when there are no records. */
+/**
+ * The decisions table: what `pnpm docs:list` prints, and what automd writes into a page
+ * that keeps a decisionsIndex region. A placeholder line when there are no records. Each
+ * row links its record by ID, the text a supersede link needs, and the first column is
+ * headed `ID` once a dated record exists. A legacy-only tree renders byte for byte as before
+ * dated records, `#` header included, so a region a child still commits stays current.
+ */
 export function renderDecisionsIndex(decisions: DecisionEntry[]): string {
   if (decisions.length === 0)
     return '_No decisions yet. The first one appears here after `pnpm docs:gen`._'
-  const rows = decisions.map(d => `| [${d.num}](./${d.file}) | ${escapeCell(d.title)} | ${escapeCell(d.status)} |`)
-  return ['| # | Title | Status |', '| --- | --- | --- |', ...rows].join('\n')
+  const header = decisions.every(d => d.legacy) ? '| # | Title | Status |' : '| ID | Title | Status |'
+  const rows = decisions.map(d => `| [${d.id}](./${d.file}) | ${escapeCell(d.title)} | ${escapeCell(d.status)} |`)
+  return [header, '| --- | --- | --- |', ...rows].join('\n')
 }
 
-/** The area-grouped spec list as automd writes it into `docs/internal/specs/index.md`; a placeholder line when there are no specs. */
+/** The area-grouped spec list: what `pnpm docs:list` prints, and what automd writes into a page that keeps a specIndex region. A placeholder line when there are no specs. */
 export function renderSpecIndex(specs: SpecEntry[]): string {
   if (specs.length === 0)
     return '_No specs yet. The first one appears here after `pnpm docs:gen`._'
@@ -114,15 +138,34 @@ export function renderSpecIndex(specs: SpecEntry[]): string {
   return lines.join('\n')
 }
 
-/** VitePress sidebar entries for the decisions, from the same reader as the index. Default root: the repository this script runs in. */
-export function decisionsSidebar(root = repoRoot()): SidebarItem[] {
-  return readDecisions(root).map(d => ({
-    text: `${d.num}. ${d.title}`,
-    link: `/decisions/${d.file.replace(MD_EXT_RE, '')}`,
-  }))
+/**
+ * What each generated index region holds, keyed by its automd generator name and rendered
+ * for a given root. The checker compares regions against these; automd reaches the same
+ * renderers through generators.mts. A region named anything else is not generated here.
+ */
+export const INDEX_RENDERERS: Readonly<Record<string, (root: string) => string>> = {
+  decisionsIndex: root => renderDecisionsIndex(readDecisions(root)),
+  specIndex: root => renderSpecIndex(readSpecs(root)),
 }
 
-/** VitePress sidebar entries for the specs, from the same reader as the index. Default root: the repository this script runs in. */
+/**
+ * VitePress sidebar entries for the decisions, from the same reader as `pnpm docs:list`:
+ * `NNNN. Title` for a legacy record, `YYYY-MM-DD Title` for a dated one, then the first word
+ * of the Status in parentheses unless it is `accepted`, so the handbook shows status without a table.
+ * Default root: the repository this script runs in.
+ */
+export function decisionsSidebar(root = repoRoot()): SidebarItem[] {
+  return readDecisions(root).map((d) => {
+    const word = d.status.split(WHITESPACE_RE, 1)[0]
+    const suffix = word && word !== 'accepted' ? ` (${word})` : ''
+    return {
+      text: `${d.legacy ? `${d.num}.` : d.num} ${d.title}${suffix}`,
+      link: `/decisions/${d.file.replace(MD_EXT_RE, '')}`,
+    }
+  })
+}
+
+/** VitePress sidebar entries for the specs, from the same reader as `pnpm docs:list`. Default root: the repository this script runs in. */
 export function specsSidebar(root = repoRoot()): SidebarItem[] {
   return readSpecs(root).map(s => ({
     text: `${s.area}: ${s.title}`,

@@ -7,23 +7,24 @@ the only permitted edit to an accepted record is its Status line.
 
 ## How to write a new one
 
-1. Copy [the template](./_template.md) to `NNNN-kebab-title.md`, where `NNNN`
-   is the next unused 4-digit integer (or invoke the `new-adr` skill).
-2. Make the H1 match: `# NNNN. Title`.
+1. Copy [the template](./_template.md) to `YYYYMMDD-kebab-title.md`, today's
+   date and a short declarative title (or invoke the `new-adr` skill). A date
+   needs no counter, so records written on parallel branches never collide.
+   Numbered `NNNN-` records from before stay as they are; never start one.
+2. Make the H1 the title alone: `# Title`.
 3. Set the Status and Date bullets. A decision merged as agreed practice is
    `accepted`.
 4. If it replaces or amends an earlier record, link both ways (see the template).
-5. Run `pnpm docs:gen`. The index below is generated; never hand-edit it.
+5. Run `pnpm docs:check`.
 
 This directory starts empty in a fresh project, and that is correct. The
 template's own rationale lives in `docs/template/conventions.md`, which also
 shows the shape of a good record: context, the options considered, the choice
 and why, and the consequences, good and bad.
 
-## Index
+## The list
 
-<!-- automd:decisionsIndex -->
-
-_No decisions yet. The first one appears here after `pnpm docs:gen`._
-
-<!-- /automd -->
+No committed file lists the records, so two branches that each add one touch
+different files and merge without a conflict. The folder view on GitHub and in
+Obsidian sorts them oldest first, the handbook sidebar adds each one's status,
+and `pnpm docs:list decisions` prints them as a table.

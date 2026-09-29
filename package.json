@@ -29,6 +29,7 @@
     "docs:gen": "automd && node scripts/docs/gen-skills.mts",
     "docs:check": "node scripts/docs/check-docs.mts",
     "docs:portability": "node scripts/docs/check-portability.mts",
+    "docs:list": "node scripts/docs/list-docs.mts",
     "docs:internal:dev": "vitepress dev docs/internal",
     "docs:internal:build": "vitepress build docs/internal",
     "docs:public:dev": "vitepress dev docs/public",

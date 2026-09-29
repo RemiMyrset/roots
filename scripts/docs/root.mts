@@ -6,7 +6,7 @@
  * that imports automd.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 
@@ -14,9 +14,46 @@ import process from 'node:process'
 export const DECISIONS_DIR = 'docs/internal/decisions'
 /** Where spec areas live, relative to the repository root. */
 export const SPECS_DIR = 'docs/internal/specs'
-/** A decision record filename, NNNN-kebab-title.md — one definition so the checker and the readers agree. */
-export const DECISION_FILE_RE = /^\d{4}-[a-z0-9-]+\.md$/
-/** The H1 of a decision record, `# NNNN. Title`; group 1 is the number, group 2 the title. */
+/**
+ * A dated decision record filename, YYYYMMDD-kebab-title.md, the only shape new records
+ * take; groups 1 to 3 are the year, month, and day. The date is compact on purpose:
+ * `2026-09-29-x.md` would match LEGACY_DECISION_FILE_RE and read as record 2026.
+ */
+export const DATED_DECISION_FILE_RE = /^(\d{4})(\d{2})(\d{2})-[a-z0-9-]+\.md$/
+/**
+ * A numbered decision record filename, NNNN-kebab-title.md: valid forever, never created
+ * again, because two branches pick the same next number. Disjoint from the dated shape:
+ * the fifth character is `-` here and a digit there.
+ */
+export const LEGACY_DECISION_FILE_RE = /^\d{4}-[a-z0-9-]+\.md$/
+/** Any decision record filename, dated or legacy: the union of the two shapes, for code that asks only whether a file is a record. decisionIdentity says which shape. */
+export const DECISION_FILE_RE = /^(?:\d{4}|\d{8})-[a-z0-9-]+\.md$/
+
+/** What identifies a decision record, read from its filename alone. */
+export interface DecisionIdentity {
+  /** What a supersede link's text names: the number of a legacy record ("0007"), the filename stem of a dated one ("20260929-use-postgres"). */
+  id: string
+  /** What a list shows: the number of a legacy record, the filename date of a dated one ("2026-09-29"). */
+  label: string
+  /** True for a numbered record. Legacy records list before dated ones and keep the `# NNNN. Title` H1. */
+  legacy: boolean
+}
+
+/**
+ * The identity of a record filename, or undefined when the name has neither shape. Shape
+ * only: whether a dated name holds a real, past date is check-docs.mts's call.
+ */
+export function decisionIdentity(file: string): DecisionIdentity | undefined {
+  if (LEGACY_DECISION_FILE_RE.test(file)) {
+    const num = file.slice(0, 4)
+    return { id: num, label: num, legacy: true }
+  }
+  const dated = file.match(DATED_DECISION_FILE_RE)
+  if (!dated)
+    return undefined
+  return { id: file.slice(0, -'.md'.length), label: `${dated[1]}-${dated[2]}-${dated[3]}`, legacy: false }
+}
+/** The H1 of a legacy decision record, `# NNNN. Title`; group 1 is the number, group 2 the title. A dated record's H1 is the title alone, read with H1_RE. */
 export const DECISION_H1_RE = /^# (\d{4})\. (\S.*)$/m
 /** The first H1 of a page; group 1 is its text. */
 export const H1_RE = /^# (.+)$/m
@@ -40,6 +77,19 @@ export const AUTOMD_CLOSE_RE = /^<!--\s*\/automd\s*-->/gim
  * comment opener rather than the bare character keeps emoji in prose from tripping it.
  */
 export const AUTOMD_WARNING = '<!-- \u26A0'
+/**
+ * Any line git writes into a conflicted file: the `<<<<<<<` opener, the `|||||||` base
+ * (diff3), the `=======` divider, and the `>>>>>>>` closer, at the default marker size of
+ * seven. Tested line by line, and only where a line of `=======` cannot be prose: inside a
+ * generated region.
+ */
+export const CONFLICT_LINE_RE = /^(?:<{7}|\|{7}|>{7})(?:\s|$)|^={7}\s*$/
+/**
+ * The `<<<<<<<` line that opens a conflict hunk, the one marker line that is never valid
+ * markdown. The others can be: `=======` underlines a setext H1, `>>>>>>>` nests seven
+ * blockquotes, and `|||||||` is a table row of empty cells. Tested line by line on a page.
+ */
+export const CONFLICT_OPEN_RE = /^<{7}(?:\s|$)/
 /** Directories no docs walk descends into: VCS, caches, build output, editor state. */
 export const SKIP_DIRS: ReadonlySet<string> = new Set(['.git', '.obsidian', '.turbo', '.vitepress', 'coverage', 'dist', 'node_modules'])
 // Named key: tsc (noPropertyAccessFromIndexSignature) refuses dot access on process.env and
@@ -51,6 +101,53 @@ export const WARN = process.env[CI_KEY] ? '::warning::' : 'warning: '
 /** Deterministic, locale-independent string order (code-unit, not localeCompare) for sort comparators. */
 export function byCodeUnit(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0
+}
+
+/** Every `.md` file below `dir` as an absolute path, depth first in code-unit order, SKIP_DIRS not entered. */
+export function markdownFiles(dir: string): string[] {
+  const out: string[] = []
+  for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => byCodeUnit(a.name, b.name))) {
+    if (e.isDirectory() && !SKIP_DIRS.has(e.name))
+      out.push(...markdownFiles(join(dir, e.name)))
+    else if (e.isFile() && e.name.endsWith('.md'))
+      out.push(join(dir, e.name))
+  }
+  return out
+}
+
+/** One automd region: the generator it names and where its body sits in the text it was read from. */
+export interface AutomdRegion {
+  /** The generator name, `decisionsIndex` for `<!-- automd:decisionsIndex -->`. */
+  name: string
+  /** Offset of the opening marker. */
+  start: number
+  /** Offset just past the opening marker: the body starts here. */
+  bodyStart: number
+  /** Offset of the closing marker; the text length when there is none. */
+  bodyEnd: number
+  /** False when no closing marker follows, so the body runs to the end of the text. */
+  closed: boolean
+}
+
+/**
+ * The automd regions of a page, in order, read as automd reads them: an opener inside an
+ * earlier region's body belongs to that body, and an opener without a close runs to the end
+ * of the text. Offsets index `text` exactly as given.
+ */
+export function automdRegions(text: string): AutomdRegion[] {
+  const close = new RegExp(AUTOMD_CLOSE_RE.source, AUTOMD_CLOSE_RE.flags)
+  const out: AutomdRegion[] = []
+  let pos = 0
+  for (const open of text.matchAll(AUTOMD_OPEN_RE)) {
+    if (open.index < pos)
+      continue
+    const bodyStart = open.index + open[0].length
+    close.lastIndex = bodyStart
+    const closed = close.exec(text)
+    out.push({ name: open[1]!, start: open.index, bodyStart, bodyEnd: closed?.index ?? text.length, closed: closed !== null })
+    pos = closed ? closed.index + closed[0].length : text.length
+  }
+  return out
 }
 
 const OPEN_FENCE_RE = /^ {0,3}(`{3,}|~{3,})/

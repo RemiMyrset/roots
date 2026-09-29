@@ -61,24 +61,42 @@ and overview docs link to both without restating them.
 
 ## Generated vs hand-written
 
-`pnpm docs:gen` generates the decisions index and the specs index, and
-rewrites the `.agents/skills` mirror. The VitePress sidebars are derived at
-build time from the same readers, so they cannot drift either. Never hand-edit
-generated output; change the source files and re-run.
+No committed file lists the decisions or specs. The VitePress sidebars and
+`pnpm docs:list` read them from the files through the same readers, so they
+cannot drift. `pnpm docs:gen` rewrites the `.agents/skills` mirror and any
+automd region a page opts into. Never hand-edit generated output; change the
+source files and re-run.
 
 `pnpm docs:check` enforces the couplings generation cannot. CI runs both and
 fails on drift. The checks:
 
-- a decision's filename, H1, and number match, its Status is in the vocabulary,
-  a superseded status links the newer record and that record exists, and its
-  Date is real
+- a decision is named `YYYYMMDD-kebab-title.md` with a real date from 2000
+  on, no more than a day ahead, and the title alone as its H1, which opens
+  with no number and dot, no `NNNN.` placeholder, and no date; or it is a
+  legacy `NNNN-kebab-title.md` whose H1 opens with the same number and whose
+  number no other legacy record shares
+- a name that opens with a hyphenated date, such as `2026-09-29-x.md`,
+  `2026-9-29-x.md`, or `2026-09-29.md`, is an error, since it would read as
+  record 2026
+- a decision's Status is in the vocabulary; a superseded status links the
+  newer record with that record's ID as the link text (a dated name without
+  `.md`, or a legacy number), and that record exists; its Date is real
+- a legacy record whose Date is later than the earliest dated record's
+  filename date is a warning: either it was numbered by habit, or the dated
+  record is named for a day before it was created. A numbered record made
+  before any dated one exists passes unwarned; only the duplicate-number
+  check catches its collision
 - a spec's Source and Tests paths resolve, and its Last reviewed date is real
   (a warning after 180 days); a Source or Tests value that opens with
   `(pending)` is a warning instead, and HTML comments on the line are ignored
 - specs sit one level below an area, never at the top or nested deeper
 - a template page with a Source bullet meets the spec rules above
+- both index pages exist; neither needs a region
 - no committed automd warning comment, and every automd region under `docs/`
-  is closed and current with its generator
+  is closed, free of merge conflict lines, and current with its generator; a
+  conflicted index region's error also says deleting it stops the next one
+- no page under `docs/` holds a `<<<<<<<` conflict line outside a region or a
+  fence
 - every `AGENTS.md` is within the 200-line budget
 - `.agents/skills` matches `.claude/skills` byte for byte
 

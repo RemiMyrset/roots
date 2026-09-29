@@ -1,10 +1,14 @@
 /**
  * Structural lint for the decisions/specs system — enforces the couplings that
- * generation cannot: record format, metadata bullets, supersede links and the record
- * they point at, spec Source/Tests paths resolving on disk, review-date freshness, index
- * pages carrying their automd markers, every automd region under docs/ closed, free of
- * automd's warning comment, and current with the generators, the template-owned contract
- * pages that follow the spec shape, the agent-skills mirror, and the AGENTS.md line budget.
+ * generation cannot: record format (a dated YYYYMMDD- name with a real date from 2000 on,
+ * not ahead, and a title-only H1, or a legacy NNNN- name whose H1 and number match; a
+ * hyphenated date in a name is rejected), metadata bullets,
+ * supersede links naming the target's ID and the record they point at, spec Source/Tests
+ * paths resolving on disk, review-date freshness, both index pages present, every automd
+ * region under docs/ closed, free of automd's warning comment and of merge conflict lines,
+ * and current with the generators, no page under docs/ left mid-merge, the template-owned
+ * contract pages that follow the spec shape, the agent-skills mirror, and the AGENTS.md
+ * line budget. An index page need not carry a region: the lists are read from the files.
  *
  * Blocking errors exit 1; warnings print but pass (GitHub annotations in CI). A
  * missing docs, decisions, specs, or template directory is skipped with a note, so the
@@ -13,17 +17,31 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
-import { readDecisions, readSpecs, renderDecisionsIndex, renderSpecIndex } from './readers.mts'
-import { AUTOMD_CLOSE_RE, AUTOMD_OPEN_RE, AUTOMD_WARNING, byCodeUnit, DECISION_FILE_RE, DECISION_H1_RE, DECISIONS_DIR, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
+import { INDEX_RENDERERS } from './readers.mts'
+import { AUTOMD_WARNING, automdRegions, byCodeUnit, CONFLICT_LINE_RE, CONFLICT_OPEN_RE, DECISION_H1_RE, decisionIdentity, DECISIONS_DIR, H1_RE, markdownFiles, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
 import { posixRelative, skillDrift, SKILLS_SOURCE, SKILLS_TARGET } from './skills.mts'
 
 const STALE_DAYS = 180
-// Prefix-anchored on purpose: a "superseded by [NNNN](./…)" status carries a trailing
+// Prefix-anchored on purpose: a "superseded by [ID](./…)" status carries a trailing
 // markdown link, so the vocabulary matches the leading keyword only, not the whole line.
+// Both ID shapes open with four digits, NNNN and YYYYMMDD-slug alike.
 const STATUS_VOCAB = /^(?:proposed|accepted|rejected|deprecated|superseded by \[?\d{4}\]?)/
-// Prefix-anchored like STATUS_VOCAB, so trailing text stays accepted; group 2 is the link
-// target, whose number must repeat the displayed one.
-const SUPERSEDED_LINK_RE = /^superseded by \[(\d{4})\]\((\.\/\1-[a-z0-9-]+\.md)\)/
+// Prefix-anchored like STATUS_VOCAB, so trailing text stays accepted; group 1 is the link
+// text, which must be the target's ID, and group 2 the target filename.
+const SUPERSEDED_LINK_RE = /^superseded by \[([^\]\n]+)\]\(\.\/([^)\s]+)\)/
+// What a dated record's H1 must not open with: a number and a dot (a legacy H1, or the old
+// template's `NNNN.` placeholder left in place) or a date, compact or hyphenated. The lists
+// add the date themselves; a bare number, as in "# 3 regions", is still a title.
+const LABELLED_TITLE_RE = /^(?:\d+|N{4})\.\s|^\d{4}-?\d{2}-?\d{2}\b/
+// A name opening with a hyphenated date, padded or not, with or without a day or a slug
+// (2026-09-29-x, 2026-9-29-x, 2026-09-29.md): it has the legacy shape and would read as
+// record YYYY, so it is rejected, with the compact form when the date is real. Only from
+// DATE_FROM_YEAR: no repository numbers its records that high, while a legacy record such as
+// 0003-12-01-cutoff.md must stay valid.
+const HYPHENATED_DATE_NAME_RE = /^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?(?:-|\.md$)/
+// The earliest year a filename date may carry. A dated name records the day it was created,
+// so an earlier year is a typo, and it would move the numbered-by-habit switch back with it.
+const DATE_FROM_YEAR = 2000
 const DATE_BULLET_RE = /^- \*\*Date:\*\*(.*)$/m
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -33,6 +51,21 @@ function isRealIsoDate(s: string): boolean {
     return false
   const d = new Date(s)
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+
+/** Days from a real ISO date to now; negative for a date ahead. */
+function ageInDays(iso: string): number {
+  return (Date.now() - new Date(iso).getTime()) / 86_400_000
+}
+
+/**
+ * True when a real ISO date lies more than a day ahead. The date is a calendar day parsed
+ * as UTC midnight, while Date.now() is an instant, so today's date written east of UTC reads
+ * as slightly in the future until UTC catches up; a full day of tolerance keeps the check
+ * for real typos (a wrong year) only.
+ */
+function isFuture(iso: string): boolean {
+  return ageInDays(iso) < -1
 }
 const BACKTICK_PATH_RE = /`([^`]+)`/g
 const PATH_CHARS_RE = /^[\w@./-]+$/
@@ -100,20 +133,20 @@ function checkSpecPage(where: string, raw: string): void {
     // typo cannot masquerade as fresh (an Invalid Date's NaN age silently passes).
     errors.push(`${where}: "- **Last reviewed:** ${reviewed}" is not a real calendar date`)
   }
-  else {
-    // The bullet is a calendar date parsed as UTC midnight, while Date.now() is an instant, so
-    // today's date written east of UTC reads as slightly in the future until UTC catches up;
-    // a full day of tolerance keeps the warning for real typos (a wrong year) only.
-    const ageDays = (Date.now() - new Date(reviewed).getTime()) / 86_400_000
-    if (ageDays < -1)
-      warnings.push(`${where}: last reviewed ${reviewed} is in the future — likely a year typo`)
-    else if (ageDays > STALE_DAYS)
-      warnings.push(`${where}: last reviewed ${reviewed} (> ${STALE_DAYS} days ago) — re-verify against the source`)
+  else if (isFuture(reviewed)) {
+    warnings.push(`${where}: last reviewed ${reviewed} is in the future — likely a year typo`)
+  }
+  else if (ageInDays(reviewed) > STALE_DAYS) {
+    warnings.push(`${where}: last reviewed ${reviewed} (> ${STALE_DAYS} days ago) — re-verify against the source`)
   }
 }
 
 // --- decisions -------------------------------------------------------------
-/** Validates every decision record and the decisions index; returns the record count (0 when the directory is absent). */
+/**
+ * Validates every decision record and that the decisions index page exists; returns the
+ * record count (0 when the directory is absent). A dated name cannot collide across
+ * branches, so only legacy numbers are checked for duplicates.
+ */
 function checkDecisions(): number {
   const decisionsDir = join(root, DECISIONS_DIR)
   if (!existsSync(decisionsDir)) {
@@ -125,59 +158,108 @@ function checkDecisions(): number {
     .map(e => e.name)
     .sort(byCodeUnit)
   const seenNums = new Map<string, string>()
+  // For the numbered-by-habit warning: each legacy record's Date, and the filename date of
+  // every dated record, which is its creation day and so never earlier than the switch.
+  const legacyDates: { where: string, date: string }[] = []
+  let firstDated: { file: string, date: string } | undefined
 
   for (const file of decisionFiles) {
     const where = `${DECISIONS_DIR}/${file}`
-    if (!DECISION_FILE_RE.test(file)) {
-      errors.push(`${where}: filename must be NNNN-kebab-title.md`)
+    const identity = decisionIdentity(file)
+    if (!identity) {
+      errors.push(`${where}: filename must be YYYYMMDD-kebab-title.md (a legacy NNNN-kebab-title.md stays valid)`)
       continue
     }
-    const num = file.slice(0, 4)
-    if (seenNums.has(num))
-      errors.push(`${where}: duplicate decision number ${num} (also ${seenNums.get(num)})`)
-    seenNums.set(num, file)
+    const hyphenated = file.match(HYPHENATED_DATE_NAME_RE)
+    if (hyphenated && Number(hyphenated[1]) >= DATE_FROM_YEAR) {
+      const [, year, month, day] = hyphenated
+      const iso = day === undefined ? '' : `${year}-${month!.padStart(2, '0')}-${day.padStart(2, '0')}`
+      const compact = isRealIsoDate(iso) ? ` (${iso.replaceAll('-', '')})` : ''
+      errors.push(`${where}: filename must be YYYYMMDD-kebab-title.md, the date without hyphens${compact}; as written it reads as legacy record ${identity.id}`)
+      continue
+    }
+    if (identity.legacy) {
+      if (seenNums.has(identity.id))
+        errors.push(`${where}: duplicate decision number ${identity.id} (also ${seenNums.get(identity.id)}) — rename the record not yet on the default branch to YYYYMMDD-kebab-title.md with a title-only H1`)
+      seenNums.set(identity.id, file)
+    }
+    else {
+      const compact = file.slice(0, 8)
+      if (!isRealIsoDate(identity.label)) {
+        errors.push(`${where}: filename date ${compact} is not a real calendar date`)
+        continue
+      }
+      if (isFuture(identity.label))
+        errors.push(`${where}: filename date ${compact} is in the future`)
+      else if (Number(compact.slice(0, 4)) < DATE_FROM_YEAR)
+        errors.push(`${where}: filename date ${compact} is before ${DATE_FROM_YEAR}; a dated name carries the day the record was created`)
+      else if (!firstDated || identity.label < firstDated.date)
+        firstDated = { file, date: identity.label }
+    }
 
     // Fences blanked, as the readers do, so a fenced example cannot pose as the H1 or Status.
     const text = stripFences(readFileSync(join(decisionsDir, file), 'utf8'))
-    const h1 = text.match(DECISION_H1_RE)
-    if (!h1)
-      errors.push(`${where}: H1 must be "# ${num}. Title"`)
-    else if (h1[1] !== num)
-      errors.push(`${where}: H1 number ${h1[1]} does not match filename ${num}`)
+    if (identity.legacy) {
+      const h1 = text.match(DECISION_H1_RE)
+      if (!h1)
+        errors.push(`${where}: H1 must be "# ${identity.id}. Title"`)
+      else if (h1[1] !== identity.id)
+        errors.push(`${where}: H1 number ${h1[1]} does not match filename ${identity.id}`)
+    }
+    else {
+      const h1 = text.match(H1_RE)?.[1]?.trim()
+      if (!h1 || LABELLED_TITLE_RE.test(h1))
+        errors.push(`${where}: H1 must be "# Title", the title alone (a dated record's H1 carries no number or date)`)
+    }
 
     const status = text.match(STATUS_BULLET_RE)?.[1]?.trim()
     if (!status) {
       errors.push(`${where}: missing "- **Status:** ..." bullet`)
     }
     else if (!STATUS_VOCAB.test(status)) {
-      errors.push(`${where}: status "${status}" not in vocabulary: proposed | accepted | rejected | deprecated | superseded by NNNN`)
+      errors.push(`${where}: status "${status}" not in vocabulary: proposed | accepted | rejected | deprecated | superseded by [ID](./file.md)`)
     }
     else if (status.startsWith('superseded')) {
-      // A bare "superseded" (no "by NNNN") already failed the vocabulary check above; the
-      // link is demanded once the status is otherwise well-formed, and its target once the
-      // link is, so one underlying problem is reported once.
+      // A bare "superseded" (no "by ID") already failed the vocabulary check above; the
+      // link is demanded once the status is otherwise well-formed, its text once the link
+      // names a record, and its target once the text is right, so one underlying problem is
+      // reported once.
       const link = status.match(SUPERSEDED_LINK_RE)
-      if (!link)
-        errors.push(`${where}: superseded status must link the newer record: "superseded by [NNNN](./NNNN-slug.md)"`)
+      const target = link ? decisionIdentity(link[2]!) : undefined
+      if (!link || !target)
+        errors.push(`${where}: superseded status must link the newer record: "superseded by [ID](./file.md)"`)
+      else if (link[1] !== target.id)
+        errors.push(`${where}: superseded-by link text "${link[1]}" must be ${target.id}, the ID of ./${link[2]}`)
       else if (!existsSync(join(decisionsDir, link[2]!)))
-        errors.push(`${where}: superseded-by target ${link[2]} does not exist`)
+        errors.push(`${where}: superseded-by target ./${link[2]} does not exist`)
     }
 
     const date = text.match(DATE_BULLET_RE)?.[1]?.trim()
     if (!date || !isRealIsoDate(date))
       errors.push(`${where}: missing or non-real "- **Date:** YYYY-MM-DD" bullet`)
+    else if (identity.legacy)
+      legacyDates.push({ where, date })
   }
 
-  const indexPath = join(decisionsDir, 'index.md')
-  if (!existsSync(indexPath))
+  // A numbered record dated after the first dated one was most likely created by habit, from
+  // stale prose, and can collide with another branch's number as before. The dates alone
+  // cannot tell that from a dated record named for a day before it was created, so the
+  // warning names both. A warning, not an error: once either record is on the default branch
+  // it stays, as every accepted record does.
+  if (firstDated) {
+    for (const { where, date } of legacyDates) {
+      if (date > firstDated.date)
+        warnings.push(`${where}: numbered record dated ${date}, after the first dated record ${firstDated.file} was created. Either this record was numbered by habit: new records are YYYYMMDD-kebab-title.md, so unless it is already on the default branch, rename it and drop the number from its H1. Or ${firstDated.file} is named for a day before it was created: unless it is already on the default branch, rename it to its creation day.`)
+    }
+  }
+
+  if (!existsSync(join(decisionsDir, 'index.md')))
     errors.push(`${DECISIONS_DIR}/index.md: missing index page`)
-  else if (!readFileSync(indexPath, 'utf8').includes('<!-- automd:decisionsIndex -->'))
-    errors.push(`${DECISIONS_DIR}/index.md: missing <!-- automd:decisionsIndex --> marker`)
   return decisionFiles.length
 }
 
 // --- specs -------------------------------------------------------------------
-/** Validates the specs layout (areas, flatness), every spec page, and the specs index. */
+/** Validates the specs layout (areas, flatness), every spec page, and that the specs index page exists. */
 function checkSpecs(): void {
   const specsDir = join(root, SPECS_DIR)
   if (!existsSync(specsDir)) {
@@ -208,20 +290,13 @@ function checkSpecs(): void {
     }
   }
 
-  const indexPath = join(specsDir, 'index.md')
-  if (!existsSync(indexPath))
+  if (!existsSync(join(specsDir, 'index.md')))
     errors.push(`${SPECS_DIR}/index.md: missing index page`)
-  else if (!readFileSync(indexPath, 'utf8').includes('<!-- automd:specIndex -->'))
-    errors.push(`${SPECS_DIR}/index.md: missing <!-- automd:specIndex --> marker`)
 }
 
 // --- automd regions ------------------------------------------------------------
 // The regions `pnpm docs:gen` writes, rendered on demand from the same readers automd
 // uses. Any other generator name is checked for shape only.
-const RENDERERS: Record<string, () => string> = {
-  decisionsIndex: () => renderDecisionsIndex(readDecisions(root)),
-  specIndex: () => renderSpecIndex(readSpecs(root)),
-}
 const rendered = new Map<string, string>()
 
 /** Region text as compared: trailing whitespace off every line, the blank lines automd pads with dropped. */
@@ -235,35 +310,28 @@ function normalizeRegion(s: string): string {
 }
 
 function renderedRegion(name: string): string | undefined {
-  const render = RENDERERS[name]
+  const render = INDEX_RENDERERS[name]
   if (!render)
     return undefined
   let out = rendered.get(name)
   if (out === undefined) {
-    out = normalizeRegion(render())
+    out = normalizeRegion(render(root))
     rendered.set(name, out)
   }
   return out
 }
 
-function markdownFiles(dir: string): string[] {
-  const out: string[] = []
-  for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => byCodeUnit(a.name, b.name))) {
-    if (e.isDirectory() && !SKIP_DIRS.has(e.name))
-      out.push(...markdownFiles(join(dir, e.name)))
-    else if (e.isFile() && e.name.endsWith('.md'))
-      out.push(join(dir, e.name))
-  }
-  return out
-}
+const NON_NEWLINE_RE = /[^\n]/g
 
 /**
- * Every automd region under docs/: closed, free of automd's warning comment, and for the
- * two index generators equal to what the generator renders now. The stale comparison is
- * the only check that sees a hand-edited or forgotten region outside the git drift gate:
- * automd rewrites a warning comment byte-identically, and a marker outside automd's
- * `input` is never rewritten at all. Line endings are normalized first, so a CRLF checkout
- * compares equal.
+ * Every automd region under docs/: closed, free of automd's warning comment and of merge
+ * conflict lines, and for the two index generators equal to what the generator renders now.
+ * The stale comparison is the only check that sees a hand-edited or forgotten region outside
+ * the git drift gate: automd rewrites a warning comment byte-identically, and a marker
+ * outside automd's `input` is never rewritten at all. A conflicted region is named as such,
+ * since the fix is to regenerate it, not to merge it by hand. Outside the regions, and outside
+ * fences, a `<<<<<<<` line is a conflict left unresolved. Line endings are normalized first,
+ * so a CRLF checkout compares equal.
  */
 function checkAutomdMarkers(): void {
   const docsDir = join(root, 'docs')
@@ -274,32 +342,39 @@ function checkAutomdMarkers(): void {
   for (const file of markdownFiles(docsDir)) {
     const where = posixRelative(root, file)
     const text = readFileSync(file, 'utf8').replace(CRLF_RE, '\n')
-    const close = new RegExp(AUTOMD_CLOSE_RE.source, AUTOMD_CLOSE_RE.flags)
-    let pos = 0
-    for (const open of text.matchAll(AUTOMD_OPEN_RE)) {
-      // An opener inside an earlier region's body belongs to that region, as automd reads it.
-      if (open.index < pos)
-        continue
-      const marker = `<!-- automd:${open[1]} -->`
-      const from = open.index + open[0].length
-      close.lastIndex = from
-      const closed = close.exec(text)
+    const regions = automdRegions(text)
+    for (const region of regions) {
+      const marker = `<!-- automd:${region.name} -->`
       // Without a close the region runs to end-of-file: over-scanning is the safe direction
       // for the sentinel, and the region is already malformed.
-      const body = text.slice(from, closed?.index)
-      pos = closed ? closed.index + closed[0].length : text.length
-      if (!closed)
-        errors.push(`${where}: missing <!-- /automd --> after ${marker} (line ${text.slice(0, open.index).split('\n').length})`)
+      const body = text.slice(region.bodyStart, region.bodyEnd)
+      if (!region.closed)
+        errors.push(`${where}: missing <!-- /automd --> after ${marker} (line ${text.slice(0, region.start).split('\n').length})`)
       if (body.includes(AUTOMD_WARNING)) {
         errors.push(`${where}: automd generator failed and wrote a warning comment into the ${marker} region. Fix the generator, re-run \`pnpm docs:gen\`, and never commit the warning — once committed it regenerates identically and the drift gate goes green.`)
         continue
       }
-      if (!closed)
+      if (body.split('\n').some(line => CONFLICT_LINE_RE.test(line))) {
+        // An index region conflicts again on the next pair of branches that each add an entry;
+        // the lasting fix is to drop it, since the sidebar and docs:list read the files.
+        const lasting = Object.hasOwn(INDEX_RENDERERS, region.name) ? '. To stop the next conflict, delete the region: the handbook sidebar and `pnpm docs:list` read the list from the files' : ''
+        errors.push(`${where}: ${marker} region holds merge conflict lines — regenerate it with \`pnpm docs:gen\`; never hand-merge a generated region${lasting}`)
         continue
-      const want = renderedRegion(open[1]!)
+      }
+      if (!region.closed)
+        continue
+      const want = renderedRegion(region.name)
       if (want !== undefined && normalizeRegion(body) !== want)
         errors.push(`${where}: ${marker} region is stale — run \`pnpm docs:gen\``)
     }
+    // Region bodies blanked, line count kept, so a conflict inside one is reported once, above.
+    let outside = text
+    for (const region of regions.toReversed())
+      outside = outside.slice(0, region.bodyStart) + outside.slice(region.bodyStart, region.bodyEnd).replace(NON_NEWLINE_RE, '') + outside.slice(region.bodyEnd)
+    stripFences(outside).split('\n').forEach((line, i) => {
+      if (CONFLICT_OPEN_RE.test(line))
+        errors.push(`${where}: unresolved merge conflict marker (line ${i + 1}) — resolve the conflict and delete the markers`)
+    })
   }
 }
 

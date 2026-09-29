@@ -56,7 +56,7 @@ affect passes clean after your last edit. When unsure which apply, run
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
-- Docs, regenerate: `pnpm docs:gen` (automd indexes and the `.agents/skills` mirror)
+- Docs, regenerate: `pnpm docs:gen` (the `.agents/skills` mirror and any automd region)
 - Docs, validate: `pnpm docs:check && pnpm docs:portability`
 - Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`
 
@@ -64,6 +64,7 @@ Other commands, never part of done and never run to prove it:
 
 - Install: `pnpm install` (node 24 per `.node-version`; `corepack enable` provides pnpm)
 - Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev` (dev servers; they never exit)
+- Docs, list: `pnpm docs:list` (decisions and specs, read from the files; `decisions` or `specs` prints one)
 - Sync: `pnpm sync:template` (only when asked; stages the template's mechanics; the sync-template skill)
 - Release: `pnpm release` (human-run; the push guard denies it to agents)
 

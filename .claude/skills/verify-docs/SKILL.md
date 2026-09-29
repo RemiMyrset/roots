@@ -8,8 +8,8 @@ description: Run the full docs gate locally and fix what it finds. Generated-sec
 Run the docs steps of the done gate, in CI order, and fix failures at the
 source:
 
-1. `pnpm docs:gen` regenerates the decisions and specs indexes and the
-   `.agents/skills` mirror. Then `git status --porcelain` catches staged and
+1. `pnpm docs:gen` rewrites the `.agents/skills` mirror and any automd
+   region a page keeps. Then `git status --porcelain` catches staged and
    untracked output, same as CI; if generated files changed, include the
    regenerated output in this change. Only when you made no docs edits does a
    change mean the previous commit had drift.

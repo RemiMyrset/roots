@@ -10,22 +10,21 @@ outside this site).
 
 1. Copy [the template](./_template.md) to `specs/<area>/<name>.md`, or invoke
    the `new-spec` skill. Create an `<area>` folder when the first spec in a
-   domain appears (for example `api/`, `cli/`, `domain/`). The index and
-   sidebar discover new areas automatically.
+   domain appears (for example `api/`, `cli/`, `domain/`). The handbook
+   sidebar and `pnpm docs:list` discover new areas automatically.
 2. Fill the Source, Tests, and `- **Last reviewed:**` bullets.
    `pnpm docs:check` verifies the paths resolve and warns on stale review dates.
 3. Number the Behavior branches; every branch is a binary check.
-4. Run `pnpm docs:gen`. The index below is generated; never hand-edit it.
+4. Run `pnpm docs:check`.
 
 This directory starts empty in a fresh project; do not backfill specs for code
 that does not exist yet. For a worked example, read
 `docs/template/sync-template.md` first. It is a real capability spec, with its
 Source and Tests bullets, a Contract, and binary Behavior branches.
 
-## Index
+## The list
 
-<!-- automd:specIndex -->
-
-_No specs yet. The first one appears here after `pnpm docs:gen`._
-
-<!-- /automd -->
+No committed file lists the specs, so two branches that each add one touch
+different files and merge without a conflict. The handbook sidebar groups them
+by area, the folder view on GitHub and in Obsidian shows them, and
+`pnpm docs:list specs` prints them.
