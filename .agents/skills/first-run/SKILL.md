@@ -18,8 +18,7 @@ calls. Ask before any step whose input you would otherwise have to invent.
    and stop; that is the environment, not a template defect.
 2. Derive identity, then ask for what cannot be derived. `OWNER/REPO` comes
    from `git remote get-url origin`, or `gh repo view --json owner,name` when
-   authenticated. The slug is the repo name and must match `^[\w.-]+$`. The
-   licence holder is `gh api user -q .name`, else `git config user.name`.
+   authenticated. The slug is the repo name and must match `^[\w.-]+$`.
    `gh api repos/<owner>/<repo> --jq '.owner.type, .visibility'` prints
    whether the owner is a `User` or an `Organization` and whether the
    repository is `public`, `private`, or `internal`; without `gh`, ask. Then
@@ -27,11 +26,16 @@ calls. Ask before any step whose input you would otherwise have to invent.
    - the one-line pitch; offer `gh repo view --json description -q .description`
      if it is set;
    - the licence: keep MIT, another licence, or none;
+   - the licence holder, unless the answer was none: offer the owner's name,
+     `gh api users/<owner> --jq '.name // .login'`, which is the
+     organization's for an organization, else `git config user.name`;
    - for an organization, the code owners: a team (`@<org>/<team>`) or user
      handles, since an organization name alone is not a valid owner;
    - for a repository that is not public, the address that takes security
      reports: GitHub offers private vulnerability reporting on public
-     repositories only.
+     repositories only;
+   - the contact for conduct reports in `CODE_OF_CONDUCT.md`: a user handle
+     or an address; offer `@<owner>` for a user.
 3. Done gate: `pnpm install && pnpm verify`. Red here is a template defect;
    stop and report it, never work around it.
 4. Rename, exact edits:
@@ -105,9 +109,9 @@ calls. Ask before any step whose input you would otherwise have to invent.
    filled in: the branch ruleset, whose command and timing are under "Push
    protection" in `docs/template/guards.md`, and, if the user wants the public
    docs, the three commands under "Publish the public site on GitHub Pages" in
-   `docs/template/docs-toolchain.md`. Run before the push, the first deploy
-   would publish the template's pages; a private repository needs GitHub Pro,
-   Team, or Enterprise for Pages. Then remind the user that
+   `docs/template/docs-toolchain.md`, with the cost sentence above them for a
+   repository that is not public. Run before the push, the first deploy
+   would publish the template's pages. Then remind the user that
    `packages/example-package`, `apps/example-app`, and the two `docs/public/`
    stubs are still placeholders. Last,
    `git grep -n -i remimyrset -- . ':!docs/template' ':!.claude/skills' ':!.agents/skills' ':!scripts/sync-template.mts'`

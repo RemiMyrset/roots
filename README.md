@@ -83,8 +83,8 @@ flowchart LR
 1. **Prove the done gate.** With node 24 and pnpm installed as
    [Setup](#setup) says, `pnpm install && pnpm verify`, green before you touch
    anything. **(skill)**
-2. **Name it.** **(skill; it asks for the pitch, the licence, and the owners
-   it cannot derive)**
+2. **Name it.** **(skill; it asks for the pitch, the licence and its holder,
+   the owners it cannot derive, and the security and conduct contacts)**
    - `package.json`: `name` (your repo slug), `description`, and
      `repository.url`.
    - This file: the H1 and the pitch above; delete "Who it is for, and not
@@ -100,9 +100,9 @@ flowchart LR
    - `.github/CODEOWNERS`: `@RemiMyrset` becomes your GitHub user, or in an
      organization a team (`@org/team`) or user handles, since an organization
      name alone is not a valid owner; the comment above it goes.
-   - `SECURITY.md`, private repositories only: a contact address replaces the
-     **Report a vulnerability** button, which GitHub offers on public
-     repositories alone (step 5 turns it on there).
+   - `SECURITY.md`, repositories that are not public: a contact address
+     replaces the **Report a vulnerability** button, which GitHub offers on
+     public repositories alone (step 5 turns it on there).
    - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` in both links.
    - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact becomes yours.
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
@@ -144,8 +144,8 @@ flowchart LR
    commands under
    [Publish the public site on GitHub Pages](./docs/template/docs-toolchain.md#publish-the-public-site-on-github-pages):
    enable Pages, run the first deploy (`gh workflow run pages.yml`), and set
-   the homepage. On a private repository Pages needs GitHub Pro, Team, or
-   Enterprise. **(skill prints them)**
+   the homepage. The recipe also says what Pages costs on a private
+   repository. **(skill prints them)**
 
 ## Setup
 
