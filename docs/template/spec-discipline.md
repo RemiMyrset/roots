@@ -78,17 +78,21 @@ fails on drift. The checks:
 - a name that opens with a hyphenated date, such as `2026-09-29-x.md`,
   `2026-9-29-x.md`, or `2026-09-29.md`, is an error, since it would read as
   record 2026
-- a decision's Status is in the vocabulary; a superseded status links the
-  newer record with that record's ID as the link text (a dated name without
-  `.md`, or a legacy number), and that record exists; its Date is real
+- a decision's Status is exactly `proposed`, `accepted`, `rejected`, or
+  `deprecated` (HTML comments on the line ignored), or a superseded status
+  that links the newer record with that record's ID as the link text (a
+  dated name without `.md`, or a legacy number), and that record exists and
+  is not the record itself; its Date is real
 - a legacy record whose Date is later than the earliest dated record's
   filename date is a warning: either it was numbered by habit, or the dated
   record is named for a day before it was created. A numbered record made
   before any dated one exists passes unwarned; only the duplicate-number
   check catches its collision
-- a spec's Source and Tests paths resolve, and its Last reviewed date is real
-  (a warning after 180 days); a Source or Tests value that opens with
-  `(pending)` is a warning instead, and HTML comments on the line are ignored
+- a spec's Source and Tests each name at least one backticked path, and
+  every backticked path resolves in the case written (a `:42` or `#L42`
+  suffix is dropped first); its Last reviewed date is real (a warning after
+  180 days); a Source or Tests value that opens with `(pending)` is a warning
+  instead, and HTML comments on the line are ignored
 - specs sit one level below an area, never at the top or nested deeper
 - a template page with a Source bullet meets the spec rules above
 - both index pages exist; neither needs a region

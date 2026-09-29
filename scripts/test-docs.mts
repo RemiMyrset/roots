@@ -8,7 +8,8 @@
  * three-step repo-root fallback, the stale-region comparison (with a CRLF checkout), the
  * skills mirror clean, drifted, generated, and absent, a region holding merge conflict
  * lines (named, then repaired by automd), dated and legacy decision records side by side (a
- * legacy-only table byte for byte as before), index pages without regions, `docs:list`, and
+ * legacy-only table byte for byte as before), index pages without regions, `docs:list`, a
+ * Status keyword matched whole, Source and Tests values with a line reference or no path, and
  * the property dated names exist for: two git branches that each add a record merge with no
  * conflict. The skill trees are planted in the copy at test time: a fixture under
  * `.claude/skills` would be listed as a live skill. Runs in CI on Ubuntu and Windows via
@@ -175,6 +176,16 @@ function runAutomd(cwd: string): Run {
     // A copy of the spec template that keeps its guidance comments, which mention "(pending)".
     'docs/internal/specs/cli/template-copy.md: Source path `src/missing.ts` does not exist',
     'docs/internal/specs/cli/template-copy.md: Tests path `test/missing.ts` does not exist',
+    // A plain keyword matches whole, and a record cannot be superseded by itself.
+    'docs/internal/decisions/20260114-near-keyword.md: status "acceptedd" not in vocabulary',
+    'docs/internal/decisions/20260115-self-superseded.md: superseded-by link points at this record itself — link the newer record that replaces it',
+    // A line reference is dropped before the path is checked, a value with no backticked
+    // path is refused, and a path in the wrong case is named with the case on disk.
+    'docs/internal/specs/cli/line-refs.md: Source path `src/nope.ts:42` does not exist',
+    'docs/internal/specs/cli/line-refs.md: Tests path `test/nope.ts#L3-L5` does not exist',
+    'docs/internal/specs/cli/no-path.md: Source names no path to check — write the repo-relative path in backticks (`src/feature.ts`), or (pending) before the code exists',
+    'docs/internal/specs/cli/no-path.md: Tests names no path to check',
+    'docs/internal/specs/cli/wrong-case.md: Source path `readme.md` is README.md on disk; the case must match, or Linux CI fails it',
     '.agents/skills/y/SKILL.md: missing — run `pnpm docs:gen` to mirror .claude/skills',
     '.agents/skills/x/SKILL.md: differs from .claude/skills/x/SKILL.md — never hand-edit the mirror',
     '.agents/skills/z/SKILL.md: has no source under .claude/skills — run `pnpm docs:gen` to remove it',
@@ -214,9 +225,6 @@ function runAutomd(cwd: string): Run {
     'README.md:40  Vue interpolation',
     'README.md:42  callout type "[!NOTE] Custom title"',
     'README.md:45  callout type "[!NOTE]-"',
-    'docs/internal/README.md  no H1',
-    'docs/internal/README.md  README.md inside a site directory',
-    'docs/index.md  index.md outside a site directory',
   ])
 }
 
@@ -606,6 +614,23 @@ function runAutomd(cwd: string): Run {
     `| [${stamp}-cache-with-redis](./${stamp}-cache-with-redis.md) | Cache with Redis | accepted |`,
     `| [${stamp}-use-postgres](./${stamp}-use-postgres.md) | Use Postgres | accepted |`,
   ])
+}
+
+// 19. What docs:check accepts: a line reference after a Source or Tests path, and a comment
+// after a Status keyword.
+{
+  const dir = withoutRegions(fixture('clean'))
+  const spec = join(dir, 'docs/internal/specs/cli/hello.md')
+  writeFileSync(spec, readFileSync(spec, 'utf8')
+    .replace('2026-09-07', today)
+    .replace('`src/hello.txt`', '`src/hello.txt:3`')
+    .replace('`test/hello.txt`', '`test/hello.txt#L1-L2`'))
+  const contract = join(dir, 'docs/template/contract.md')
+  writeFileSync(contract, readFileSync(contract, 'utf8').replace('2026-09-07', today))
+  const fourth = join(dir, 'docs/internal/decisions/20260106-fourth.md')
+  writeFileSync(fourth, readFileSync(fourth, 'utf8').replace('- **Status:** accepted', '- **Status:** accepted <!-- after review -->'))
+  const c = run('docs:check', dir, withoutCi)
+  check('line references and a commented Status pass docs:check', c.status === 0 && !c.out.includes('warning'), c.out)
 }
 
 if (fails.length > 0) {

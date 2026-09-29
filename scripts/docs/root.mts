@@ -7,7 +7,7 @@
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 
 /** Where decision records live, relative to the repository root. */
@@ -175,6 +175,52 @@ export function stripFences(text: string): string {
       fence = undefined
     return ''
   }).join('\n')
+}
+
+// Directory listings read for pathCase, by absolute directory.
+const listings = new Map<string, ReadonlySet<string>>()
+
+function listing(dir: string): ReadonlySet<string> {
+  let names = listings.get(dir)
+  if (!names) {
+    try {
+      names = new Set(readdirSync(dir))
+    }
+    catch {
+      names = new Set()
+    }
+    listings.set(dir, names)
+  }
+  return names
+}
+
+/**
+ * Whether `target` exists with the exact case written, checked segment by segment below
+ * `root`: `'exact'`; `'missing'`; or, when only a spelling in another case exists, that
+ * spelling relative to `root` with forward slashes. On a case-insensitive disk (macOS,
+ * Windows) `existsSync` accepts a wrong-case link that Linux CI and GitHub then fail. A
+ * target outside `root` is checked for existence only.
+ */
+export function pathCase(root: string, target: string): 'exact' | 'missing' | string {
+  const rel = relative(resolve(root), resolve(target))
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
+    return existsSync(target) ? 'exact' : 'missing'
+  let dir = resolve(root)
+  const actual: string[] = []
+  let wrongCase = false
+  for (const segment of rel.split(sep)) {
+    const names = listing(dir)
+    let name = names.has(segment) ? segment : undefined
+    if (name === undefined) {
+      name = [...names].find(n => n.toLowerCase() === segment.toLowerCase())
+      if (name === undefined)
+        return 'missing'
+      wrongCase = true
+    }
+    actual.push(name)
+    dir = join(dir, name)
+  }
+  return wrongCase ? actual.join('/') : 'exact'
 }
 
 const SLUG_DROP_RE = /[^\p{L}\p{N}\p{M}\s_-]/gu
