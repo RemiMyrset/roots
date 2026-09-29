@@ -56,6 +56,8 @@ affect passes clean after your last edit. When unsure which apply, run
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
+- Boundaries: `pnpm boundaries` (turbo: imports stay inside their package unless by
+  package name, and every imported package is declared)
 - Docs, regenerate: `pnpm docs:gen` (the `.agents/skills` mirror and any automd region)
 - Docs, validate: `pnpm docs:check && pnpm docs:portability`
 - Docs, build (CI-blocking): `pnpm docs:internal:build && pnpm docs:public:build`

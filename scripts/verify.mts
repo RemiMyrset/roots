@@ -53,6 +53,7 @@ const GATES: Gate[] = [
   { name: 'typecheck', run: () => pnpm('typecheck') },
   { name: 'lint', run: () => pnpm('lint') },
   { name: 'lint:secrets', run: () => pnpm('lint:secrets') },
+  { name: 'boundaries', run: () => pnpm('boundaries') },
   { name: 'test', run: () => pnpm('test') },
   { name: 'test:hooks', run: () => pnpm('test:hooks'), template: true },
   { name: 'test:sync', run: () => pnpm('test:sync'), template: true },

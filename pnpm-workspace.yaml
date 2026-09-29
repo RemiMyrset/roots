@@ -11,6 +11,11 @@ allowBuilds:
   esbuild: true
   simple-git-hooks: false
 
+# `pnpm add <dep>` writes the catalog entry and the package's "catalog:" reference
+# in one step, and refuses a version outside a range the catalog already holds, so
+# adding a dependency never leaves the catalog rule or the lockfile to fix afterwards.
+catalogMode: strict
+
 # Fail installs on incompatible node (replaces the old .npmrc engine-strict).
 engineStrict: true
 

@@ -41,9 +41,11 @@ app or service). Placement alone registers it; the workspace globs cover both.
 
    Exports stay source-direct; add a `build` script only when the package must
    emit `dist/` (turbo discovers it). No per-package `lint`; lint runs
-   repo-wide. Internal cross-package deps use `"workspace:*"`, and a new
-   dependency first gets a version entry in the `catalog:` block of
-   `pnpm-workspace.yaml`, a load-bearing choice to record (new-adr skill).
+   repo-wide. Internal cross-package deps use `"workspace:*"`. Add any other
+   dependency with `pnpm add <dep> --filter <package>` (`-D` for a dev one):
+   `catalogMode: strict` writes its `catalog:` entry and reference, then run
+   `pnpm lint:fix`. A new dependency is a load-bearing choice to record
+   (new-adr skill).
 
    An app under `apps/` drops `exports`, adds `"start": "node src/main.ts"`, and
    lists the workspace packages it uses under `dependencies` as `"workspace:*"`;
