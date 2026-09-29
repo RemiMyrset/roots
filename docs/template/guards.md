@@ -16,12 +16,11 @@ script, read a secret file, push to a protected branch, or skip the git hooks.
 What they cover reliably is the direct and common wrapped forms: bare and
 path-prefixed commands in any case, with or without a Windows launcher suffix
 (`npm.cmd`, `bash.exe`) or a version (`corepack yarn@1`), standard wrappers
-(`sudo`, `env`, `nice`, `timeout`,
-`flock`, `xargs`, `mise x` / `mise exec`, …) with their ordinary flags,
-`pnpm exec` / `dlx` / `x` unwrapping, `;` / `&&` / `|` / `$()` separators, glued redirects,
-and quoted paths with either separator (`'C:\repo\.env'`). A
-regression suite (`pnpm test:hooks`) pins every covered case so a fix for one
-form never silently reopens another.
+(`sudo`, `env`, `nice`, `timeout`, `flock`, `xargs`, `mise x` / `mise exec`,
+…) with their short flags, `pnpm exec` / `dlx` / `x` unwrapping, `;` / `&&` /
+`|` / `$()` separators, glued redirects, and quoted paths with either
+separator (`'C:\repo\.env'`). A regression suite (`pnpm test:hooks`) pins every
+covered case so a fix for one form never silently reopens another.
 
 The shared lexer splits a command where bash does, and the push guard never
 reads a redirection (`2>&1`, `> log`) as an argument. A `$()` or backtick
@@ -92,6 +91,13 @@ on Windows registers the guards for its PowerShell tool as well as Bash; the
 lexer is bash-shaped, so PowerShell spellings are covered only where they
 coincide (`npm install`, `cat .env`, `git push origin main`).
 
+Also out of scope: long or clustered wrapper flags (`sudo --user root`,
+`env --chdir /x`, `sudo -iu root`), an implicit push target git resolves in
+another checkout or under another name (`git -C`, `--git-dir`, Gemini's
+`dir_path`, `push.default=upstream`), a hooks path set through `GIT_CONFIG_*`
+variables, and Gemini's own file tools (`read_file`, `grep_search`), which run
+no shell command and have no Read deny list.
+
 Known over-block for every guard (safe direction, never a bypass): a heredoc
 fed to a shell that runs a script file (`bash x.sh <<'EOF'`) has its body
 lexed as commands, although the script reads it as input. Backticks inside
@@ -106,7 +112,8 @@ defense-in-depth on top of that, never a replacement for it.
 
 ## Secret-file protection
 
-Two layers keep secrets out of the agent. The `.claude/settings.json`
+Two layers keep secrets out of the agent: the Read-tool deny list in Claude
+Code, and the shell guard in all three tools. The `.claude/settings.json`
 `permissions.deny` Read-tool list enumerates common `.env*` / `.envrc` /
 `.netrc` / `_netrc` / `.npmrc` / `secrets/` / `*.pem` / `*.key` / `*.p12` /
 `*.pfx` / `*.jks` names, plus the credentials a developer machine holds outside
@@ -121,9 +128,9 @@ case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
 readable; `credentials`, `config`, and `hosts.yml` count only under their
 credential directory): direct readers, `<` redirects (including `$(<file)` and
 `<>`), `pnpm exec` wrappers, and a glob that can expand to one of those names
-(`.env*`, `~/.ssh/*`, `secret?/api.txt`, `certs/*.pe?`). A glob counts only where bash expands it: a quoted or
-escaped `*`, `?`, or `[` is text, so a search pattern such as
-`grep "import .* from"` passes. `find -exec` and `-ok` are denied when a word
+(`.env*`, `~/.ssh/*`, `secret?/api.txt`, `certs/*.pe?`). A glob counts only
+where bash expands it: a quoted or escaped `*`, `?`, or `[` is text, so a
+search pattern such as `grep "import .* from"` passes. `find -exec` and `-ok` are denied when a word
 names a secret or a `-name` or `-path` pattern can match one, quoted or not,
 because find matches it itself. A pattern whose matches can never reach the
 `-exec` passes: a negated one (`-not -path '*/.*'`), or a pruned one with
