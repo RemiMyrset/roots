@@ -8,14 +8,15 @@ description: Refresh the dependencies and the pinned GitHub Actions on request. 
 Nothing updates dependencies on a schedule; this skill is the procedure, run
 when the user asks. pnpm refuses any version published in the last 48 hours
 (`minimumReleaseAge` in `pnpm-workspace.yaml`), so a release that young waits
-for the next run. Why there is no update bot is in
-`docs/template/conventions.md`.
+for the next run unless a `minimumReleaseAgeExclude` entry names it (step 3).
+Why there is no update bot is in `docs/template/conventions.md`.
 
 Work on a branch such as `chore/update-deps`, cut from an up-to-date default
 branch with a clean tree.
 
 1. List. `pnpm outdated -r` prints every dependency with a newer release, with
-   its current and latest version. Note each one whose latest is outside its
+   its current and latest version, and exits 1 whenever it prints one; that is
+   the listing, not a failure. Note each one whose latest is outside its
    catalog range: a new major, or a new minor of a `0.x` package. Step 5
    calls both majors.
 2. Raise the catalog ranges. `pnpm update -r` moves every range in the
@@ -27,14 +28,26 @@ branch with a clean tree.
    verdict. Commit.
 3. Audit. `pnpm audit` lists the known advisories. `pnpm audit --fix update`
    moves the lockfile to fixed versions within the ranges. Where no such
-   release exists, a forced version (`pnpm audit --fix override`) is the last
-   resort and is named in the PR. Commit.
+   release exists, a forced version (`pnpm audit --fix override`, which writes
+   `overrides` into `pnpm-workspace.yaml`, then `pnpm install`) is the last
+   resort and is named in the PR. Either one exits 1 while any advisory
+   remains, even when it fixed others. Either one also appends a
+   `minimumReleaseAgeExclude` list to `pnpm-workspace.yaml` naming the
+   patched version of every advisory, installed or not, and that list lifts
+   the cooldown for each. Delete the list and run `pnpm install`: it passes
+   when every locked version is past the cooldown, and otherwise names each
+   one that is not. Wait for those, or put back only their entries and name
+   each in the PR as a cooldown exemption. Then run `pnpm lint:fix`, which
+   moves a kept key into order, and commit whatever changed.
 4. Refresh the action pins. Each `uses:` in `.github/workflows/` names a full
    commit SHA with the release in a trailing comment. For each
    `<owner>/<repo>`:
-   - its releases, newest first:
-     `gh api repos/<owner>/<repo>/releases --jq '.[] | select(.prerelease | not) | .tag_name'`;
-     take the newest in the pinned major, and leave a newer major to step 5
+   - its release tags:
+     `gh api --paginate repos/<owner>/<repo>/releases --jq '.[] | select(.prerelease | not) | .tag_name | select(test("^v?[0-9]+[.][0-9]+[.][0-9]+$"))'`,
+     or, for a repository that tags without publishing releases,
+     `gh api --paginate repos/<owner>/<repo>/tags --jq '.[].name | select(test("^v?[0-9]+[.][0-9]+[.][0-9]+$"))'`.
+     Neither list is sorted by version: take the highest version in the
+     pinned major, and leave a newer major to step 5
    - that tag's commit: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`
    - its own manifest: `gh api -H "Accept: application/vnd.github.raw" "repos/<owner>/<repo>/contents/action.yml?ref=<sha>"`
      (`action.yaml` in some repositories; an action in a subdirectory keeps it

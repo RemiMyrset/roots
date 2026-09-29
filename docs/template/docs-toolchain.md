@@ -119,8 +119,11 @@ Nothing updates dependencies on a schedule. Ask an agent to run the
 `pnpm-workspace.yaml`, audits, refreshes the action SHA pins and their version
 comments, runs the done gate, and opens a pull request, with each major in its
 own commit. pnpm refuses any version published in the last 48 hours
-(`minimumReleaseAge`), at install and during an update alike. Why roots ships
-no update bot is in [conventions](./conventions.md).
+(`minimumReleaseAge`), at install and during an update alike, unless a
+`minimumReleaseAgeExclude` entry in `pnpm-workspace.yaml` names it.
+`pnpm audit --fix` writes such entries for every patched version, and the
+skill keeps only the ones a fix still needs, each named in the pull request.
+Why roots ships no update bot is in [conventions](./conventions.md).
 
 First run turns on required SHA pinning for actions, which makes GitHub refuse
 a workflow that references an action by a mutable tag. The check reaches
