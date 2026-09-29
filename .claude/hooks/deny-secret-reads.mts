@@ -115,15 +115,16 @@ function globSegment(seg: string): RegExp | null {
 const KEY_EXTENSIONS: readonly string[] = ['pem', 'key', 'p12', 'pfx', 'jks']
 
 // Whether a path holding a glob can expand to a probe, to a file under a `secrets` directory
-// (`secret?/api.txt`), or to a key extension (`certs/*.pe?`). A segment that opens with a
-// wildcard is not tested against a bare name, so `grep x *` and `cat */package.json` stay
-// open, and neither is an extension that opens with `*` (`tsconfig.*`); a credential
+// (`secret?/api.txt`, `?ecrets/api.txt`), or to a key extension (`certs/*.pe?`). A segment
+// that opens with a wildcard is not tested against a bare name, so `grep x *` stays open, a
+// directory made of wildcards alone is not tested against `secrets`, so `cat */package.json`
+// does, and neither is an extension that opens with `*` (`tsconfig.*`); a credential
 // directory is.
 function globReadsSecret(p: string): boolean {
   const segs = p.split('/')
   if (!segs.some(s => /[*?[]/.test(s)))
     return false
-  if (segs.slice(0, -1).some(seg => !/^[*?[]/.test(seg) && globSegment(seg)?.test('secrets')))
+  if (segs.slice(0, -1).some(seg => seg.replace(/\[[^\]]*\]|[*?]/g, '') !== '' && globSegment(seg)?.test('secrets')))
     return true
   const last = segs.at(-1)!
   const ext = last.includes('.') ? last.slice(last.lastIndexOf('.') + 1) : ''

@@ -739,6 +739,10 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat secret?/api.txt' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat secrets*/api.txt' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat Secret[s]/api.txt' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ?ecrets/api.txt' }, //      a leading wildcard beside text
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat [s]ecrets/api.txt' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat config/*ecret?/db.txt' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat [a-z]*/README.md' }, //    a directory of wildcards alone
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat certs/server.pe?' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat certs/server.[p]em' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat certs/*.pe*' },

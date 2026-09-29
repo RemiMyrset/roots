@@ -129,9 +129,9 @@ case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
 readable; `credentials`, `config`, and `hosts.yml` count only under their
 credential directory): direct readers, `<` redirects (including `$(<file)` and
 `<>`), `pnpm exec` wrappers, and a glob that can expand to one of those names
-(`.env*`, `~/.ssh/*`, `secret?/api.txt`, `certs/*.pe?`). A glob counts only
-where bash expands it: a quoted or escaped `*`, `?`, or `[` is text, so a
-search pattern such as `grep "import .* from"` passes. `find -exec` and `-ok` are denied when a word
+(`.env*`, `~/.ssh/*`, `secret?/api.txt`, `?ecrets/api.txt`, `certs/*.pe?`).
+A glob counts only where bash expands it: a quoted or escaped `*`, `?`, or `[`
+is text, so a search pattern such as `grep "import .* from"` passes. `find -exec` and `-ok` are denied when a word
 names a secret or a `-name` or `-path` pattern can match one, quoted or not,
 because find matches it itself. A pattern whose matches can never reach the
 `-exec` passes: a negated one (`-not -path '*/.*'`), or a pruned one with
