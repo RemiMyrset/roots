@@ -85,6 +85,17 @@ portability requirement. The choices, each with its why:
   passes tsc and vitest and then throws at runtime. When a tool reads only a
   JavaScript config, escape with
   `/* eslint-disable no-restricted-syntax -- <reason> */` as its first line.
+- Dependency versions live once, in the `catalog:` block of
+  `pnpm-workspace.yaml`, with `catalogMode: strict`: `pnpm add` writes the
+  catalog entry and the `catalog:` reference together and refuses a version
+  outside a range the catalog holds. Without it, an agent's `pnpm add` failed
+  lint, and the lint fix left the lockfile stale.
+- A package imports another package only by its name, never by a relative
+  path out of its own directory, and only packages it declares:
+  `pnpm boundaries` (`turbo boundaries`, already installed) fails the gate
+  otherwise. Agents reach across packages by path, which works locally and
+  breaks the package graph turbo caches by. A deliberate exception carries a
+  `// @boundaries-ignore <reason>` comment.
 - Unit tests live in a sibling `test/` directory beside `src/`, never colocated:
   the unjs and antfu house layout. Every exported symbol carries a `/** */`
   block; ESLint `jsdoc/require-jsdoc` enforces presence, review enforces

@@ -26,6 +26,7 @@
     "lint": "CI=1 eslint . --cache --cache-location node_modules/.cache/eslint/",
     "lint:fix": "CI=1 eslint . --fix --cache --cache-location node_modules/.cache/eslint/",
     "lint:secrets": "secretlint \"**/*\"",
+    "boundaries": "turbo boundaries",
     "docs:gen": "automd && node scripts/docs/gen-skills.mts",
     "docs:check": "node scripts/docs/check-docs.mts",
     "docs:portability": "node scripts/docs/check-portability.mts",
