@@ -49,7 +49,10 @@ app or service). Placement alone registers it; the workspace globs cover both.
    lists the workspace packages it uses under `dependencies` as `"workspace:*"`;
    see `apps/example-app`.
 3. Create `tsconfig.json`, exactly:
-   `{ "extends": "../../tsconfig.base.json", "include": ["src", "test", "vitest.config.ts"] }`
+   `{ "extends": "../../tsconfig.base.json", "exclude": ["node_modules", "dist"] }`
+   It lists no `include`, so every TypeScript file in the package is
+   typechecked, a `bin/` script or a root config as much as `src/` and `test/`
+   (`pnpm test:gates` fails a package tsconfig that leaves one out).
 4. Create `vitest.config.ts`: copy `packages/example-package/vitest.config.ts`
    if it still exists, else a minimal `defineConfig({ test: {} })`. Coverage is
    omitted until vitepress leaves vite 5 (the note in that file says why).

@@ -21,7 +21,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, delimiter, join, matchesGlob } from 'node:path'
+import { basename, delimiter, dirname, join, matchesGlob, relative } from 'node:path'
 import process from 'node:process'
 
 const root = join(import.meta.dirname, '..')
@@ -149,10 +149,10 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // The second half holds the gates to what AGENTS.md says they enforce: ESLint must reject each
 // probe below, linted from stdin under a path that is never written; turbo's cache key must
 // cover the node version; the pre-commit hook must run ESLint on every file type a repo rule
-// covers; and the install hook must set up the git hooks in a checkout and leave a linked
-// worktree alone. It runs the installed eslint, turbo, and simple-git-hooks, so it needs the
-// install that verify and CI run first. The probes that need files write them to a temp
-// directory only.
+// covers; every package tsconfig must take in every TypeScript file of its package; and the
+// install hook must set up the git hooks in a checkout and leave a linked worktree alone. It
+// runs the installed eslint, turbo, typescript, and simple-git-hooks, so it needs the install
+// that verify and CI run first. The probes that need files write them to a temp directory only.
 const failures: string[] = []
 const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
@@ -248,6 +248,46 @@ if (typeof lintStaged === 'object' && lintStaged !== null) {
   }
 }
 
+// A package's TypeScript files are typechecked only by its own tsconfig (the root one covers
+// none), so one that lists directories, such as `"include": ["src", "test"]`, leaves a bin/
+// script or a root config unchecked. Each package that turbo typechecks is parsed by
+// TypeScript itself, its directory listing swapped for a temp tree of paths a package grows.
+const TSCONFIG_PROBES = ['src/index.ts', 'src/legacy.cts', 'test/index.test.ts', 'bin/cli.ts', 'scripts/seed.mts', 'drizzle.config.ts', 'vitest.config.ts']
+const probeTree = join(tmp, 'tsconfig-probes')
+for (const file of TSCONFIG_PROBES) {
+  mkdirSync(dirname(join(probeTree, file)), { recursive: true })
+  writeFileSync(join(probeTree, file), '')
+}
+const typecheckPlan = parseJson<{ tasks?: { task?: string, directory?: string, command?: string }[] }>(runTool('turbo/bin/turbo', ['run', 'typecheck', '--dry=json']).stdout)
+const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typecheck' && t.directory && t.command && t.command !== '<NONEXISTENT>')
+if (typechecked.length > 0) {
+  const ts = (await import('typescript')).default
+  const slash = (p: string): string => p.replaceAll('\\', '/')
+  for (const task of typechecked) {
+    const dir = join(root, task.directory!)
+    const project = /(?:^|\s)(?:-p|--project)\s+(\S+)/.exec(task.command!)?.[1] ?? 'tsconfig.json'
+    const config = join(dir, project.endsWith('.json') ? project : join(project, 'tsconfig.json'))
+    const errors: string[] = []
+    const parsed = ts.getParsedCommandLineOfConfigFile(config, undefined, {
+      useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
+      fileExists: ts.sys.fileExists,
+      readFile: ts.sys.readFile,
+      getCurrentDirectory: () => dir,
+      readDirectory: (at, extensions, excludes, includes, depth) => ts.sys.readDirectory(probeTree, extensions, excludes, includes, depth).map(f => join(at, relative(probeTree, f))),
+      onUnRecoverableConfigFileDiagnostic: d => errors.push(ts.flattenDiagnosticMessageText(d.messageText, ' ')),
+    })
+    const where = slash(relative(root, config))
+    if (!parsed || errors.length > 0) {
+      failures.push(`${where} could not be read: ${errors.join('; ')}`)
+      continue
+    }
+    const covered = new Set(parsed.fileNames.map(f => slash(relative(dir, f))))
+    const missed = TSCONFIG_PROBES.filter(p => !covered.has(p))
+    if (missed.length > 0)
+      failures.push(`${where} leaves ${missed.join(', ')} out of the typecheck; take in every file and exclude only what must not be checked: \`"exclude": ["node_modules", "dist"]\` in place of \`include\``)
+  }
+}
+
 // The install hook, run the way `pnpm install` runs it (the installed binaries on PATH): in a
 // checkout it installs the git hooks; in a linked worktree, whose .git is a file, it leaves them
 // to the main checkout instead of letting simple-git-hooks fail on `.git/hooks`.
@@ -290,4 +330,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; lint-staged lints ${lintStagedChecked} probe files; prepare installs the git hooks and skips a linked worktree`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree`)
