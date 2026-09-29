@@ -903,17 +903,20 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 }
 
 // 26. What a synced gate needs beyond the synced paths is reported three-way like the scripts:
-// the devDependencies, lint-staged, and simple-git-hooks blocks of package.json, the catalog in
-// pnpm-workspace.yaml, and a file the template added outside the synced paths. The template's
-// own records, samples, and synced files are never listed, nor is the repository's own entry.
+// packageManager and the devDependencies, lint-staged, and simple-git-hooks blocks of
+// package.json, the top-level settings of pnpm-workspace.yaml (catalog, allowBuilds,
+// trustPolicyExclude, scalars), and a file the template added outside the synced paths. The
+// template's own records, samples, and synced files are never listed, nor is the repository's
+// own entry, its package globs, or a flow-style value.
 {
   const depsTemplate = join(tmp, 'deps-template')
   mkdirSync(depsTemplate)
   git(depsTemplate, 'init', '-q', '-b', 'main')
-  const manifest = (devDependencies: Record<string, string>, preCommit: string, lintStaged: Record<string, unknown>): string =>
-    json({ 'name': 'fixture', 'scripts': { lint: 'eslint .' }, devDependencies, 'simple-git-hooks': { 'pre-commit': preCommit }, 'lint-staged': lintStaged })
-  const workspace = (catalog: Record<string, string>): string =>
-    `packages:\n  - packages/*\n\n# Catalog-first: every version lives here once.\ncatalog:\n${Object.entries(catalog).map(([name, range]) => `  ${name.startsWith('@') ? `'${name}'` : name}: ${range}\n`).join('')}`
+  const manifest = (devDependencies: Record<string, string>, preCommit: string, lintStaged: Record<string, unknown>, packageManager = 'pnpm@11.0.0'): string =>
+    json({ 'name': 'fixture', packageManager, 'engines': { node: '>=24' }, 'scripts': { lint: 'eslint .' }, devDependencies, 'simple-git-hooks': { 'pre-commit': preCommit }, 'lint-staged': lintStaged })
+  const T1_SETTINGS = 'allowBuilds:\n  esbuild: true\n\nminimumReleaseAge: 2880\n\ntrustPolicyExclude:\n  - vite@5.4.21\n'
+  const workspace = (catalog: Record<string, string>, settings = T1_SETTINGS): string =>
+    `${settings}packages:\n  - packages/*\n\n# Catalog-first: every version lives here once.\ncatalog:\n${Object.entries(catalog).map(([name, range]) => `  ${name.startsWith('@') ? `'${name}'` : name}: ${range}\n`).join('')}`
   write(depsTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
   write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'vitepress': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }))
   write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.0.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'vitepress': '^1.6.0' }))
@@ -925,10 +928,11 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   git(kid, 'init', '-q', '-b', 'main')
   commit(kid, 'Initial commit', COPY_AT)
   write(kid, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'zod': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }))
-  write(kid, 'pnpm-workspace.yaml', `${workspace({ '@types/node': '^24.0.0', 'eslint': '^9.1.0', 'lint-staged': '^16.0.0' })}  zod: ^3.0.0 # own\n`)
+  write(kid, 'pnpm-workspace.yaml', `${workspace({ '@types/node': '^24.0.0', 'eslint': '^9.1.0', 'lint-staged': '^16.0.0' }, T1_SETTINGS.replace('2880', '1440'))}  zod: ^3.0.0 # own\n`)
   commit(kid, 'chore: own dependencies')
-  write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'secretlint': 'catalog:', 'vitepress': 'catalog:' }, 'CI=1 pnpm lint-staged', { '*.ts': 'eslint --fix', '*': ['secretlint --no-glob'] }))
-  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.5.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'secretlint': '^13.0.0', 'vitepress': '^1.6.0' }))
+  write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'secretlint': 'catalog:', 'vitepress': 'catalog:' }, 'CI=1 pnpm lint-staged', { '*.ts': 'eslint --fix', '*': ['secretlint --no-glob'] }, 'pnpm@11.9.0'))
+  const T2_SETTINGS = 'allowBuilds:\n  \'@parcel/watcher\': false\n  esbuild: true\n\nminimumReleaseAge: 2880\nonlyBuiltDependencies: [esbuild]\nshellEmulator: true # scripts run alike on Windows\n\ntrustPolicyExclude:\n  - vite@5.4.21\n  - vite@5.4.22 # the next one\n'
+  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.5.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'secretlint': '^13.0.0', 'vitepress': '^1.6.0' }, T2_SETTINGS))
   write(depsTemplate, '.secretlintrc.json', '{ "rules": [] }\n')
   write(depsTemplate, '.claude/rules/secrets.md', '# secrets rule\n')
   write(depsTemplate, 'docs/internal/decisions/20260102-secretlint.md', '# Scan for secrets\n')
@@ -945,6 +949,13 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('catalog range the template changed is listed with both values', r.stdout.includes('  catalog.@types/node  changed on the template since the baseline\n    template: ^24.5.0\n    yours:    ^24.0.0\n'), r.stdout)
   check('catalog ranges changed or removed here are customized', r.stdout.includes('catalog.eslint, catalog.vitepress (absent here)'), r.stdout)
   check('entries of the repository\'s own never mentioned', !r.stdout.includes('zod'), r.stdout)
+  check('packageManager the template changed is listed with both values', r.stdout.includes('  packageManager  changed on the template since the baseline\n    template: pnpm@11.9.0\n    yours:    pnpm@11.0.0\n'), r.stdout)
+  check('allowBuilds entry the template added is missing here', r.stdout.includes('  allowBuilds.@parcel/watcher  missing here\n    template: false\n'), r.stdout)
+  check('workspace setting the template added is missing here, its comment dropped', r.stdout.includes('  shellEmulator  missing here\n    template: true\n'), r.stdout)
+  check('trustPolicyExclude item the template added is missing here', r.stdout.includes('  trustPolicyExclude.vite@5.4.22  missing here\n    template: - vite@5.4.22\n'), r.stdout)
+  check('workspace setting changed here is customized', r.stdout.includes('Customized locally (unchanged on the template since the baseline): minimumReleaseAge, catalog.eslint'), r.stdout)
+  for (const never of ['packages', 'onlyBuiltDependencies', 'allowBuilds.esbuild', 'trustPolicyExclude.vite@5.4.21', 'engines.node'])
+    check(`setting the same on both sides or not read is never listed: ${never}`, !r.stdout.includes(`  ${never}  `), r.stdout)
   check('file the template added outside the synced paths is listed', r.stdout.includes(`  .secretlintrc.json  missing here\n    git restore --source=${added.slice(0, 7)} -- .secretlintrc.json\n`), r.stdout)
   for (const never of ['docs/internal/decisions/20260102-secretlint.md', 'packages/example/src/secret.ts', '.claude/rules/secrets.md'])
     check(`added file never listed: ${never}`, !r.stdout.includes(`  ${never}  missing here`), r.stdout)
@@ -963,7 +974,7 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   const none = run(bare, depsUrl)
   check('no baseline exits 0', none.status === 0, none.detail)
   check('no baseline lists every template devDependency two-way', none.stdout.includes('  devDependencies.secretlint  missing here\n') && none.stdout.includes('  devDependencies.eslint  missing here\n'), none.stdout)
-  check('no pnpm-workspace.yaml skips the catalog', none.stdout.includes('Catalog: skipped — no pnpm-workspace.yaml here.'), none.stdout)
+  check('no pnpm-workspace.yaml skips the workspace settings', none.stdout.includes('Workspace: skipped — no pnpm-workspace.yaml here.'), none.stdout)
   check('no baseline skips the files', none.stdout.includes('Files: skipped — '), none.stdout)
 }
 

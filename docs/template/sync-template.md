@@ -16,8 +16,8 @@ this template** (no shared git history), a fork or clone (shared history), or
 predate the template. Safe means: stage rather than commit, refuse to clobber,
 work out where the repository branched off, record where it is now, and say
 what a file copy cannot carry: template commits since; the `package.json`
-entries and `pnpm-workspace.yaml` catalog entries the synced gates rely on
-that now differ; the files the template added outside the synced paths; and
+entries and `pnpm-workspace.yaml` settings the synced gates rely on that now
+differ; the files the template added outside the synced paths; and
 the `.claude/settings.json` rules, hooks, and output style the template has
 and this repository lacks.
 
@@ -259,12 +259,16 @@ stdout, in order:
 5. `Follow-ups: none new.`, `Follow-ups: skipped` with a reason, or a
    `Follow-ups` header followed by one block per `package.json` entry (the
    `<block>.<key>`, its label, `template:`, `yours:`, and an optional `note:`
-   line), then an optional `Customized locally` line. The blocks are
-   `scripts`, `devDependencies`, `simple-git-hooks`, and `lint-staged`, in
-   that order; a value that is not a string prints as its JSON text. Labels
-   say "since the baseline" on a first sync and "since last sync" afterwards.
-   Then the same for the `pnpm-workspace.yaml` catalog under `Catalog`, each
-   key `catalog.<name>`. Then `Files: none new.`, `Files: skipped` with a
+   line), then an optional `Customized locally` line. The entries are
+   `packageManager`, then the blocks `scripts`, `devDependencies`,
+   `simple-git-hooks`, `lint-staged`, `commitlint`, and `engines`, in that
+   order; a value that is not a string prints as its JSON text. Labels say
+   "since the baseline" on a first sync and "since last sync" afterwards.
+   Then the same for the top-level settings of `pnpm-workspace.yaml` under
+   `Workspace`, in file order: a scalar as its key (`minimumReleaseAge`), a
+   map entry as `<key>.<name>` (`catalog.vite`, `allowBuilds.esbuild`), and a
+   list item as `<key>.<item>` with the value `- <item>`
+   (`trustPolicyExclude.vite@5.4.21`). Then `Files: none new.`, `Files: skipped` with a
    reason, or a `Files` header followed by one `<path>  missing here` line per
    file the template added since the sync point outside the synced paths and
    `docs/internal/`, `docs/public/`, `src/`, `packages/`, and `apps/`, each
@@ -443,12 +447,12 @@ stderr.
     the user and token of an `http(s)` URL dropped, and stdout names the URL
     recorded.
 26. Given a template that changed what a synced gate relies on outside the
-    synced paths, when run, then the `devDependencies`, `simple-git-hooks`, and
-    `lint-staged` blocks of `package.json` are compared like its `scripts`
-    (behavior 14), and so is the top-level `catalog:` map of
-    `pnpm-workspace.yaml` under `Catalog`, skipped with a reason when there is
-    no `pnpm-workspace.yaml` here, the template has no catalog, or this one
-    has no block-style `catalog:` map. A file the template added since the
+    synced paths, when run, then `packageManager` and the `devDependencies`,
+    `simple-git-hooks`, `lint-staged`, `commitlint`, and `engines` blocks of
+    `package.json` are compared like its `scripts` (behavior 14), and so is
+    every top-level setting of `pnpm-workspace.yaml` but the `packages` globs
+    under `Workspace`, skipped with a reason when either side has no
+    `pnpm-workspace.yaml`. A file the template added since the
     sync point outside the synced paths (every `MECHANICS` and `include`
     entry, excluded ones too) and `docs/internal/`, `docs/public/`, `src/`,
     `packages/`, and `apps/` that this repository lacks is listed under
@@ -469,10 +473,11 @@ stderr.
   the file is shared through git, the remote is not. An inherited file is the
   exception (behavior 25): it is shared from the repository this one was made
   from.
-- The catalog is read line by line, since node has no YAML parser: the entries
-  of a block-style top-level `catalog:` map at its first entry's indent, with
-  quotes and comments dropped. A flow-style map or named `catalogs:` alone
-  skips the `Catalog` block.
+- `pnpm-workspace.yaml` is read line by line, since node has no YAML parser:
+  each top-level scalar, and the entries or items of a block-style top-level
+  map or list at its first entry's indent, with quotes and comments dropped.
+  A flow-style value (`[...]`, `{...}`) and anything deeper, such as named
+  `catalogs:`, are not compared.
 - `Files` reports an added file once: the next sync's sync point is past it,
   so a file you chose not to take is not listed again.
 - `root time` is a heuristic: a template commit made long before it was pushed

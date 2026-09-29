@@ -177,7 +177,7 @@ pnpm install
 | `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |
 | `pnpm docs:internal:dev` | Internal handbook (VitePress, team-only) |
 | `pnpm docs:public:dev` | Public docs site |
-| `pnpm sync:template` | Pull the template's mechanics: stages them, records the sync point, prints commits since and the follow-ups in `package.json`, the pnpm catalog, `.claude/settings.json`, and new template files (`--ref` pins a template tag or branch) |
+| `pnpm sync:template` | Pull the template's mechanics: stages them, records the sync point, prints commits since and the follow-ups in `package.json`, `pnpm-workspace.yaml`, `.claude/settings.json`, and new template files (`--ref` pins a template tag or branch) |
 | `pnpm release` | changelogen: version, CHANGELOG, tag, push; human-run (agents are blocked) |
 
 ## Working with AI agents

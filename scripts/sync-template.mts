@@ -15,8 +15,9 @@
  *
  * After staging it prints what a file copy cannot carry, as follow-ups to apply by hand: the
  * template commits since the last sync (breaking ones marked `!` with their BREAKING CHANGE
- * paragraph); the package.json scripts, devDependencies, simple-git-hooks, and lint-staged
- * entries and the pnpm-workspace.yaml catalog entries that differ from the template's; the
+ * paragraph); the package.json entries and the pnpm-workspace.yaml settings the synced gates
+ * rely on that differ from the template's (packageManager, scripts, devDependencies, the
+ * commit checks, engines; catalog, allowBuilds, trustPolicyExclude, and the rest); the
  * files the template added outside the synced paths; and the .claude/settings.json allow and
  * deny rules, hook registrations, and output style the template has and this repo lacks. A
  * first sync infers where this repo branched off the template — shared history, the root
@@ -471,8 +472,11 @@ function isBreaking(c: Commit): boolean {
 type Entries = Record<string, string>
 
 // The package.json blocks a synced gate relies on, compared key by key: the scripts the done
-// gate and the workflows run, the devDependencies behind them, and the commit-time checks.
-const MANIFEST_BLOCKS = ['scripts', 'devDependencies', 'simple-git-hooks', 'lint-staged'] as const
+// gate and the workflows run, the devDependencies behind them, the commit-time checks and the
+// commit message rules, and the node range. `packageManager`, the pnpm the workflows install,
+// is compared as a top-level field (block '').
+const MANIFEST_BLOCKS = ['scripts', 'devDependencies', 'simple-git-hooks', 'lint-staged', 'commitlint', 'engines'] as const
+const MANIFEST_FIELDS = ['packageManager'] as const
 const WORKSPACE = 'pnpm-workspace.yaml'
 
 /** The entries of `v` when it is a JSON object, else `{}`. */
@@ -480,53 +484,86 @@ function entriesOf(v: unknown): Entries {
   return Object.fromEntries(Object.entries(asObject<Record<string, unknown>>(v) ?? {}).map(([k, x]) => [k, typeof x === 'string' ? x : JSON.stringify(x)]))
 }
 
-/** Each of MANIFEST_BLOCKS in a package.json text, `{}` when absent; undefined when the text is absent or not JSON. */
+/** MANIFEST_FIELDS (block '') and each of MANIFEST_BLOCKS in a package.json text, `{}` when absent; undefined when the text is absent or not JSON. */
 function manifestOf(json: string | null): Record<string, Entries> | undefined {
   if (json === null)
     return undefined
   try {
     const root = asObject<Record<string, unknown>>(parseJson(json)) ?? {}
-    return Object.fromEntries(MANIFEST_BLOCKS.map(block => [block, entriesOf(root[block])]))
+    const fields = entriesOf(Object.fromEntries(MANIFEST_FIELDS.filter(f => root[f] !== undefined).map(f => [f, root[f]])))
+    return { '': fields, ...Object.fromEntries(MANIFEST_BLOCKS.map(block => [block, entriesOf(root[block])])) }
   }
   catch {
     return undefined
   }
 }
 
-const CATALOG_KEY_RE = /^catalog:\s*(?:#.*)?$/
 const YAML_SKIP_RE = /^\s*(?:#.*)?$/
-// An entry of the catalog map, its indent trimmed: a quoted or plain name, a colon, and the
-// range, if any.
-const CATALOG_ENTRY_RE = /^(?:'([^']*)'\s*|"([^"]*)"\s*|([^\s'"#:][^:#]*)):(?:\s(.*))?$/
+// A top-level key of pnpm-workspace.yaml and its value on the same line, if any.
+const YAML_TOP_RE = /^([A-Z_][\w-]*):(?:\s(.*))?$/i
+// An entry of a nested map, its indent trimmed: a quoted or plain name, a colon, and the value,
+// if any.
+const YAML_ENTRY_RE = /^(?:'([^']*)'\s*|"([^"]*)"\s*|([^\s'"#:-][^:#]*)):(?:\s(.*))?$/
+// An item of a nested list, its indent trimmed.
+const YAML_ITEM_RE = /^-\s(.*)$/
 const QUOTED_RE = /^(['"])(.*?)\1/
+// The workspace's own package globs, never the template's to report.
+const WORKSPACE_OWN = new Set(['packages'])
+
+/** A YAML scalar as written: quotes dropped, else a trailing comment; empty when only a comment follows the colon. */
+function yamlScalar(raw: string): string {
+  const text = raw.trim()
+  if (text.startsWith('#'))
+    return ''
+  return QUOTED_RE.exec(text)?.[2] ?? text.replace(/\s+#.*$/, '')
+}
 
 /**
- * The top-level `catalog:` map of a pnpm-workspace.yaml text, name to range. Node has no YAML
- * parser, so it reads the block style pnpm writes, line by line: the entries at the first
- * entry's indent, names and ranges unquoted, comments dropped. Undefined when the text is
- * absent or has no such block (a flow-style map, or only named `catalogs:`).
+ * The top-level settings of a pnpm-workspace.yaml text as flat entries, in file order: a scalar
+ * under its key (`minimumReleaseAge`), each entry of a map as `<key>.<name>` (`catalog.vite`,
+ * `allowBuilds.esbuild`), and each item of a list as `<key>.<item>` with the value `- <item>`
+ * (`trustPolicyExclude.vite@5.4.21`). Node has no YAML parser, so it reads the block style pnpm
+ * writes, line by line: the entries at the first entry's indent, quotes and comments dropped;
+ * a flow-style value (`[...]`, `{...}`) and a deeper level (named `catalogs:`) are skipped, as
+ * are the `packages` globs. Undefined when the text is absent.
  */
-function catalogOf(yaml: string | null): Entries | undefined {
+function workspaceOf(yaml: string | null): Entries | undefined {
   if (yaml === null)
     return undefined
-  const lines = yaml.replace(/^\uFEFF/, '').split(/\r?\n/)
-  const start = lines.findIndex(l => CATALOG_KEY_RE.test(l))
-  if (start < 0)
-    return undefined
   const entries: Entries = {}
-  let indent: number | undefined
-  for (const line of lines.slice(start + 1)) {
+  let block: { key: string, indent?: number } | undefined
+  for (const line of yaml.replace(/^\uFEFF/, '').split(/\r?\n/)) {
     if (YAML_SKIP_RE.test(line))
       continue
     const at = line.search(/\S/)
-    if (at === 0)
-      break
-    indent ??= at
-    const m = at === indent ? CATALOG_ENTRY_RE.exec(line.trim()) : null
-    const raw = m?.[4]?.trim()
-    if (!m || !raw)
+    if (at === 0) {
+      const top = YAML_TOP_RE.exec(line)
+      block = undefined
+      if (!top || WORKSPACE_OWN.has(top[1]!))
+        continue
+      const value = top[2] === undefined ? '' : yamlScalar(top[2])
+      if (value === '')
+        block = { key: top[1]! }
+      else if (!/^[[{]/.test(value))
+        entries[top[1]!] = value
       continue
-    entries[m[1] ?? m[2] ?? m[3]!.trimEnd()] = QUOTED_RE.exec(raw)?.[2] ?? raw.replace(/\s+#.*$/, '')
+    }
+    if (!block)
+      continue
+    block.indent ??= at
+    if (at !== block.indent)
+      continue
+    const item = YAML_ITEM_RE.exec(line.trim())
+    if (item) {
+      const value = yamlScalar(item[1]!)
+      if (value)
+        entries[`${block.key}.${value}`] = `- ${value}`
+      continue
+    }
+    const m = YAML_ENTRY_RE.exec(line.trim())
+    const raw = m?.[4] === undefined ? '' : yamlScalar(m[4])
+    if (m && raw && !/^[[{]/.test(raw))
+      entries[`${block.key}.${m[1] ?? m[2] ?? m[3]!.trimEnd()}`] = raw
   }
   return entries
 }
@@ -553,8 +590,9 @@ interface FollowUps {
  */
 function compareEntries(block: string, template: Entries, base: Entries | undefined, local: Entries, deleted: string[], out: FollowUps): void {
   const refersToDeleted = (value: string): string | undefined => deleted.find(d => value.includes(d))
+  const keyOf = (name: string): string => block ? `${block}.${name}` : name
   for (const [name, t] of Object.entries(template)) {
-    const key = `${block}.${name}`
+    const key = keyOf(name)
     const l = local[name]
     if (l === t)
       continue
@@ -578,7 +616,7 @@ function compareEntries(block: string, template: Entries, base: Entries | undefi
   for (const [name, l] of Object.entries(local)) {
     const ref = name in template ? undefined : refersToDeleted(l)
     if (ref)
-      out.items.push({ key: `${block}.${name}`, kind: 'changed', template: '(not on the template)', yours: l, note: `yours references ${ref}, which this sync deletes` })
+      out.items.push({ key: keyOf(name), kind: 'changed', template: '(not on the template)', yours: l, note: `yours references ${ref}, which this sync deletes` })
   }
 }
 
@@ -597,21 +635,19 @@ function manifestFollowUps(
   if (!local)
     return { items: [], customized: [], skipped: 'package.json here is not valid JSON' }
   const out: FollowUps = { items: [], customized: [] }
-  for (const block of MANIFEST_BLOCKS)
+  for (const block of ['', ...MANIFEST_BLOCKS])
     compareEntries(block, template[block] ?? {}, base?.[block], local[block] ?? {}, deleted, out)
   return out
 }
 
-/** Three-way compare of the pnpm-workspace.yaml catalog (compareEntries), or why it is skipped. */
-function catalogFollowUps(template: Entries | undefined, base: Entries | undefined, local: Entries | undefined, localMissing: boolean): FollowUps {
-  if (localMissing)
+/** Three-way compare of the pnpm-workspace.yaml settings (workspaceOf, compareEntries), or why it is skipped. */
+function workspaceFollowUps(template: Entries | undefined, base: Entries | undefined, local: Entries | undefined): FollowUps {
+  if (!local)
     return { items: [], customized: [], skipped: `no ${WORKSPACE} here` }
   if (!template)
-    return { items: [], customized: [], skipped: `the template has no catalog in ${WORKSPACE}` }
-  if (!local)
-    return { items: [], customized: [], skipped: `${WORKSPACE} here has no block-style catalog: map` }
+    return { items: [], customized: [], skipped: `the template has no ${WORKSPACE}` }
   const out: FollowUps = { items: [], customized: [] }
-  compareEntries('catalog', template, base, local, [], out)
+  compareEntries('', template, base, local, [], out)
   return out
 }
 
@@ -914,8 +950,8 @@ for (const [file, { path, blob }] of unplaced) {
 if (pulled === 0)
   fail(`Could not check out any synced path:\n\n${skipped.join('\n')}`)
 
-// The package.json blocks and the catalog are compared three-way when the sync point is on the
-// template's history, else two-way; the added files need that sync point.
+// The package.json blocks and the workspace settings are compared three-way when the sync point
+// is on the template's history, else two-way; the added files need that sync point.
 const threeWay = base !== undefined && baseInHistory
 const followUps = manifestFollowUps(
   manifestOf(tryGit(['show', `${head}:package.json`])),
@@ -924,11 +960,10 @@ const followUps = manifestFollowUps(
   !existsSync('package.json'),
   deleted,
 )
-const catalog = catalogFollowUps(
-  catalogOf(tryGit(['show', `${head}:${WORKSPACE}`])),
-  threeWay ? catalogOf(tryGit(['show', `${base}:${WORKSPACE}`])) : undefined,
-  existsSync(WORKSPACE) ? catalogOf(readFileSync(WORKSPACE, 'utf8')) : undefined,
-  !existsSync(WORKSPACE),
+const workspace = workspaceFollowUps(
+  workspaceOf(tryGit(['show', `${head}:${WORKSPACE}`])),
+  threeWay ? workspaceOf(tryGit(['show', `${base}:${WORKSPACE}`])) : undefined,
+  existsSync(WORKSPACE) ? workspaceOf(readFileSync(WORKSPACE, 'utf8')) : undefined,
 )
 const added = threeWay ? addedFiles(base, head, [...MECHANICS, ...(state?.include ?? [])]) : undefined
 
@@ -1080,7 +1115,7 @@ function listFollowUps(title: string, file: string, f: FollowUps): void {
     out.push(`  Customized locally (unchanged on the template since ${since}): ${f.customized.join(', ')}`)
 }
 listFollowUps('Follow-ups', 'package.json', followUps)
-listFollowUps('Catalog', WORKSPACE, catalog)
+listFollowUps('Workspace', WORKSPACE, workspace)
 
 out.push('')
 if (added === undefined) {
