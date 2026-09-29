@@ -21,15 +21,22 @@ spec-discipline nudge on PRs.
 
 ## Adding a custom generator
 
-A reader in `scripts/docs/readers.mts` parses a source of truth (a directory,
-a source file, a schema) and a generator in `scripts/docs/generators.mts`
-renders it between automd markers. An automd region and the VitePress sidebar
-consume the same reader, so they cannot drift. `decisionsIndex` is the worked
-example: it reads the decision files' H1 and Status bullets.
+A generator renders a source of truth (a directory, a source file, a schema)
+between automd markers. `decisionsIndex` in `scripts/docs/generators.mts` is
+the worked example: its reader in `scripts/docs/readers.mts` parses the
+decision files' H1 and Status bullets, and the VitePress sidebar consumes the
+same reader, so the two cannot drift.
 
-Register a new generator in `automd.config.ts` and add the marker pair to the
-target page. automd also ships the built-ins `file` (inline a file),
-`dir-tree`, and `fetch`.
+Both files are synced: an edit to either is staged for revert on every sync.
+Write your generator in a file of your own under `scripts/docs/` that the
+template does not ship, such as `scripts/docs/project-generators.mts`; the
+sync leaves such a file alone, and it may import the readers.
+
+Register it in `automd.config.ts`, which is yours unless you list it under
+`include`, and add the marker pair to a page under `docs/`, the only place
+automd looks. automd also ships the built-ins `file` (inline a file),
+`dir-tree`, and `fetch`. The drift gate in `pnpm verify` and CI keeps such a
+region current; `pnpm docs:check` checks only its shape.
 
 A region is opt-in, and the template's own index pages carry none;
 [conventions](./conventions.md) says why. A page may keep the
@@ -56,8 +63,10 @@ broken build or action pin shows before merge. Until Pages is enabled the run
 is green and says "the site was built but not deployed", so a repository that
 never wants a public site pays nothing and sees no red.
 
-Enable it once, either under Settings → Pages → Build and deployment → Source:
-GitHub Actions, or:
+Enable it once, after `main` holds your own pages rather than the template's,
+either under Settings → Pages → Build and deployment → Source: GitHub Actions,
+or with the commands below. Pages is free on public repositories; a private
+one needs GitHub Pro, Team, or Enterprise.
 
 ```sh
 gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow
@@ -103,44 +112,25 @@ so only the team can read it: Cloudflare Access in front of Cloudflare Pages
 reachable only over VPN/Tailscale. The shipped noindex meta and `robots.txt`
 stay as a second guard in case a gate is ever misconfigured.
 
-### Keep dependencies current with Renovate
+### Keep dependencies current
 
-`renovate.json` at the repo root is synced. It asks for one grouped pull
-request with every minor and patch update before 06:00 UTC on Mondays, waits
-two days after a release (the pnpm cooldown, `minimumReleaseAge`), keeps the
-action SHA pins and their version comments current, groups the workflow and
-devcontainer bumps, and automerges non-major npm updates once every check on
-the branch is green. Action bumps, majors, and security fixes wait for a human:
-the done gate cannot tell a malicious action from a good one, and a major needs
-reading.
-A dependency dashboard issue lists what is pending, with a checkbox per update
-to pull it on demand. The rationale, the options weighed, and the costs are
-in [conventions](./conventions.md).
+Nothing updates dependencies on a schedule. Ask an agent to run the
+`update-deps` skill: it lists what is outdated, raises the catalog ranges in
+`pnpm-workspace.yaml`, audits, refreshes the action SHA pins and their version
+comments, runs the done gate, and opens a pull request, with each major in its
+own commit. pnpm refuses any version published in the last 48 hours
+(`minimumReleaseAge`), at install and during an update alike, unless a
+`minimumReleaseAgeExclude` entry in `pnpm-workspace.yaml` names it.
+`pnpm audit --fix` writes such entries for every patched version, and the
+skill keeps only the ones a fix still needs, each named in the pull request.
+Why roots ships no update bot is in [conventions](./conventions.md).
 
-Nothing runs until the Mend Renovate app is installed on the repository at
-`https://github.com/apps/renovate` (two clicks; free for public and private
-repositories; it then scans every four hours). It opens an onboarding pull
-request that lists what it found; merge it. An organization that forbids
-third-party apps runs the same config through `renovatebot/github-action` on a
-schedule instead, with a GitHub App of its own for the token.
-
-Automerge is Renovate's own, not GitHub's native auto-merge: GitHub merges the
-moment the *required* checks pass, and without a branch ruleset none are
-required. The ruleset from [guards](./guards.md#push-protection) is still
-worth creating; it makes the requirement explicit on the server. To change the
-policy in one child, edit `renovate.json` there and list it under `exclude` in
-`.template-sync.json`.
-
-Two repository settings complete the picture and are worth applying on first
-run: vulnerability alerts, without which Renovate's security pull requests
-never fire (alerts are GitHub's advisory feed, not Dependabot pull requests),
-and required SHA pinning for actions, which makes GitHub refuse a workflow
-that references an action by a mutable tag. The check reaches inside a pinned
-composite action too, so before merging an action bump, read the new
-release's own `action.yml` for a tag-only `uses:`.
+First run turns on required SHA pinning for actions, which makes GitHub refuse
+a workflow that references an action by a mutable tag. The check reaches
+inside a pinned composite action too, so an action bump waits until the new
+release's own `action.yml` has no tag-only `uses:`; the skill checks it.
 
 ```sh
-gh api -X PUT repos/OWNER/REPO/vulnerability-alerts
 gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true
 ```
 
@@ -192,12 +182,24 @@ changelogen for `changesets` the day packages need independent versions.
 
 ### Optional CI additions
 
-- A workflow step of your own that runs `pnpm <script>` but is not a gate,
-  such as an e2e or deploy step, ends its line with `# not a gate`.
-  Otherwise `pnpm test:gates`, which keeps `pnpm verify` and the workflows
-  running the same steps, fails on it.
-- typos (crate-ci/typos) spell-checks docs; add it as an advisory step in
-  `docs.yml`.
+`ci.yml`, `docs.yml`, and `scripts/verify.mts` are synced, and each sync stages
+the template's version over an edit to them. Your additions go in files of
+your own:
+
+- A test of your own goes in a package's `test` script. `pnpm test` runs every
+  package's through turbo, so it is in the done gate and in CI with no workflow
+  edit. A variable the test reads is declared under the task's `env` in
+  `turbo.json`, which is yours.
+- A step that needs what the synced workflows lack goes in a workflow of your
+  own, such as `.github/workflows/project.yml`: a service such as Postgres, a
+  secret, a schedule, or typos (crate-ci/typos) spell-checking the docs. Pin
+  its actions by full commit SHA, since first run turns on required SHA
+  pinning. The done gate has no extension point, so such a step checks in CI
+  only.
+- A step of your own that runs `pnpm <script>` but is not a gate, such as an
+  e2e or deploy step, ends its line with `# not a gate`. Otherwise
+  `pnpm test:gates`, which keeps `pnpm verify` and the workflows running the
+  same steps, fails on it.
 - lychee checks external URLs; run it scheduled (weekly) and advisory, since
   external links rot on their own schedule.
 - Coverage thresholds are vitest `coverage.thresholds` plus the `text-summary`
@@ -213,9 +215,11 @@ changelogen for `changesets` the day packages need independent versions.
 
 ### Toolchain pinning beyond node
 
-`.node-version` is the portable pin, read by fnm, mise, volta, nvm, Vercel,
-and Netlify. For one file covering node, pnpm, and other tools, add
-`mise.toml` and keep `.node-version` for compatibility. The `packageManager`
+`.node-version` is the portable pin, read by fnm and Netlify, and by mise once
+its `idiomatic_version_file_enable_tools` setting includes node. nvm reads
+only `.nvmrc` and Volta only the `volta` field in `package.json`, so a team on
+either adds that beside it. For one file covering node, pnpm, and other tools,
+add `mise.toml` and keep `.node-version` for compatibility. The `packageManager`
 field in `package.json` is an exact hash-pinned pnpm version that never
 floats; refresh it periodically with `corepack use pnpm@latest` (or
 `pnpm self-update` where pnpm is not corepack-managed), and both rewrite the

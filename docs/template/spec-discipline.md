@@ -93,8 +93,9 @@ fails on drift. The checks:
 - a template page with a Source bullet meets the spec rules above
 - both index pages exist; neither needs a region
 - no committed automd warning comment, and every automd region under `docs/`
-  is closed, free of merge conflict lines, and current with its generator; a
-  conflicted index region's error also says deleting it stops the next one
+  is closed and free of merge conflict lines; an index region is also current
+  with its generator (the drift gate holds any other region), and a conflicted
+  one's error says deleting it stops the next one
 - no page under `docs/` holds a `<<<<<<<` conflict line outside a region or a
   fence
 - every `AGENTS.md` is within the 200-line budget

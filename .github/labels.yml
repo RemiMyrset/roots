@@ -1,8 +1,8 @@
 # Label definitions synced to the repo by .github/workflows/labels.yml.
 # GitHub templates do NOT copy labels to child repos — this file + workflow do.
 # Who applies them: spec, decision, and docs come from .github/workflows/labeler.yml by
-# changed path; agent-task and bug from the issue templates; dependencies and security from
-# Renovate; enhancement by hand.
+# changed path; agent-task and bug from the issue templates; dependencies from the update-deps
+# skill; security and enhancement by hand.
 - name: agent-task
   color: 7057ff
   description: Well-scoped task an AI agent executes end to end
@@ -23,7 +23,7 @@
   description: New capability or improvement
 - name: dependencies
   color: 0366d6
-  description: Dependency or action-pin update opened by Renovate
+  description: Dependency or action-pin update
 - name: security
   color: b60205
-  description: Vulnerability fix opened by Renovate
+  description: Vulnerability fix

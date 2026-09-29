@@ -128,6 +128,8 @@ write(template, '.claude/output-styles/writing.md', '---\nname: writing\n---\nru
 write(template, 'docs/template/x.md', '# x v1\n')
 write(template, 'docs/template/x[1].md', '# retired at T2; as a glob it also matches x1.md\n')
 write(template, 'src/index.ts', 'export const v = 1\n')
+// Once a synced path; the template stopped shipping it and dropped it from MECHANICS.
+write(template, 'renovate.json', '{}\n')
 const T1 = commit(template, 'chore: t1', T1_AT)
 git(template, 'tag', 'v9.9.9')
 
@@ -155,6 +157,7 @@ commit(copy, 'Initial commit', COPY_AT)
 // the agent-skills copy and the CI workflow change too.
 rmSync(join(template, 'scripts/docs/gen-llms.mts'))
 rmSync(join(template, 'docs/template/x[1].md'))
+rmSync(join(template, 'renovate.json'))
 const T2_SCRIPTS = { ...T1_SCRIPTS, 'docs:gen': 'automd', 'test:sync': 'node scripts/test-sync.mts' }
 write(template, 'package.json', pkg(T2_SCRIPTS))
 write(template, 'scripts/test-sync.mts', '// test\n')
@@ -198,6 +201,9 @@ commit(fork, 'feat: own work')
     check(`first sync stages ${want}`, s.includes(want), s.join(', '))
   for (const never of ['src/index.ts', 'package.json', '.claude/skills/own/SKILL.md', 'docs/template/x1.md'])
     check(`first sync leaves ${never} alone`, !s.some(l => l.endsWith(never)) && existsSync(join(child, never)), s.join(', '))
+  // A copy byte-identical to the one the template shipped would be retired if the path were
+  // still synced; out of MECHANICS it is the child's own, never staged and never mentioned.
+  check('a path dropped from MECHANICS stays', !s.some(l => l.endsWith('renovate.json')) && existsSync(join(child, 'renovate.json')) && !r.stdout.includes('renovate.json'), r.stdout)
   check('agent skills copy is a plain file', existsSync(join(child, '.agents/skills/x/SKILL.md')) && gitSafe(child, 'ls-files', '-s', '--', '.agents/skills/x/SKILL.md').startsWith('100644'))
   check('self-update is annotated', r.stdout.includes('new version runs next time'))
   const st = readState(child)

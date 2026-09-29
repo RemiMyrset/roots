@@ -9,8 +9,11 @@ following them is a matter of running the commands.
 2. **Set up.** Node 24 (`.node-version`; `corepack enable` gives you pnpm), then
    `pnpm install`. The git hooks install themselves.
 3. **Branch.** `feat/`, `fix/`, `docs/`, `chore/`, or `refactor/` plus a short
-   kebab-case slug. Never commit to `main`; it is protected and only changes
-   through a reviewed PR.
+   kebab-case slug. Never commit to `main`: by convention every change reaches
+   it through a PR. The server requires a PR and its review only once the
+   `pull_request` rule under
+   [Push protection](./docs/template/guards.md#push-protection) is added to
+   the branch ruleset.
 4. **Done means green.** `pnpm verify` runs every check CI runs, in CI order, and
    stops at the first failure. Never loosen a checker or bypass a git hook to get
    there; fix the cause.

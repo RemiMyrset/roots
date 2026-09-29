@@ -2,7 +2,7 @@
 
 - **Source:** `scripts/sync-template.mts`
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
-- **Last reviewed:** 2026-09-27
+- **Last reviewed:** 2026-09-29
 
 The contract for `pnpm sync:template`. The tests pin behaviors 1 to 24; the
 per-file-error branch of behavior 23 is untested. The user-facing recipe is the
@@ -22,7 +22,9 @@ output style the template has and this repository lacks).
 ## Non-goals
 
 - Never edits `package.json`, `.claude/settings.json`, `docs/internal/`,
-  `docs/public/`, `src/`, `packages/`, or `apps/`. Drift there is reported.
+  `docs/public/`, `src/`, `packages/`, or `apps/`. Drift in the
+  `package.json` scripts and in `.claude/settings.json` is reported; the rest
+  is the repository's own.
 - Takes the template's version of each synced path wholesale;
   review-and-discard is the merge.
 - No push-based or scheduled sync, no tokens, no bots.
@@ -46,14 +48,20 @@ discard the rest with `git restore --staged --worktree <path>`. Apply each
 and the printed follow-ups, then run the done gate and commit
 `.template-sync.json` with the rest.
 
+The template also ships files it never syncs: `package.json`,
+`.claude/settings.json`, `AGENTS.md`, `README.md`, `CONTRIBUTING.md`,
+`.devcontainer/devcontainer.json`, `.gitignore`, `eslint.config.ts`,
+`turbo.json`, and every other path outside the synced list. The sync never
+copies them, so a template commit that changes one carries a `BREAKING CHANGE`
+footer naming the edit, marked optional when a child may skip it.
+
 The synced paths, grouped: the CI, docs, labels, labeler, and Pages workflows
-with the label list and the path-label map, the agent-task issue template, the
-PR template, and the Renovate config; the docs
-generators and checkers, the verify gate, the git-hook installer, the four test
-suites, and the sync script itself; the guards, rules, skills, and writing
-rules under `.claude/`, the Codex and Gemini registrations, and the generated
-`.agents/` mirror; and `docs/template/`. The exact list is `MECHANICS` in the
-script.
+with the label list and the path-label map, the agent-task issue template, and
+the PR template; the docs generators and checkers, the verify gate, the
+git-hook installer, the four test suites, and the sync script itself; the
+guards, rules, skills, and writing rules under `.claude/`, the Codex and Gemini
+registrations, and the generated `.agents/` mirror; and `docs/template/`. The
+exact list is `MECHANICS` in the script.
 
 The synced scripts are `.mts` on purpose. `.mts` runs as ESM whatever the
 repository's `package.json` `"type"` says, whereas a `.ts` file is read as
