@@ -53,13 +53,16 @@ app or service). Placement alone registers it; the workspace globs cover both.
 4. Create `vitest.config.ts`: copy `packages/example-package/vitest.config.ts`
    if it still exists, else a minimal `defineConfig({ test: {} })`. Coverage is
    omitted until vitepress leaves vite 5 (the note in that file says why).
-5. Create `src/index.ts` plus a sibling `test/index.test.ts` with at least one
-   real test, so the done gate is green. Tests live in `test/`, never in `src/`:
-   Vitest's default glob finds them with no config, and a colocated test is an
-   ESLint error. Relative imports carry explicit `.ts` extensions, so the test
-   imports `../src/index.ts`. If this replaces `packages/example-package` or
-   `apps/example-app` (which depends on the package), delete or rename the
-   sample in the same change and fix the other's dependency.
+5. Create the entry file and a test for it with at least one real test, so
+   the done gate is green. A library gets `src/index.ts` and
+   `test/index.test.ts`, which imports `../src/index.ts` (relative imports
+   carry explicit `.ts` extensions). An app gets `src/main.ts`, the file its
+   `start` script runs, and `test/main.test.ts`, which spawns it with node as
+   `apps/example-app` does. Tests live in `test/`, never in `src/`: Vitest's
+   default glob finds them with no config, and a colocated test is an ESLint
+   error. If this replaces `packages/example-package` or `apps/example-app`
+   (which depends on the package), delete or rename the sample in the same
+   change and fix the other's dependency.
 6. Add one line to the AGENTS.md "Monorepo map": path — purpose. Update the
    map line of anything you replaced. If the package needs its own conventions,
    write `<package>/AGENTS.md` and `<package>/CLAUDE.md` containing only

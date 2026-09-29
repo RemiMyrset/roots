@@ -21,15 +21,21 @@ spec-discipline nudge on PRs.
 
 ## Adding a custom generator
 
-A reader in `scripts/docs/readers.mts` parses a source of truth (a directory,
-a source file, a schema) and a generator in `scripts/docs/generators.mts`
-renders it between automd markers. An automd region and the VitePress sidebar
-consume the same reader, so they cannot drift. `decisionsIndex` is the worked
-example: it reads the decision files' H1 and Status bullets.
+A generator renders a source of truth (a directory, a source file, a schema)
+between automd markers. `decisionsIndex` in `scripts/docs/generators.mts` is
+the worked example: its reader in `scripts/docs/readers.mts` parses the
+decision files' H1 and Status bullets, and the VitePress sidebar consumes the
+same reader, so the two cannot drift.
 
-Register a new generator in `automd.config.ts` and add the marker pair to the
-target page. automd also ships the built-ins `file` (inline a file),
-`dir-tree`, and `fetch`.
+Both files are synced: an edit to either is staged for revert on every sync.
+Write your generator in a file of your own under `scripts/docs/` that the
+template does not ship, such as `scripts/docs/project-generators.mts`; the
+sync leaves such a file alone, and it may import the readers. Register it in
+`automd.config.ts`, which is yours unless you list it under `include`, and add
+the marker pair to a page under `docs/`, the only place automd looks. automd
+also ships the built-ins `file` (inline a file), `dir-tree`, and `fetch`. The
+drift gate in `pnpm verify` and CI keeps such a region current;
+`pnpm docs:check` checks only its shape.
 
 A region is opt-in, and the template's own index pages carry none;
 [conventions](./conventions.md) says why. A page may keep the
@@ -172,12 +178,24 @@ changelogen for `changesets` the day packages need independent versions.
 
 ### Optional CI additions
 
-- A workflow step of your own that runs `pnpm <script>` but is not a gate,
-  such as an e2e or deploy step, ends its line with `# not a gate`.
-  Otherwise `pnpm test:gates`, which keeps `pnpm verify` and the workflows
-  running the same steps, fails on it.
-- typos (crate-ci/typos) spell-checks docs; add it as an advisory step in
-  `docs.yml`.
+`ci.yml`, `docs.yml`, and `scripts/verify.mts` are synced, and each sync stages
+the template's version over an edit to them. Your additions go in files of
+your own:
+
+- A test of your own goes in a package's `test` script. `pnpm test` runs every
+  package's through turbo, so it is in the done gate and in CI with no workflow
+  edit. A variable the test reads is declared under the task's `env` in
+  `turbo.json`, which is yours.
+- A step that needs what the synced workflows lack goes in a workflow of your
+  own, such as `.github/workflows/project.yml`: a service such as Postgres, a
+  secret, a schedule, or typos (crate-ci/typos) spell-checking the docs. Pin
+  its actions by full commit SHA, since first run turns on required SHA
+  pinning. The done gate has no extension point, so such a step checks in CI
+  only.
+- A step of your own that runs `pnpm <script>` but is not a gate, such as an
+  e2e or deploy step, ends its line with `# not a gate`. Otherwise
+  `pnpm test:gates`, which keeps `pnpm verify` and the workflows running the
+  same steps, fails on it.
 - lychee checks external URLs; run it scheduled (weekly) and advisory, since
   external links rot on their own schedule.
 - Coverage thresholds are vitest `coverage.thresholds` plus the `text-summary`

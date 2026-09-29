@@ -14,8 +14,9 @@ the skills, and the writing rules. It is template-owned and synced.
 | Path-scoped rules `.claude/rules/` | loaded when a matching path is touched | none; `AGENTS.md` carries the same pointers | none; `AGENTS.md` carries the same pointers |
 | Prompt-free commands | `permissions.allow` in `.claude/settings.json` | none shipped | none shipped |
 
-The guards' threat model is [guards](./guards.md). `.claude/settings.json` is
-never synced; every other file in the table is.
+The guards' threat model is [guards](./guards.md). `AGENTS.md`, `CLAUDE.md`,
+and `.claude/settings.json` are the child's own and never synced; every other
+file in the table is.
 
 Gemini's `context.fileName` lists `GEMINI.md` beside `AGENTS.md`, so each
 developer's own `~/.gemini/GEMINI.md` still loads; a `GEMINI.md` committed to

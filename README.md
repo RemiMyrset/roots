@@ -167,7 +167,7 @@ pnpm install
 | --- | --- |
 | `pnpm verify` | The done gate: every check CI runs, in CI order, stopping at the first failure (`pnpm verify <gate>` resumes there, `pnpm verify --only <gate>` runs one) |
 | `pnpm build` / `pnpm test` / `pnpm typecheck` | Turbo across packages that define each script; `typecheck` also runs root `tsc` over scripts + configs |
-| `pnpm --filter @repo/example-package test` | One package's tests (`test:watch` for watch mode) |
+| `pnpm --filter <package> test` | One package's tests (`test:watch` for watch mode) |
 | `pnpm --filter @repo/example-app start` | Runs the sample CLI (`node src/main.ts`) against the sample package |
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
 | `pnpm lint:secrets` | secretlint over every tracked file |
@@ -187,15 +187,16 @@ pnpm install
 ## Working with AI agents
 
 - The rulebook is [AGENTS.md](./AGENTS.md). How Claude Code, Codex, and Gemini
-  CLI each read it, and the trust prompts the last two show, are in
+  CLI each read it, and the trust prompt each shows, are in
   [agent-surfaces](./docs/template/agent-surfaces.md).
 - Pre-tool guards deny the common mistakes in all three tools; what they catch
   and what they do not is in [guards](./docs/template/guards.md).
 - The writing rules, `.claude/output-styles/writing.md`, load at every session
   start in all three tools; [agent-surfaces](./docs/template/agent-surfaces.md#writing-rules)
   says how.
-- Feature-branch pushes and PR creation run without prompts, and a protected
-  branch is reachable only through a PR a human merges
+- In Claude Code, feature-branch pushes and PR creation run without prompts;
+  Codex and Gemini ask each time. An agent reaches a protected branch only
+  through a PR a human merges
   ([Push protection](./docs/template/guards.md#push-protection)). The `pr`
   skill does the whole thing the house way.
 - `pnpm sync:template` pulls the shared mechanics and the `sync-template` skill

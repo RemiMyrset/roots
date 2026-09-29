@@ -22,7 +22,9 @@ output style the template has and this repository lacks).
 ## Non-goals
 
 - Never edits `package.json`, `.claude/settings.json`, `docs/internal/`,
-  `docs/public/`, `src/`, `packages/`, or `apps/`. Drift there is reported.
+  `docs/public/`, `src/`, `packages/`, or `apps/`. Drift in the
+  `package.json` scripts and in `.claude/settings.json` is reported; the rest
+  is the repository's own.
 - Takes the template's version of each synced path wholesale;
   review-and-discard is the merge.
 - No push-based or scheduled sync, no tokens, no bots.
@@ -45,6 +47,13 @@ discard the rest with `git restore --staged --worktree <path>`. Apply each
 `BREAKING CHANGE` footer by hand (it names an edit outside the synced paths)
 and the printed follow-ups, then run the done gate and commit
 `.template-sync.json` with the rest.
+
+The template also ships files it never syncs: `package.json`,
+`.claude/settings.json`, `AGENTS.md`, `README.md`, `CONTRIBUTING.md`,
+`.devcontainer/devcontainer.json`, `.gitignore`, `eslint.config.ts`,
+`turbo.json`, and every other path outside the synced list. The sync never
+copies them, so a template commit that changes one carries a `BREAKING CHANGE`
+footer naming the edit, marked optional when a child may skip it.
 
 The synced paths, grouped: the CI, docs, labels, labeler, and Pages workflows
 with the label list and the path-label map, the agent-task issue template, and

@@ -107,10 +107,11 @@ portability requirement. The choices, each with its why:
 - Template updates are pull-based and plain git: no bot, no token, nothing to
   install. `pnpm sync:template` stages the template's version of the synced
   paths, records the sync point, and prints the follow-ups a file copy cannot
-  carry, for template copies, forks, and pre-existing repos alike.
-  `package.json` and `.claude/settings.json` are never synced, so a template
-  change that needs a hand-edit ships as a breaking Conventional Commit whose
-  footer states it; recipe and contract are in
+  carry, for template copies, forks, and pre-existing repos alike. Only the
+  synced paths are copied, so a template change to any other file it ships
+  (`package.json`, `.claude/settings.json`, `AGENTS.md`, the devcontainer,
+  `.gitignore`, the ESLint and turbo configs) ships as a breaking Conventional
+  Commit whose footer names the edit; recipe and contract are in
   [sync-template](./sync-template.md).
 
 ## Consequences
