@@ -11,7 +11,8 @@ frontmatter.
 1. **Links** are relative markdown links with the `.md` extension:
    `[text](./file.md)`, `[text](../dir/file.md#heading)`. Never wikilinks
    (`[[page]]`) or embeds (`![[file]]`), which are Obsidian-only, and never
-   absolute links, however spelled (`](/x)`, `]( /x)`, `](</x>)`). The target
+   absolute links, however spelled (`](/x)`, `]( /x)`, `](</x>)`, or the
+   `/x` on the line after `](` or a reference's `]:`). The target
    must exist in the case written: macOS and Windows find `./agents.md` for
    `AGENTS.md`, Linux and GitHub do not. A space in a target is written `%20`
    or the target is wrapped in `<...>`, since GitHub ends an unbracketed target
@@ -38,7 +39,10 @@ frontmatter.
    relatively: `![alt](./images/x.png)`. Never VitePress `public/`-rooted
    `/x.png` paths, never Obsidian embeds. A page under `docs/public/` links and
    embeds nothing outside `docs/public/`: the public build bundles what a page
-   embeds, so an image from `docs/internal/` would be published.
+   embeds, so an image from `docs/internal/` would be published. The build
+   follows symlinks, so the checker refuses one under `docs/public/` that
+   leads out of it, a page or a directory, and resolves each link through
+   them. A link to `docs/public/` itself, such as `[home](./)`, is inside.
 5. **Headings**: exactly one H1 per page, and unique text per file. The
    checker keys on the GitHub slug, so two headings that differ only in case or
    punctuation are duplicates. Backticks, emoji, and non-ASCII characters in a
@@ -60,7 +64,9 @@ frontmatter.
    (Obsidian renders those literally).
 9. **HTML** is limited to `<details>`/`<summary>` and `<br>`; the checker
    rejects every other tag, one whose attributes run onto the next line
-   included. VitePress compiles every page as a Vue template
+   included. Inline code is exempt on every line it spans: a generic type in
+   backticks that wraps onto the next line is code, not a tag. VitePress
+   compiles every page as a Vue template
    and evaluates two opening braces in a row as an interpolation, in inline
    code as much as in prose, so the checker rejects them anywhere but fenced
    code: show one in a fenced block. A single brace, or a `<` that opens no

@@ -55,3 +55,12 @@ A [space-padded absolute]( /abs.md) link.
 A [raw space](./My Doc.md) link.
 
 A [wrong-case](./agents.md) link.
+
+A [newline-padded absolute](
+/abs.md) link.
+
+[padded]:
+  /abs.md
+
+A stray ` backtick, then a split <img
+  src="x.png"> tag.

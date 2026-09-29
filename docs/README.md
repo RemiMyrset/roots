@@ -2,7 +2,7 @@
 
 Three folders, three readers. The public site builds from `public/`, and
 `pnpm docs:portability` fails a public page that links or embeds a file outside
-it, so internal content cannot leak into it.
+it and a symlink in it that leads out, so internal content cannot leak into it.
 
 - [internal/](./internal/index.md) is the engineering handbook: decisions,
   specs, and this project's own guides. VitePress renders it

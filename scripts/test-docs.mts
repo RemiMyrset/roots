@@ -10,8 +10,10 @@
  * lines (named, then repaired by automd), dated and legacy decision records side by side (a
  * legacy-only table byte for byte as before), index pages without regions, `docs:list`, a
  * Status keyword matched whole, Source and Tests values with a line reference or no path,
- * fences nested in list items, link targets spelled with a space, percent-encoding, or the
- * wrong case, public pages that link outside docs/public, and the property dated names exist
+ * fences nested in list items, inline code wrapped across lines, link targets spelled with a
+ * space, percent-encoding, or the wrong case or starting on the next line, public pages that
+ * link outside docs/public or to its root, symlinks out of docs/public (made at test time,
+ * skipped where the platform refuses one), and the property dated names exist
  * for: two git branches that each add a record merge with no conflict. The skill trees are planted in the copy at test time: a fixture under
  * `.claude/skills` would be listed as a live skill. Runs in CI on Ubuntu and Windows via
  * `pnpm test:docs`. Node builtins only; git runs with an isolated config; the automd runs
@@ -19,7 +21,7 @@
  * not installed.
  */
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -232,6 +234,11 @@ function runAutomd(cwd: string): Run {
     'README.md:53  root-absolute inline link " /abs.md"',
     'README.md:55  link target with a space: ./My Doc.md — write the space as %20 or wrap the target in <...> (rule 1)',
     'README.md:57  relative link in the wrong case: ./agents.md — on disk it is AGENTS.md',
+    // A destination may start on the line after `](` or `]:`, and a backtick no later line of
+    // its paragraph closes is a literal one, hiding nothing after it.
+    'README.md:59  root-absolute inline link " /abs.md"',
+    'README.md:62  absolute link "[padded]: /abs.md"',
+    'README.md:65  raw HTML tag beyond <details>/<summary>/<br>, split across lines',
     'docs/public/index.md:3  link or image outside docs/public: ../internal/images/diagram.svg — the public site would publish it',
     'docs/public/index.md:3  link or image outside docs/public: ../internal/stale.md',
     'docs/internal/README.md  no H1',
@@ -649,8 +656,9 @@ function runAutomd(cwd: string): Run {
 }
 
 // 20. What the fence and link checks accept: a fence nested in a list item is code, not
-// prose; a percent-encoded link names the file with the space; and a public page links
-// within docs/public. stripFences, which docs:check and the anchor check read pages through,
+// prose; inline code wrapped onto the next line is code on both lines; a percent-encoded
+// link names the file with the space; and a public page links within docs/public, the site's
+// root included. stripFences, which docs:check and the anchor check read pages through,
 // tracks list items the same way and ends a list item's fence with the item.
 {
   const dir = fixture('clean')
@@ -670,19 +678,60 @@ function runAutomd(cwd: string): Run {
     '',
     '![diagram](./images/My%20Diagram.svg)',
     '',
+    'The custom element is written `<my-element',
+    'data-x="1">` in a page, and generics like `Map<string,',
+    'number>` wrap too. Write `[text](./missing.md)',
+    'as a link` to link a page.',
+    '',
   ].join('\n')
   writeFileSync(join(dir, 'docs/internal/nested.md'), page)
   mkdirSync(join(dir, 'docs/internal/images'))
   writeFileSync(join(dir, 'docs/internal/images/My Diagram.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
   mkdirSync(join(dir, 'docs/public/images'), { recursive: true })
-  writeFileSync(join(dir, 'docs/public/index.md'), '# Public\n\nA ![diagram](./images/d.svg) and [this page](./index.md).\n')
+  writeFileSync(join(dir, 'docs/public/index.md'), '# Public\n\nA ![diagram](./images/d.svg), [this page](./index.md), and [the home page](./).\n')
   writeFileSync(join(dir, 'docs/public/images/d.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+  mkdirSync(join(dir, 'docs/public/guide'))
+  writeFileSync(join(dir, 'docs/public/guide/start.md'), '# Start\n\nBack [home](../) or to [the index](../index.md).\n')
   const p = run('docs:portability', dir, withoutCi)
   check('nested fences, a %20 link, and a public page linking inside docs/public pass', p.status === 0 && !p.out.includes('warning'), p.out)
 
   check('stripFences blanks a fence nested two list levels deep', stripFences('- a\n  - b\n\n    ```md\n    # not a heading\n    ```\n# Real\n') === '- a\n  - b\n\n\n\n\n# Real\n')
   check('stripFences ends a list item\'s fence with the item', stripFences('- item\n\n  ```\n  code\n# Heading\n') === '- item\n\n\n\n# Heading\n')
   check('stripFences reads an over-indented fence as code in the item, not a fence', stripFences('- item\n\n      ```\n# Heading\n') === '- item\n\n      ```\n# Heading\n')
+}
+
+// 21. The public build follows a symlink, so one under docs/public that resolves outside it
+// publishes what it names: a directory that links to docs/internal, a page embedding through
+// it, and a page that is a symlink to an internal page are each refused. A junction on Windows
+// needs no privilege, a file symlink may; each is skipped, with a note, where it cannot be made.
+{
+  const dir = fixture('clean')
+  mkdirSync(join(dir, 'docs/internal/images'), { recursive: true })
+  writeFileSync(join(dir, 'docs/internal/images/secret.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+  writeFileSync(join(dir, 'docs/internal/secret.md'), '# Secret\n\nInternal only.\n')
+  mkdirSync(join(dir, 'docs/public'))
+  writeFileSync(join(dir, 'docs/public/index.md'), '# Public\n\nAn ![image](./img/secret.svg).\n')
+  const link = (target: string, path: string, type: 'junction' | 'file'): boolean => {
+    try {
+      symlinkSync(join(dir, target), join(dir, path), type)
+      return true
+    }
+    catch (error) {
+      console.log(`  (${path} symlink: skipped, none can be made here: ${(error as Error).message})`)
+      return false
+    }
+  }
+  const linkedDir = link('docs/internal/images', 'docs/public/img', 'junction')
+  const linkedPage = link('docs/internal/secret.md', 'docs/public/handbook.md', 'file')
+  const p = run('docs:portability', dir, withoutCi)
+  if (linkedDir || linkedPage)
+    check('a symlink under docs/public to docs/internal exits 1', p.status === 1, p.out)
+  if (linkedDir) {
+    check('a directory symlink out of docs/public is named', p.out.includes('docs/public/img  symlink to docs/internal/images, outside docs/public'), p.out)
+    check('a public page embedding through a symlink is named', p.out.includes('docs/public/index.md:3  link or image outside docs/public: ./img/secret.svg'), p.out)
+  }
+  if (linkedPage)
+    check('a page symlinked into docs/public is named', p.out.includes('docs/public/handbook.md  symlink to docs/internal/secret.md, outside docs/public'), p.out)
 }
 
 if (fails.length > 0) {

@@ -10,16 +10,17 @@
  * Beyond the banned-token scan: a relative link target must exist with the case written
  * (percent-encoding decoded, a raw space refused) and a `#fragment` into a markdown page (the
  * page's own included) must be the GitHub slug of one of its ATX headings; a page under
- * docs/public links and embeds nothing outside it; a page has exactly one H1; a callout is
- * one of the five uppercase GitHub alerts, unfolded and untitled; and an index page is named
- * for where it lives (rule 6). Fenced code is skipped, at the top level, in a list item, and
- * in a blockquote.
+ * docs/public links and embeds nothing outside it, and no symlink there leads out, since the
+ * build follows symlinks; a page has exactly one H1; a callout is one of the five uppercase GitHub alerts,
+ * unfolded and untitled; and an index page is named for where it lives (rule 6). Fenced code
+ * is skipped, at the top level, in a list item, and in a blockquote; so is inline code, on
+ * every line of its paragraph it spans. A link destination may start on the next line.
  *
  * Adapted from an earlier internal docs-portability checker.
  */
 import type { FenceState } from './root.mts'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { ATX_HEADING_RE, CLOSING_HASHES_RE, fenceContinues, fenceOpens, githubSlug, pathCase, repoRoot, SKIP_DIRS, slugsOf, WARN } from './root.mts'
 import { posixRelative } from './skills.mts'
@@ -66,6 +67,12 @@ const CRLF_RE = /\r\n/g
 // and blanking every real link in between. A zero-length body could never
 // satisfy the trailing (?<!`) anyway, since the char before it is the opener.
 const INLINE_CODE_RE = /(?<!`)(`+)(?!`)[^\n]+?(?<!`)\1(?!`)/g
+// A backtick run left unpaired on its line: it opens a code span only when a later line of the
+// paragraph holds a run of the same length (CommonMark), else it is a literal backtick.
+const TICK_RUN_RE = /`+/g
+// A line that ends a paragraph, and any code span still open in it: blank, an ATX heading, or a
+// fence.
+const PARAGRAPH_END_RE = /^\s*$|^ {0,3}(?:#{1,6}(?:\s|$)|`{3,}|~{3,})/
 // The heading grammar is root.mts's ATX_HEADING_RE, shared with the anchor checker, so an
 // indented heading or a closing hash run reads the same on both sides.
 const HEADING_RE = ATX_HEADING_RE
@@ -73,6 +80,9 @@ const HEADING_BACKTICK_RE = /`/
 const NON_ASCII_RE = /[^\x20-\x7E]/
 const LINK_TARGET_RE = /\]\(([^)\n]+)\)/g
 const REF_DEF_RE = /^ {0,3}\[(?!\^)[^\]]+\]:\s*(\S+)/
+// A line ending before its link destination, which CommonMark lets start on the next line.
+const INLINE_DEST_NEXT_RE = /\]\(\s*$/
+const REF_DEST_NEXT_RE = /^ {0,3}\[(?!\^)[^\]]+\]:\s*$/
 const LINK_TITLE_RE = /\s+("[^"]*"|'[^']*')$/
 const EXTERNAL_TARGET_RE = /^(?:https?:|mailto:)/
 const WHITESPACE_RE = /\s/
@@ -83,6 +93,27 @@ const PUBLIC_DIR = 'docs/public'
 // The two VitePress sites, whose index page is index.md; everywhere else GitHub shows
 // README.md. Tested on the posix-relative path, so the same on every platform.
 const SITE_DIR_RE = /^docs\/(?:internal|public)\//
+
+/** Where the first run of exactly `len` backticks in `text` ends, or -1 when it holds none. */
+function runEnd(text: string, len: number): number {
+  for (const m of text.matchAll(TICK_RUN_RE)) {
+    if (m[0].length === len)
+      return m.index + len
+  }
+  return -1
+}
+
+/** Whether a line of the paragraph from `lines[from]` on holds a run of exactly `len` backticks, closing a code span opened above it. */
+function closesLater(lines: string[], from: number, len: number): boolean {
+  for (const line of lines.slice(from)) {
+    const unquoted = line.replace(BLOCKQUOTE_RE, '')
+    if (PARAGRAPH_END_RE.test(unquoted))
+      return false
+    if (runEnd(unquoted, len) !== -1)
+      return true
+  }
+  return false
+}
 
 function walk(dir: string): string[] {
   const out: string[] = []
@@ -107,6 +138,40 @@ const files = [join(root, 'README.md'), join(root, 'AGENTS.md'), ...(existsSync(
 
 const problems: string[] = []
 const warns: string[] = []
+
+// The public site's directory as its build reads it, symlinks resolved; undefined until a
+// public page links something.
+let publicReal: string | undefined
+
+/** Whether `dest`, which exists, is docs/public or inside it once symlinks are resolved: the build bundles the file a symlink names. */
+function insidePublic(dest: string): boolean {
+  publicReal ??= realpathSync(join(root, PUBLIC_DIR))
+  const to = relative(publicReal, realpathSync(dest))
+  return to !== '..' && !to.startsWith(`..${sep}`) && !isAbsolute(to)
+}
+
+/** Every symlink below `dir` that resolves outside docs/public: the public build follows it, a page or a directory alike, and publishes what it names. */
+function publicEscapes(dir: string): string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const at = join(dir, entry.name)
+    if (entry.isSymbolicLink()) {
+      if (existsSync(at) && !insidePublic(at))
+        out.push(at)
+    }
+    else if (entry.isDirectory() && !SKIP_DIRS.has(entry.name)) {
+      out.push(...publicEscapes(at))
+    }
+  }
+  return out
+}
+
+if (existsSync(join(root, PUBLIC_DIR))) {
+  // Relative to the root's own real path, which a symlinked or short-named temp directory changes.
+  const rootReal = realpathSync(root)
+  for (const at of publicEscapes(join(root, PUBLIC_DIR)))
+    problems.push(`${posixRelative(root, at)}  symlink to ${posixRelative(rootReal, realpathSync(at))}, outside ${PUBLIC_DIR} — the public build follows it and would publish what it names; copy the files into ${PUBLIC_DIR} (rule 4)`)
+}
 
 // Per-page heading state: slug -> first line, plus the line of the first H1.
 interface Page { where: string, headings: Map<string, number>, h1Line: number | undefined }
@@ -192,8 +257,9 @@ function checkLinkTarget(where: string, file: string, raw: string, display: stri
       return
     }
     // The public build bundles what its pages link and embed, so a target outside docs/public
-    // publishes internal content (an image from docs/internal) or breaks the build.
-    if (posixRelative(root, file).startsWith(`${PUBLIC_DIR}/`) && !posixRelative(root, dest).startsWith(`${PUBLIC_DIR}/`))
+    // publishes internal content (an image from docs/internal) or breaks the build. The
+    // directory itself is its home page.
+    if (posixRelative(root, file).startsWith(`${PUBLIC_DIR}/`) && !insidePublic(dest))
       problems.push(`${where}  link or image outside ${PUBLIC_DIR}: ${display} — the public site would publish it; copy the file into ${PUBLIC_DIR} or link it by URL (rule 4)`)
   }
   // Only markdown pages have headings to anchor into; a fragment on an image or a
@@ -224,6 +290,8 @@ for (const file of files) {
   const fences: FenceState = { lists: [] }
   let quotedFence = false
   let inComment = false
+  // The backtick run of an inline code span opened on an earlier line of this paragraph.
+  let openTicks: number | undefined
   let prevVisible = ''
   const visibleLines: string[] = []
   const page: Page = { where, headings: new Map(), h1Line: undefined }
@@ -231,6 +299,7 @@ for (const file of files) {
   const blank = (): void => {
     visibleLines.push('')
     prevVisible = ''
+    openTicks = undefined
   }
 
   lines.forEach((line, i) => {
@@ -282,9 +351,31 @@ for (const file of files) {
     }
     // Tokens inside inline code render literally everywhere — scrub before checking, except
     // for the `raw` entries. Blockquote prefix stripped so a banned token inside a quoted
-    // fence is not flagged.
+    // fence is not flagged. A code span can wrap onto the next lines of its paragraph, so
+    // only the text between the close of one opened above and the open of one closed below
+    // (`from` to `to`) is scanned.
     const unquoted = visible.replace(BLOCKQUOTE_RE, '')
-    const scrubbed = unquoted.replace(INLINE_CODE_RE, '')
+    if (unquoted.trim() === '')
+      openTicks = undefined
+    let from = 0
+    let to = unquoted.length
+    if (openTicks !== undefined) {
+      const end = runEnd(unquoted, openTicks)
+      from = end === -1 ? to : end
+      if (end !== -1)
+        openTicks = undefined
+    }
+    if (openTicks === undefined) {
+      const unpaired = unquoted.slice(from).replace(INLINE_CODE_RE, m => ' '.repeat(m.length))
+      for (const run of unpaired.matchAll(TICK_RUN_RE)) {
+        if (closesLater(lines, i + 1, run[0].length)) {
+          to = from + run.index
+          openTicks = run[0].length
+          break
+        }
+      }
+    }
+    const scrubbed = unquoted.slice(from, to).replace(INLINE_CODE_RE, '')
     for (const { re, msg, raw } of BANNED) {
       if (re.test(raw ? unquoted : scrubbed))
         problems.push(`${where}:${i + 1}  ${msg}\n    ${line.trim()}`)
@@ -307,7 +398,9 @@ for (const file of files) {
     else if (SETEXT_RE.test(visible) && prevVisible.trim() !== '' && !HEADING_RE.test(prevVisible) && !BLOCK_PREFIX_RE.test(prevVisible)) {
       recordHeading(page, prevVisible.trim(), visible.trim().startsWith('=') ? 1 : 2, i)
     }
-    visibleLines.push(visible)
+    // The link scan below reads the line with the wrapped code blanked, columns kept.
+    const quote = visible.slice(0, visible.length - unquoted.length)
+    visibleLines.push(`${quote}${' '.repeat(from)}${unquoted.slice(from, to)}`)
     prevVisible = visible
   })
 
@@ -315,13 +408,18 @@ for (const file of files) {
     problems.push(`${where}  no H1 — every page opens with one (rule 5)`)
 
   // Link targets must resolve. Scan the visible text (fence + comment lines
-  // already blanked) line by line with inline code dropped, so links shown as
-  // examples are ignored and every problem carries its line. Both inline links
-  // and reference definitions are checked, for every relative target — .md,
-  // images, and directories alike. (Targets never span lines: LINK_TARGET_RE
-  // excludes newlines and INLINE_CODE_RE is single-line.)
+  // already blanked, wrapped inline code too) line by line with inline code dropped,
+  // so links shown as examples are ignored and every problem carries its line. Both
+  // inline links and reference definitions are checked, for every relative target —
+  // .md, images, and directories alike. A destination that starts on the next line
+  // (`[text](` or `[label]:` ending this one) is read from there and reported here.
   visibleLines.forEach((raw, i) => {
-    const line = raw.replace(INLINE_CODE_RE, '')
+    let line = raw.replace(INLINE_CODE_RE, '')
+    const inlineNext = INLINE_DEST_NEXT_RE.test(line)
+    if (inlineNext || REF_DEST_NEXT_RE.test(line)) {
+      const next = (visibleLines[i + 1] ?? '').replace(INLINE_CODE_RE, '').replace(BLOCKQUOTE_RE, '').trim()
+      line = `${line.trimEnd()} ${inlineNext ? next.slice(0, next.indexOf(')') + 1) : next}`
+    }
     for (const m of line.matchAll(LINK_TARGET_RE))
       checkLinkTarget(`${where}:${i + 1}`, file, m[1]!, m[1]!, 'inline')
     const rm = line.match(REF_DEF_RE)
