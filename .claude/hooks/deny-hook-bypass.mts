@@ -7,7 +7,7 @@
  * Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md.
  */
 import type { Verdict } from './_lexer.mts'
-import { gitSubcommand, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
+import { exportedWords, gitSubcommand, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
 
 // Subcommands whose hooks matter here. `-n` means --no-verify only for commit (push: dry-run).
 const HOOKED: ReadonlySet<string> = new Set(['commit', 'push', 'merge'])
@@ -54,8 +54,9 @@ function bypass(toks: string[]): string | null {
     if (SKIP_ENV_RE.test(t))
       return `${t.split('=')[0]} disables the git hooks`
   }
-  if (head === 'export' && SKIP_ENV_RE.test(unquote(toks[i + 1] ?? '')))
-    return `exporting ${unquote(toks[i + 1] ?? '').split('=')[0]} disables the git hooks for the session`
+  const exported = exportedWords(toks).find(a => SKIP_ENV_RE.test(a))
+  if (exported)
+    return `exporting ${exported.split('=')[0]} disables the git hooks for the session`
   if (head !== 'git')
     return null
   const { sub, args: rest, globals } = gitSubcommand(toks, i)

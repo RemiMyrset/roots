@@ -14,22 +14,34 @@ ways an agent would run a banned package manager, enable a dependency build
 script, read a secret file, push to a protected branch, or skip the git hooks.
 
 What they cover reliably is the direct and common wrapped forms: bare and
-path-prefixed commands, standard wrappers (`sudo`, `env`, `nice`, `timeout`,
-`flock`, `xargs`, `mise x` / `mise exec`, …) with their ordinary flags,
-`pnpm exec` / `dlx` / `x` unwrapping, `;` / `&&` / `|` / `$()` separators, glued redirects,
-and quoted paths with either separator (`'C:\repo\.env'`). A
-regression suite (`pnpm test:hooks`) pins every covered case so a fix for one
-form never silently reopens another.
+path-prefixed commands in any case, with or without a Windows launcher suffix
+(`npm.cmd`, `bash.exe`) or a version (`corepack yarn@1`), standard wrappers
+(`sudo`, `env`, `nice`, `timeout`, `flock`, `xargs`, `mise x` / `mise exec`,
+…) with their short flags, `pnpm exec` / `dlx` / `x` unwrapping, pnpm's own
+`pn`, `pnx`, and `pnpx`, `;` / `&&` / `|` / `$()` separators, glued redirects,
+and quoted paths with either separator (`'C:\repo\.env'`). A regression suite
+(`pnpm test:hooks`) pins every covered case so a fix for one form never
+silently reopens another.
 
 The shared lexer splits a command where bash does, and the push guard never
 reads a redirection (`2>&1`, `> log`) as an argument. A `$()` or backtick
 substitution runs wherever bash runs it, inside double quotes and in a heredoc
 with an unquoted delimiter (`<<EOF`) too, while single-quoted text, a `#`
 comment, and a heredoc body are data, so a quote inside them cannot hide a
-later line. A body a shell reads (`bash <<'EOF'`, `cat <<'EOF' | sh`) is lexed
-as commands, and so is one inside a substitution a shell runs as its script,
-under `-c`, or under `eval` (`bash <(cat <<'EOF' …)`). A substitution passed to
-a script as an argument (`bash x.sh "$(cat <<'EOF' …)"`) stays data.
+later line. A `#` opens a comment only where bash reads one: at a line start
+or after a space or a tab, never after another space-like byte (a no-break
+space, CR) and never inside `[[ … ]]`, `${…}`, or a word's own parentheses
+(`@(#|a)`, `^(#|$)`). A function body and a case arm start a command, as a new
+line does (`f() { …; }`, `case $1 in a) …;; esac`).
+
+A heredoc body a shell reads is lexed as commands: one whose pipeline reaches a
+shell (`bash <<'EOF'`, `cat <<'EOF' | sh`), also on the line after the body
+when a line ends in `|`, one in a group piped to a shell
+(`{ cat <<'EOF' … } | bash`), one fed to `sudo -s`, `sudo -i`, `su`,
+`busybox sh`, or a less common shell (`rbash`, `yash`, `tcsh`), and one in a
+substitution a shell runs as its script, reads as a here-string, or runs under
+`-c` or `eval` (`bash <(cat <<'EOF' …)`). A substitution passed to a script as
+an argument (`bash x.sh "$(cat <<'EOF' …)"`) stays data.
 
 ## Registration
 
@@ -47,9 +59,14 @@ The dispatcher imports every `deny-*.mts` in the directory and runs its
 call, and a guard that throws or exports no verdict denies too. It also denies
 when the hook input is not a payload with a string `tool_input.command`
 (malformed JSON, a missing or null field) and when stdin never closes within
-five seconds. The one shape without a command that passes is a Monitor call
-that opens a WebSocket (`tool_input.ws`), which runs no shell and has its own
-approval prompt. One process, not one per guard, keeps a shell call's overhead
+five seconds. A dispatcher that cannot start (node missing or too old to run
+`.mts`, a file that fails to load) denies as well, because each registration
+maps that failure to exit 2
+([agent-surfaces](./agent-surfaces.md#trust-and-registration) shows how). A
+missing pnpm still fails open under Codex, and under Gemini on Windows, whose
+registrations run through it. The one shape without a command that passes is a
+Monitor call that opens a WebSocket (`tool_input.ws`), which runs no shell and
+has its own approval prompt. One process, not one per guard, keeps a shell call's overhead
 near node's own startup. Node builtins only, so the guards work
 before `pnpm install` and in any repo they are synced into.
 
@@ -76,6 +93,14 @@ on Windows registers the guards for its PowerShell tool as well as Bash; the
 lexer is bash-shaped, so PowerShell spellings are covered only where they
 coincide (`npm install`, `cat .env`, `git push origin main`).
 
+Also out of scope: long or clustered wrapper flags (`sudo --user root`,
+`env --chdir /x`, `sudo -iu root`), a quoted command path with a space in it
+(`"C:\Program Files\nodejs\npm.cmd"`), an implicit push target git resolves in
+another checkout or under another name (`git -C`, `--git-dir`, Gemini's
+`dir_path`, `push.default=upstream`), a hooks path set through `GIT_CONFIG_*`
+variables, and Gemini's own file tools (`read_file`, `grep_search`), which run
+no shell command and have no Read deny list.
+
 Known over-block for every guard (safe direction, never a bypass): a heredoc
 fed to a shell that runs a script file (`bash x.sh <<'EOF'`) has its body
 lexed as commands, although the script reads it as input. Backticks inside
@@ -90,7 +115,8 @@ defense-in-depth on top of that, never a replacement for it.
 
 ## Secret-file protection
 
-Two layers keep secrets out of the agent. The `.claude/settings.json`
+Two layers keep secrets out of the agent: the Read-tool deny list in Claude
+Code, and the shell guard in all three tools. The `.claude/settings.json`
 `permissions.deny` Read-tool list enumerates common `.env*` / `.envrc` /
 `.netrc` / `_netrc` / `.npmrc` / `secrets/` / `*.pem` / `*.key` / `*.p12` /
 `*.pfx` / `*.jks` names, plus the credentials a developer machine holds outside
@@ -105,13 +131,15 @@ case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
 readable; `credentials`, `config`, and `hosts.yml` count only under their
 credential directory): direct readers, `<` redirects (including `$(<file)` and
 `<>`), `pnpm exec` wrappers, and a glob that can expand to one of those names
-(`.env*`, `~/.ssh/*`). A glob counts only where bash expands it: a quoted or
-escaped `*`, `?`, or `[` is text, so a search pattern such as
-`grep "import .* from"` passes. `find -exec` and `-ok` are denied when a word
+(`.env*`, `~/.ssh/*`, `secret?/api.txt`, `?ecrets/api.txt`, `certs/*.pe?`).
+A glob counts only where bash expands it: a quoted or escaped `*`, `?`, or `[`
+is text, so a search pattern such as `grep "import .* from"` passes. `find -exec` and `-ok` are denied when a word
 names a secret or a `-name` or `-path` pattern can match one, quoted or not,
-because find matches it itself. A negated or pruned pattern
-(`-not -path '*/.*'`, `-path '*/.*' -prune -o`) keeps those files out and
-passes.
+because find matches it itself. A pattern whose matches can never reach the
+`-exec` passes: a negated one (`-not -path '*/.*'`), or a pruned one with
+nothing else in its branch (`-path '*/.*' -prune -o`). A pruned one beside
+another test (`-name '.env*' -type d -prune -o`) is denied, because a match
+that fails the other test falls through to the `-exec`.
 
 The guard is the broader of the two; the Read list stays a curated subset so
 `.env.example` remains openable. `.env.example` is the one carve-out; other
@@ -161,14 +189,15 @@ block of `.claude/settings.json`) or, when unset, from that file itself, so
 Codex and Gemini honour the same list with nothing to configure per tool.
 
 A `git push` is denied when any target is protected (the remote side of each
-refspec, or the current branch when no refspec is given or the target is `HEAD`
-or a lone substitution such as `"$(git branch --show-current)"`) and when a
-target cannot be resolved (detached HEAD, not a checkout, a substitution inside
-a longer name). Also denied on any
-branch: bare `--force` / `-f` / a `+refspec`, `--all` / `--branches` /
-`--mirror`, and any wildcard refspec (`refs/heads/*`), which the guard cannot
-evaluate against the remote. `--force-with-lease`, `--delete`, and tag pushes
-pass on unprotected targets.
+refspec, `heads/main` and `refs/heads/main` counting as `main`, or the current
+branch when no refspec is given or the target is `HEAD`, `@`, or a lone
+substitution such as `"$(git branch --show-current)"`) and when a target cannot
+be resolved (detached HEAD, not a checkout, a substitution inside a longer
+name). Also denied on any branch: bare `--force` / `-f` / a `+refspec`,
+`--all` / `--branches` / `--mirror` and the unique prefixes git accepts for
+them (`--al`, `--mirr`), and any wildcard refspec (`refs/heads/*`), which the
+guard cannot evaluate against the remote. `--force-with-lease`, `--delete`, and
+tag pushes pass on unprotected targets.
 
 `pnpm release` and `changelogen --push` are denied outright: their push happens
 inside changelogen where a `git push` rule cannot see it.
@@ -254,6 +283,22 @@ binding); the admin bypass above still lets a human release:
 }
 ```
 
+## Build scripts
+
+`deny-build-scripts` keeps dependency build scripts off, as the AGENTS.md rule
+on `allowBuilds` requires. Wherever pnpm is a command word, `pnpm dlx` and
+`pnpm exec` lines and the `pn`, `pnx`, and `pnpx` shorthands included, it
+denies `approve-builds` and `--allow-build`. It
+also denies a setting that allows builds (`allowBuilds`,
+`onlyBuiltDependencies`, `dangerouslyAllowAllBuilds`) where it is set: as a
+flag (`--config.allowBuilds=…`) or after `pnpm config set` or `pnpm set`.
+Reading one passes (`pnpm config get allowBuilds`, `pnpm exec grep allowBuilds`).
+A `pnpm_config_*` variable that allows builds is denied when it is assigned,
+inline or on its own line, and when it is exported (`export`, `declare -x`).
+
+Out of scope, beyond the shared list: an edit to `pnpm-workspace.yaml` through
+a file tool, which runs no shell command. Review catches it.
+
 ## Hook bypass
 
 The git hooks are installed by `scripts/prepare.mts` at `pnpm install` through
@@ -269,8 +314,8 @@ rather than in editor mode; commit-msg runs commitlint. `deny-hook-bypass` keeps
 `git merge`; `-n` on `git commit` (its `--no-verify` alias; `git push -n` is
 dry-run and passes); a `core.hooksPath` override through `git -c` or
 `--config-env`; and the `SKIP_SIMPLE_GIT_HOOKS`, `HUSKY=0`, and
-`HUSKY_SKIP_HOOKS` environment prefixes, whether inline, via `env`, or as an
-`export` statement.
+`HUSKY_SKIP_HOOKS` environment prefixes, whether inline, via `env`, or
+exported (`export`, `declare -x`).
 
 Quoted mentions (`-m "no --no-verify here"`) pass. A quote the heuristic cannot
 balance (closed mid-token, or never) makes the whole command fail closed; every

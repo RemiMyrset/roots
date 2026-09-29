@@ -15,7 +15,7 @@
   "scripts": {
     "build": "turbo run build",
     "verify": "node scripts/verify.mts",
-    "guards": "node .claude/hooks/dispatch.mts",
+    "guards": "node .claude/hooks/dispatch.mts || exit 2",
     "session": "node .claude/hooks/session-start.mts",
     "test": "turbo run test",
     "test:hooks": "node scripts/test-hooks.mts",

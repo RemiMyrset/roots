@@ -87,6 +87,33 @@ function monitor(input: Record<string, unknown>, tool = 'Monitor'): string {
 
 const CASES: Case[] = [
   // --- deny-non-pnpm: this repo is pnpm-only ---------------------------------
+  // Windows launchers, any case, and a corepack or dlx version name the same program.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm.cmd install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'NPM install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'yarn.cmd add foo' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bun.exe install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm.ps1 install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '\'C:\\nodejs\\npm.cmd\' install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'corepack yarn@1 add foo' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm dlx npm@10 install' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm.cmd approve-builds' },
+  { guard: P, expect: D, cmd: 'git.exe push origin main' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'CAT .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'busybox cat .env' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pnpm.cmd install' },
+  // pnpm's own `pn` is pnpm, and its `pnx` and `pnpx` are `pnpm dlx`.
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pn approve-builds' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnx --allow-build=esbuild create-vite' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpx --allow-build=esbuild create-vite' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'timeout pnx --allow-build=esbuild create-vite' }, // not a duration
+  { guard: P, expect: D, cmd: 'pn exec git push origin main' },
+  { guard: P, expect: D, cmd: 'pn release' },
+  { guard: P, expect: D, cmd: 'pnx changelogen --release --push' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnx npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'pnpx cat .env' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pn install' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnx create-vite my-app' },
+  { guard: P, expect: A, cmd: 'git.exe push origin feat/x' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '/usr/bin/npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'yarn add foo' },
@@ -119,6 +146,34 @@ const CASES: Case[] = [
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm --filter x approve-builds' },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'sudo pnpm approve-builds' },
   { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm install' },
+  // A flag on a dlx line, the settings behind the flags, and an exported pnpm_config variable.
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm dlx --allow-build=esbuild create-vite' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm dlx --allow-build esbuild create-vite@latest my-app' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm --allow-build=esbuild dlx create-vite' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm config set --location project allowBuilds \'{"esbuild":true}\' --json' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm config set onlyBuiltDependencies esbuild' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'export pnpm_config_dangerously_allow_all_builds=true; pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'export CI=1 PNPM_CONFIG_ALLOW_BUILDS=esbuild' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'declare -x pnpm_config_dangerously_allow_all_builds=true' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm dlx create-vite my-app --template vanilla-ts' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm config set store-dir ~/.pnpm-store' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'export CI=1; pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'grep -n allowBuilds pnpm-workspace.yaml' },
+  // A setting counts where it is set: a flag, or after `config set` or its `set` shorthand.
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm set allowBuilds \'{"esbuild":true}\' --json' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm c set allow-builds esbuild' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm install --config.dangerously-allow-all-builds=true' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm install --dangerously-allow-all-builds' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm config get allowBuilds' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm config delete onlyBuiltDependencies' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm exec grep -n allowBuilds pnpm-workspace.yaml' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm exec tsx scripts/check-only-built-dependencies.mts' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm vitest run test/allow-builds.test.ts' },
+  // A variable assigned first counts once it is exported, later or through `set -a`.
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm_config_dangerously_allow_all_builds=true; export pnpm_config_dangerously_allow_all_builds; pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'set -a; pnpm_config_dangerously_allow_all_builds=true; pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'npm_config_allow_builds=esbuild pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'env -u pnpm_config_dangerously_allow_all_builds pnpm install' },
 
   // --- deny-secret-reads: keystores, netrc, npmrc join the secret set --------------
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat cert.p12' },
@@ -366,6 +421,24 @@ const CASES: Case[] = [
   { guard: P, expect: A, cmd: 'git push -u origin HEAD', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin HEAD:feat/y', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin --tags', cwd: ON_MAIN }, // tags only: no branch target to resolve
+  // `@` is HEAD, `heads/main` is main, and git takes a unique prefix of a long option.
+  { guard: P, expect: D, cmd: 'git push origin @', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push -u origin @', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin @:main', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin heads/main', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin feat/x:heads/main', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin HEAD:heads/main', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --al origin', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --mirr origin', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --m origin', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --branch origin', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --del origin main', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push origin @', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push -u origin @', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push origin heads/feat/x', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push --force-w origin feat/x', cwd: ON_FEAT }, //   --force-with-lease
+  { guard: P, expect: A, cmd: 'git push --del origin feat/x', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push --ta origin', cwd: ON_MAIN }, //                 --tags
   // A wildcard refspec can match a protected branch; the guard cannot evaluate it, so deny.
   { guard: P, expect: D, cmd: 'git push origin \'refs/heads/*:refs/heads/*\'', cwd: ON_FEAT },
   { guard: P, expect: D, cmd: 'git push origin \'refs/heads/*\'', cwd: ON_FEAT },
@@ -419,6 +492,11 @@ const CASES: Case[] = [
   { guard: B, expect: D, cmd: 'env SKIP_SIMPLE_GIT_HOOKS=1 git commit -m x' },
   { guard: B, expect: D, cmd: 'HUSKY=0 git push origin feat/x' },
   { guard: B, expect: D, cmd: 'export SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' },
+  { guard: B, expect: D, cmd: 'export CI=1 SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' },
+  { guard: B, expect: D, cmd: 'declare -x SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' },
+  { guard: B, expect: D, cmd: 'typeset -gx HUSKY=0; git push origin feat/x' },
+  { guard: B, expect: A, cmd: 'declare SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' }, // not exported: git never sees it
+  { guard: B, expect: A, cmd: 'export CI=1; git commit -m x' },
   { guard: B, expect: D, cmd: 'pnpm build && git commit --no-verify -m x' },
   { guard: B, expect: A, cmd: 'git commit -m x' },
   { guard: B, expect: A, cmd: 'git commit -am "fix: no --no-verify here"' }, // quoted mention
@@ -477,7 +555,72 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${#x}; npm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $#; npm install' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo hi # ; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo hi\t# ; npm install' }, //  a tab is a blank too
+  // Only a space or a tab ends a word; bash reads a `#` after any other space-like byte as text.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\u00A0#x; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\u2003#x; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\r#x; npm install' },
+  { guard: P, expect: D, cmd: 'echo a\f#x; git push origin main' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'echo a\v#x; cat .env' },
   { guard: P, expect: A, cmd: 'git push origin feat/x # dont push main' },
+  // A `(` inside `[[ … ]]` or glued to a word (an extglob) groups text, so a `#` after it is text.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'while read -r p; do [[ $p =~ ^(#|$) ]] && continue; npm install "$p"; done < deps.txt' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'while IFS= read -r l; do [[ $l =~ ^[[:space:]]*(#|$) ]] && continue; npm install "$l"; done < f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ "#" =~ (#|a) ]] && npm install' },
+  { guard: P, expect: D, cmd: '[[ "#" =~ (#|a) ]] && git push origin main' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: '[[ "#" =~ (#|a) ]] && cat .env' },
+  { guard: B, expect: D, cmd: '[[ "#" =~ (#|a) ]] && git commit --no-verify -m x' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: '[[ "#" =~ (#|a) ]] && pnpm approve-builds' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ "a" == @(#|a) ]] && npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ a &&\n (#) ]] && npm install' }, //   `[[` spans the newline
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n <(npm install) ]]' }, //         a process substitution still runs
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'if(npm install) then :; fi' }, //     a reserved word, then a subshell
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{(npm install)}' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '!(npm install)' }, //                    `!` where a command starts negates a subshell
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'if !(npm install); then :; fi' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'shopt -s extglob\nls !(#x) ; npm install' }, // as an argument, an extglob
+  { guard: P, expect: D, cmd: 'shopt -s extglob\nls -d !(#*) ; git push origin main' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=(a # it\'s b\n); npm install' }, //  an array's `#` is a comment
+  // A redirect operator ends a word: `]]>log` closes the conditional, so a later subshell runs.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n x ]]>/dev/null && (npm install)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n x ]]&>/dev/null; (npm install)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n x ]]<&0 && (npm install)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -f .nvmrc ]]>/dev/null\n(npm install)' },
+  { guard: P, expect: D, cmd: '[[ -n x ]]>>log; (git push origin main)' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: '[[ -n x ]]>/dev/null; (cat .env)' },
+  { guard: B, expect: D, cmd: '[[ -n x ]]>/dev/null; (git commit --no-verify -m x)' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: '[[ -n x ]]>/dev/null; (pnpm approve-builds)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{ cat <<\'EOF\'\nnpm install\nEOF\n}</dev/null | bash' }, // `}<in` closes the group
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{</dev/null cat <<\'EOF\'\nnpm install\nEOF\n} | bash' }, // `{<in` opens one
+  // A function body and a case arm are commands: a new segment starts after the function header
+  // and after each pattern's `)`.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'f(){ npm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'f() { npm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'f () { npm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'function f() { npm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'function f () { npm install; }; f' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'function show { cat .env; }; show' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in (a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in b|a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in b) :;; a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in a) :;& b) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case a\nin a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'shopt -s extglob\ncase $1 in !(b)) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case a in a) case b in b) :;; esac;; c) npm install;; esac' },
+  { guard: P, expect: D, cmd: 'case $1 in\n  a) git push origin main;;\nesac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in a) :;; esac|npm install' }, // after `esac`, `|` is a pipe
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'case "$1" in -h|--help) echo usage;; *) pnpm run "$1";; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'f() { pnpm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'arr=(); pnpm install' },
+  // A `(` or `)` inside `${…}` is text: it neither groups nor closes a substitution.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `y=\${x//(/}; (npm install)` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `y=\${x%(*}; (npm install)` },
+  { guard: P, expect: D, cmd: `echo \${x#(}; (git push origin main)` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "$(echo \${x:-)}; npm install)"` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo [[ # ; npm install' }, //         `[[` as an argument opens nothing
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '[[ $l =~ ^(npm|yarn) ]] && echo legacy' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '[[ $f == @(*.ts|*.mts) ]] && pnpm exec eslint "$f"' },
   // A body a shell reads is commands; an unquoted delimiter still runs the body's substitutions.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash <<\'EOF\'\nnpm install\nEOF' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'sh <<EOF\ncat .env\nEOF' },
@@ -486,6 +629,31 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF\nrun `npm install` first\nEOF' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat <<EOF\nrun \\`npm install\\` first, it\'s $HOME\nEOF' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'source .venv/bin/activate && cat > notes.md <<\'EOF\'\nnpm install\nEOF' }, // the shell is not in its pipeline
+  // A pipeline that continues after a line ending in `|`, or a group piped on, reaches a shell
+  // after the body; a launcher with no command starts one that reads it.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF |\nnpm install\nEOF\nbash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\' | # to a shell\nnpm install\nEOF\nbash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{ cat <<EOF\nnpm install\nEOF\n} | bash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '( cat <<EOF\nnpm install\nEOF\n) | bash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{ cat <<EOF; } | bash\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo "$(cat <<\'EOF\'\nnpm install\nEOF\n)" | bash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash <<< "$(cat <<\'EOF\'\nnpm install\nEOF\n)"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'sudo -s <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'sudo -i <<\'EOF\'\ncat .env\nEOF' },
+  { guard: P, expect: D, cmd: 'su <<\'EOF\'\ngit push origin main\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'sudo su <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'doas -s <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'busybox sh <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'ash <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash.exe <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\' | rbash\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\' | yash\nnpm install\nEOF' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'tcsh <<\'EOF\'\ncat .env\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat <<EOF &&\nnpm install\nEOF\nbash' }, //        `&&` ends the pipeline: cat prints it
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat > notes.md <<\'EOF\'\nnpm install\nEOF\nbash scripts/x.sh' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '{ cat <<\'EOF\'\nnpm install\nEOF\n} > notes.md; bash x.sh' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'git commit -F - <<\'EOF\' && bash scripts/after.sh\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'sudo tee /etc/app.conf <<\'EOF\'\nnpm install\nEOF' },
   // A substitution a shell runs as its script, or under `-c` or `eval`, reads its heredoc as
   // commands; one handed to a shell script as an argument is data.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash <(cat <<\'EOF\'\nnpm install\nEOF\n)' },
@@ -561,6 +729,34 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -path \'*/.*\' -prune -o -name \'*.md\' -exec wc -l {} +' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . \\( -path ./node_modules -o -path \'*/.*\' \\) -prune -o -type f -exec grep -l x {} +' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -name \'*.md\' -exec grep -l ".*" {} +' },
+  // A test keeps its files out only when nothing else in its branch lets a match fall through.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -name \'.env*\' -type d -prune -o -type f -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -type d -name \'.env*\' -prune -o -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -name \'.env*\' -path \'./a/*\' -prune -o -type f -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . \\( -name \'.env*\' -o -type f \\) -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find -L . -maxdepth 2 -name \'.env*\' -type f -exec head {} \\;' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -name \'.env*\' -o -path ./x -prune -o -type f -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . \\( -name node_modules -o -name \'.*\' \\) -prune -o -type f -exec grep -l TODO {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -path \'*/.*\' -prune -o -type f -print -exec wc -l {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -name .git -prune -o -type f -exec grep -l TODO {} +' },
+  // A glob can also reach a file under a secrets directory or with a key extension.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat secret?/api.txt' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat secrets*/api.txt' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat Secret[s]/api.txt' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ?ecrets/api.txt' }, //      a leading wildcard beside text
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat [s]ecrets/api.txt' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat config/*ecret?/db.txt' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat [a-z]*/README.md' }, //    a directory of wildcards alone
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat certs/server.pe?' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat certs/server.[p]em' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat certs/*.pe*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'head certs/*.pe?' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat keystore.jk?' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat server.ke?' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat tsconfig.*' }, //          an extension that opens with *
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat docs/*.p?' }, //           no key extension has two letters
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat */package.json scripts/*.mts' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'head -n 20 src/*.[jt]s' },
 
   // --- the release script's body, run through pnpm or pnpx ----------------------------
   { guard: P, expect: D, cmd: 'pnpm changelogen --release --push --no-github' },
@@ -650,6 +846,13 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: 'mise exec -E prod -j 4 -- npm i', head: 'npm' },
   { cmd: 'mise x -C npm -- pnpm i', head: 'npm' }, //           a value that is a banned head is not consumed
   { cmd: 'cat \'C:\\repo\\.env\'', head: 'cat' },
+  { cmd: 'npm.cmd install', head: 'npm' }, //                  launcher suffix stripped
+  { cmd: '\'C:\\nodejs\\NPM.EXE\' i', head: 'npm' }, //         either separator, any case
+  { cmd: 'corepack yarn@1 add x', head: 'yarn' }, //           version suffix stripped
+  { cmd: 'busybox sh -s', head: 'sh' }, //                     busybox runs its applet
+  { cmd: '(npm install)', head: 'npm' }, //                     a `(` left on a word is a misread
+  { cmd: 'pn exec npm i', head: 'npm' }, //                      `pn` is pnpm
+  { cmd: 'pnx -y npm i', head: 'npm' }, //                       `pnx` is `pnpm dlx`
 ]
 
 // The session-start hook prints the writing rules as SessionStart context for Codex and
@@ -827,6 +1030,13 @@ const BUDGET: Record<string, string> = {
   '2500 heredocs in one pipeline': `${'cat <<A |'.repeat(2500)} cat\nA\n`,
   '5000 heredocs after ;': `${'cat <<A;'.repeat(5000)}\nA\n`,
   '2000 substitutions with a heredoc': `bash x.sh "${'$(cat <<A\nA\n)'.repeat(2000)}"`,
+  '50k glued parentheses': `echo ${'@('.repeat(50_000)}`,
+  '20k conditionals': `${'[[ a ]] && '.repeat(20_000)}true`,
+  '20k function headers': `${'f() { :; }; '.repeat(20_000)}f`,
+  '20k case arms': `case x in ${'a|b) :;; '.repeat(20_000)}esac`,
+  '5000 heredocs in nested groups': `${'{ cat <<A\nA\n'.repeat(5000)}${'}\n'.repeat(5000)}`,
+  '2000 heredocs in nested substitutions': `echo ${'"$(cat <<A\nA\n'.repeat(2000)}${')"'.repeat(2000)} | cat`,
+  '5000 heredocs in a continued pipeline': `${'cat <<A |\nA\n'.repeat(5000)}cat`,
 }
 for (const [name, cmd] of Object.entries(BUDGET)) {
   const started = performance.now()
@@ -854,6 +1064,69 @@ for (const c of CASES) {
     fails.push(`[${c.guard}] got ${got}${why ? ` (${why})` : ''}, want ${c.expect}: ${c.cmd}`)
 }
 
+// A dispatcher that cannot start must still deny: no harness blocks on exit 1, and Claude Code
+// and Codex block only on exit 2, so any other failure runs the tool call. Node told not to strip types fails the way a node too old
+// for .mts does, an empty project directory stands in for a missing file, and a PATH without
+// node for a missing node. Each registration runs the way its harness runs it: Claude Code hands
+// its command to sh, or to PowerShell when Git Bash is missing, after putting the project path
+// in for the placeholder; Codex and Gemini run the root script through pnpm from a
+// subdirectory, and Gemini parses stdout, so it stays empty. A shell or a pnpm this machine
+// lacks is skipped and named in the summary.
+interface LaunchCase { name: string, cmd: string, expect: 0 | 2, env?: Record<string, string>, project?: string }
+const EMPTY_PROJECT = join(tmp, 'empty-project')
+mkdirSync(EMPTY_PROJECT)
+const LAUNCH_CASES: LaunchCase[] = [
+  { name: 'deny', cmd: 'npm install', expect: D },
+  { name: 'allow', cmd: 'pnpm install', expect: A },
+  { name: 'node cannot load .mts', cmd: 'pnpm install', expect: D, env: { NODE_OPTIONS: '--no-experimental-strip-types' } },
+  { name: 'dispatcher missing', cmd: 'pnpm install', expect: D, project: EMPTY_PROJECT },
+]
+const PLACEHOLDER = ['$', '{CLAUDE_PROJECT_DIR}'].join('')
+const claudeCommands = (claude.hooks?.PreToolUse ?? []).flatMap(e => e.hooks ?? []).map(h => h.command ?? '').filter(c => c.includes('dispatch.mts'))
+const payload = (cmd: string): string => JSON.stringify({ tool_name: 'Bash', tool_input: { command: cmd } })
+const runs = (bin: string, args: string[]): boolean => spawnSync(bin, args, { stdio: 'ignore', timeout: 20_000 }).status === 0
+const launchSkipped: string[] = []
+let launchRuns = 0
+function launched(where: string, c: LaunchCase, status: number | null, stdout = ''): void {
+  launchRuns++
+  if (status !== c.expect)
+    fails.push(`[launch] ${where}, ${c.name}: got ${status ?? 'null'}, want ${c.expect}`)
+  if (stdout !== '')
+    fails.push(`[launch] ${where}, ${c.name}: stdout should be empty, got ${stdout.slice(0, 80)}`)
+}
+if (claudeCommands.length === 0)
+  fails.push('[launch] .claude/settings.json registers no PreToolUse command that runs dispatch.mts')
+for (const shell of ['sh', 'pwsh', 'powershell']) {
+  const ok = shell === 'sh' ? runs('sh', ['-c', 'exit 0']) : runs(shell, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])
+  if (!ok) {
+    launchSkipped.push(shell)
+    continue
+  }
+  for (const command of claudeCommands) {
+    for (const c of LAUNCH_CASES) {
+      const project = c.project ?? REPO
+      const env = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env, CLAUDE_PROJECT_DIR: project }
+      const args = shell === 'sh' ? ['-c', command] : ['-NoProfile', '-NonInteractive', '-Command', command.replaceAll(PLACEHOLDER, project)]
+      launched(`Claude Code under ${shell}`, c, spawnSync(shell, args, { input: payload(c.cmd), env, timeout: 20_000 }).status)
+    }
+    if (shell === 'sh' && process.platform !== 'win32') {
+      const c: LaunchCase = { name: 'node not installed', cmd: 'pnpm install', expect: D }
+      const env = { ...process.env, PATH: EMPTY_PROJECT, CLAUDE_PROJECT_DIR: REPO }
+      launched('Claude Code under sh', c, spawnSync('/bin/sh', ['-c', command], { input: payload(c.cmd), env, timeout: 20_000 }).status)
+    }
+  }
+}
+if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 }).status === 0) {
+  for (const c of LAUNCH_CASES.filter(l => l.project === undefined)) {
+    const env = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env }
+    const r = spawnSync('pnpm -w --silent run guards', { shell: true, cwd: HOOKS, input: payload(c.cmd), env, encoding: 'utf8', timeout: 30_000 })
+    launched('Codex and Gemini through pnpm', c, r.status, r.stdout)
+  }
+}
+else {
+  launchSkipped.push('pnpm')
+}
+
 // A harness that opens stdin and never closes it must not hang the tool call: the dispatcher
 // denies after its timeout, the session hook still prints its context and exits 0. Async on
 // purpose — spawnSync would close the child's stdin. Both start before either is awaited, so
@@ -874,10 +1147,11 @@ for (const p of sessionProblems({ name: 'stdin never closed', raw: '', context: 
   fails.push(`[${SESSION}] stdin never closed: ${p}`)
 
 if (fails.length > 0) {
-  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + SESSION_CASES.length + 2} failed:\n`)
+  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + SESSION_CASES.length + launchRuns + 2} failed:\n`)
   for (const f of fails)
     console.error(`  ${f}`)
   console.error('')
   process.exit(1)
 }
-console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${SESSION_CASES.length} session cases + both stdin timeouts + the three registrations pass`)
+const skippedNote = launchSkipped.length > 0 ? ` (${launchSkipped.join(', ')} not installed, skipped)` : ''
+console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${SESSION_CASES.length} session cases + ${launchRuns} launch runs${skippedNote} + both stdin timeouts + the three registrations pass`)

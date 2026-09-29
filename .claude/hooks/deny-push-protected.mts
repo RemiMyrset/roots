@@ -4,7 +4,7 @@
  * happens inside changelogen, invisible to a `git push` rule). Protected patterns come from
  * PROTECTED_BRANCHES (comma-separated globs, `*` matches any run of characters) in the
  * `env` block of .claude/settings.json; unset means `main`. Implicit targets (`git push`,
- * `HEAD`, a lone command substitution) resolve through `git symbolic-ref` in the cwd; an
+ * `HEAD`, `@`, a lone command substitution) resolve through `git symbolic-ref` in the cwd; an
  * unresolvable target is denied. Redirections are not refspecs: bash never passes them to git.
  * Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md.
  */
@@ -35,6 +35,11 @@ function configuredList(ctx: GuardContext): string {
 
 interface Protection { patterns: string[], test: (ref: string) => boolean }
 
+// A destination as a branch name: git reads `heads/main` and `refs/heads/main` as `main`.
+function branchName(ref: string): string {
+  return ref.replace(/^(?:refs\/)?heads\//, '')
+}
+
 function protection(ctx: GuardContext): Protection {
   const configured = configuredList(ctx).split(',').map(p => p.trim()).filter(Boolean)
   const patterns = configured.length > 0 ? configured : ['main']
@@ -42,7 +47,7 @@ function protection(ctx: GuardContext): Protection {
   return {
     patterns,
     test: (ref) => {
-      const short = ref.replace(/^refs\/heads\//, '')
+      const short = branchName(ref)
       return res.some(re => re.test(ref) || re.test(short))
     },
   }
@@ -58,6 +63,21 @@ function currentBranch(cwd: string): string | null {
 // git accepts only its `=value` spelling, so treating it as separate would consume the
 // remote and shift the target.
 const PUSH_VALUE_OPT: ReadonlySet<string> = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec'])
+// git push's long options. git takes any unique prefix of one (`--al` is `--all`, `--mirr`
+// `--mirror`) and rejects an ambiguous one (`--forc`), so a prefix is read as its option.
+const PUSH_LONG: readonly string[] = [
+  '--verbose', '--quiet', '--repo', '--all', '--branches', '--mirror', '--delete', '--tags',
+  '--dry-run', '--porcelain', '--force', '--force-with-lease', '--force-if-includes',
+  '--recurse-submodules', '--thin', '--receive-pack', '--exec', '--set-upstream', '--progress',
+  '--prune', '--verify', '--follow-tags', '--signed', '--atomic', '--push-option', '--ipv4',
+  '--ipv6',
+]
+function longOption(name: string): string {
+  if (PUSH_LONG.includes(name))
+    return name
+  const hits = PUSH_LONG.filter(o => o.startsWith(name))
+  return hits.length === 1 ? hits[0]! : name
+}
 
 // Returns the deny reason for a `git push` argv (tokens after `push`), or null to allow.
 function pushVerdict(words: string[], ctx: GuardContext): string | null {
@@ -72,7 +92,7 @@ function pushVerdict(words: string[], ctx: GuardContext): string | null {
     const t = unquote(args[i]!)
     if (t === '--') { refspecs.push(...args.slice(i + 1).map(unquote)); break }
     if (t.startsWith('--')) {
-      const name = t.split('=')[0]!
+      const name = longOption(t.split('=')[0]!)
       if (name === '--all' || name === '--branches' || name === '--mirror')
         return `\`git push ${name}\` pushes every branch, protected ones included`
       if (name === '--force')
@@ -125,8 +145,8 @@ function pushVerdict(words: string[], ctx: GuardContext): string | null {
   }
   for (let t of targets) {
     // A lone substitution (`"$(git branch --show-current)"`) names the current branch, as HEAD
-    // does; one inside a longer name leaves the target unknown.
-    if (t === 'HEAD' || t.replace(/^refs\/heads\//, '') === SUBST) {
+    // and its shorthand `@` do; one inside a longer name leaves the target unknown.
+    if (t === 'HEAD' || t === '@' || branchName(t) === SUBST) {
       const cur = currentBranch(ctx.cwd)
       if (!cur)
         return 'HEAD is not on a branch, so the push target is unknown'
@@ -149,12 +169,12 @@ function isChangelogen(t: string): boolean {
   return base(t).replace(/@[^@]*$/, '') === 'changelogen'
 }
 
-// Index of the changelogen word: at the head (directly, or via pnpm exec/dlx unwrapping), or
-// behind npx or pnpx and their flags (`npx -y changelogen@latest …`); -1 when absent.
+// Index of the changelogen word: at the head (directly, or via pnpm exec/dlx, pnx, or pnpx
+// unwrapping), or behind npx and its flags (`npx -y changelogen@latest …`); -1 when absent.
 function changelogenAt(toks: string[], i: number, head: string): number {
   if (isChangelogen(toks[i] ?? ''))
     return i
-  if (head !== 'npx' && head !== 'pnpx')
+  if (head !== 'npx')
     return -1
   let k = i + 1
   while (k < toks.length) {

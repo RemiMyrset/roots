@@ -120,7 +120,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/dispatch.mts\""
+            "command": "node \"${CLAUDE_PROJECT_DIR}/.claude/hooks/dispatch.mts\"; exit $((2*!!($true-$?)))"
           }
         ]
       }
