@@ -7,12 +7,16 @@
  * (the exemption lives in the child-owned workflow, so a child can add its own steps without
  * diverging from the synced files); the frozen-lockfile install is a gate like any other.
  * Every `pnpm <script>` on a step line counts, so `pnpm a && pnpm b` records both.
- * Two workflow rules ride along. A workflow that runs a gate also runs on `pull_request`, so
- * a break in it (a bumped action, an edited step) shows before merge, not first on main. And
- * while the shared VitePress config sets `lastUpdated`, a workflow that builds a docs site
- * checks out full history (`fetch-depth: 0`): a shallow clone stamps every page, and the
- * sitemap, with the checkout commit's date.
- * Node builtins only.
+ * Four workflow rules ride along. A workflow that runs a gate also runs on `pull_request`, so
+ * a break in it (a bumped action, an edited step) shows before merge, not first on main; and
+ * when it also runs on `push`, it never sets `cancel-in-progress: true`, which lets the next
+ * push to main cancel the run of the one before and leave that commit with no verdict. Every
+ * action is pinned by its full commit SHA with its exact version in a trailing comment
+ * (`@<sha> # v1.2.3`), the form the update-deps skill refreshes and GitHub's required SHA
+ * pinning accepts. And while the shared VitePress config sets `lastUpdated`, a workflow that
+ * builds a docs site checks out full history (`fetch-depth: 0`): a shallow clone stamps every
+ * page, and the sitemap, with the checkout commit's date.
+ * Node builtins only in this first half.
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
@@ -29,8 +33,8 @@ const gates = new Set([...verifySource.matchAll(/\bpnpm\('([^']+)'/g)].map(m => 
 const sharedConfig = join(root, 'docs/.shared/config.ts')
 const lastUpdated = existsSync(sharedConfig) && /\blastUpdated:\s*true\b/.test(readFileSync(sharedConfig, 'utf8'))
 
-/** Whether the workflow's top-level `on:` triggers include `pull_request` (map key, list, or inline). */
-function runsOnPullRequest(lines: string[]): boolean {
+/** Whether the workflow's top-level `on:` triggers include `event` (map key, list, or inline). */
+function runsOn(lines: string[], event: 'pull_request' | 'push'): boolean {
   const start = lines.findIndex(line => /^["']?on["']?:/.test(line))
   if (start < 0)
     return false
@@ -40,9 +44,16 @@ function runsOnPullRequest(lines: string[]): boolean {
       break
     block.push(line)
   }
-  // \b stops before `_target`: pull_request_target runs the base branch's copy of the workflow.
-  return block.some(line => /\bpull_request\b/.test(line.replace(/(?:^|\s)#.*$/, '')))
+  // The event as a key, a list item, or the whole value, never inside a path or a longer name:
+  // pull_request_target runs the base branch's copy of the workflow.
+  const word = new RegExp(`(?:^|[\\s[,])${event}(?=\\s*(?:[:,\\]]|$))`)
+  return block.some(line => word.test(line.replace(/(?:^|\s)#.*$/, '')))
 }
+
+// A remote action pinned the one accepted way: owner/repo[/path]@<40-hex commit> # v1.2.3.
+const USES_RE = /^\s*(?:- )?uses:\s*(\S+)(\s.*)?$/
+const PINNED_RE = /^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/
+const VERSION_COMMENT_RE = /^\s+#\s*v?\d+\.\d+\.\d\S*/
 
 /** The 1-based lines of the `actions/checkout` steps that do not set `fetch-depth: 0`. */
 function shallowCheckouts(lines: string[]): number[] {
@@ -92,8 +103,23 @@ for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f)).sor
       gateSteps++
     }
   })
-  if (gateSteps > 0 && !runsOnPullRequest(lines))
+  if (gateSteps > 0 && !runsOn(lines, 'pull_request'))
     problems.push(`${where} runs verify gates but not on pull_request, so a break in it first shows on main`)
+  if (gateSteps > 0 && runsOn(lines, 'push')) {
+    lines.forEach((line, i) => {
+      if (/^\s*cancel-in-progress:\s*["']?true["']?\s*(?:#.*)?$/.test(line))
+        problems.push(`${where}:${i + 1} cancels in-progress runs on push too, so a push to main can leave the commit before it with no verdict; use \`cancel-in-progress: \${{ github.event_name == 'pull_request' }}\``)
+    })
+  }
+  lines.forEach((line, i) => {
+    const m = USES_RE.exec(line)
+    const action = m?.[1]?.replace(/^["']|["']$/g, '')
+    if (!action || action.startsWith('./') || action.startsWith('docker://'))
+      return
+    const rest = m![2] ?? ''
+    if (!PINNED_RE.test(action) || !VERSION_COMMENT_RE.test(rest))
+      problems.push(`${where}:${i + 1} uses ${action}${rest.trimEnd()}; pin an action by its full commit SHA with its exact version in a trailing comment: \`uses: owner/repo@<40-hex sha> # v1.2.3\``)
+  })
   if (buildsSite && lastUpdated) {
     for (const at of shallowCheckouts(lines))
       problems.push(`${where}:${at} builds a docs site from a shallow checkout; lastUpdated needs \`fetch-depth: 0\``)
