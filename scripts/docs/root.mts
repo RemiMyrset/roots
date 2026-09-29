@@ -14,14 +14,46 @@ import process from 'node:process'
 export const DECISIONS_DIR = 'docs/internal/decisions'
 /** Where spec areas live, relative to the repository root. */
 export const SPECS_DIR = 'docs/internal/specs'
-/** A decision record filename, NNNN-kebab-title.md — one definition so the checker and the readers agree. */
-export const DECISION_FILE_RE = /^\d{4}-[a-z0-9-]+\.md$/
+/**
+ * A dated decision record filename, YYYYMMDD-kebab-title.md, the only shape new records
+ * take; groups 1 to 3 are the year, month, and day. The date is compact on purpose:
+ * `2026-09-29-x.md` would match LEGACY_DECISION_FILE_RE and read as record 2026.
+ */
+export const DATED_DECISION_FILE_RE = /^(\d{4})(\d{2})(\d{2})-[a-z0-9-]+\.md$/
+/**
+ * A numbered decision record filename, NNNN-kebab-title.md: valid forever, never created
+ * again, because two branches pick the same next number. Disjoint from the dated shape:
+ * the fifth character is `-` here and a digit there.
+ */
+export const LEGACY_DECISION_FILE_RE = /^\d{4}-[a-z0-9-]+\.md$/
+/** Any decision record filename, dated or legacy: the union of the two shapes, for code that asks only whether a file is a record. decisionIdentity says which shape. */
+export const DECISION_FILE_RE = /^(?:\d{4}|\d{8})-[a-z0-9-]+\.md$/
 
-/** The number of a record named by DECISION_FILE_RE: its four leading digits, zero padding kept ("0007"). */
-export function decisionNumber(file: string): string {
-  return file.slice(0, 4)
+/** What identifies a decision record, read from its filename alone. */
+export interface DecisionIdentity {
+  /** What a supersede link's text names: the number of a legacy record ("0007"), the filename stem of a dated one ("20260929-use-postgres"). */
+  id: string
+  /** What a list shows: the number of a legacy record, the filename date of a dated one ("2026-09-29"). */
+  label: string
+  /** True for a numbered record. Legacy records list before dated ones and keep the `# NNNN. Title` H1. */
+  legacy: boolean
 }
-/** The H1 of a decision record, `# NNNN. Title`; group 1 is the number, group 2 the title. */
+
+/**
+ * The identity of a record filename, or undefined when the name has neither shape. Shape
+ * only: whether a dated name holds a real, past date is check-docs.mts's call.
+ */
+export function decisionIdentity(file: string): DecisionIdentity | undefined {
+  if (LEGACY_DECISION_FILE_RE.test(file)) {
+    const num = file.slice(0, 4)
+    return { id: num, label: num, legacy: true }
+  }
+  const dated = file.match(DATED_DECISION_FILE_RE)
+  if (!dated)
+    return undefined
+  return { id: file.slice(0, -'.md'.length), label: `${dated[1]}-${dated[2]}-${dated[3]}`, legacy: false }
+}
+/** The H1 of a legacy decision record, `# NNNN. Title`; group 1 is the number, group 2 the title. A dated record's H1 is the title alone, read with H1_RE. */
 export const DECISION_H1_RE = /^# (\d{4})\. (\S.*)$/m
 /** The first H1 of a page; group 1 is its text. */
 export const H1_RE = /^# (.+)$/m

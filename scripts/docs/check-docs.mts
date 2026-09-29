@@ -1,11 +1,13 @@
 /**
  * Structural lint for the decisions/specs system — enforces the couplings that
- * generation cannot: record format, metadata bullets, supersede links and the record
- * they point at, spec Source/Tests paths resolving on disk, review-date freshness, index
- * pages carrying their automd markers, every automd region under docs/ closed, free of
- * automd's warning comment and of merge conflict lines, and current with the generators, no
- * page under docs/ left mid-merge, the template-owned contract pages that follow the spec
- * shape, the agent-skills mirror, and the AGENTS.md line budget.
+ * generation cannot: record format (a dated YYYYMMDD- name with a real, past date and a
+ * title-only H1, or a legacy NNNN- name whose H1 and number match), metadata bullets,
+ * supersede links naming the target's ID and the record they point at, spec Source/Tests
+ * paths resolving on disk, review-date freshness, both index pages present, every automd
+ * region under docs/ closed, free of automd's warning comment and of merge conflict lines,
+ * and current with the generators, no page under docs/ left mid-merge, the template-owned
+ * contract pages that follow the spec shape, the agent-skills mirror, and the AGENTS.md
+ * line budget. An index page need not carry a region: the lists are read from the files.
  *
  * Blocking errors exit 1; warnings print but pass (GitHub annotations in CI). A
  * missing docs, decisions, specs, or template directory is skipped with a note, so the
@@ -15,16 +17,25 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import { INDEX_RENDERERS } from './readers.mts'
-import { AUTOMD_WARNING, automdRegions, byCodeUnit, CONFLICT_LINE_RE, CONFLICT_OPEN_RE, DECISION_FILE_RE, DECISION_H1_RE, decisionNumber, DECISIONS_DIR, markdownFiles, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
+import { AUTOMD_WARNING, automdRegions, byCodeUnit, CONFLICT_LINE_RE, CONFLICT_OPEN_RE, DECISION_H1_RE, decisionIdentity, DECISIONS_DIR, H1_RE, markdownFiles, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
 import { posixRelative, skillDrift, SKILLS_SOURCE, SKILLS_TARGET } from './skills.mts'
 
 const STALE_DAYS = 180
-// Prefix-anchored on purpose: a "superseded by [NNNN](./…)" status carries a trailing
+// Prefix-anchored on purpose: a "superseded by [ID](./…)" status carries a trailing
 // markdown link, so the vocabulary matches the leading keyword only, not the whole line.
+// Both ID shapes open with four digits, NNNN and YYYYMMDD-slug alike.
 const STATUS_VOCAB = /^(?:proposed|accepted|rejected|deprecated|superseded by \[?\d{4}\]?)/
-// Prefix-anchored like STATUS_VOCAB, so trailing text stays accepted; group 2 is the link
-// target, whose number must repeat the displayed one.
-const SUPERSEDED_LINK_RE = /^superseded by \[(\d{4})\]\((\.\/\1-[a-z0-9-]+\.md)\)/
+// Prefix-anchored like STATUS_VOCAB, so trailing text stays accepted; group 1 is the link
+// text, which must be the target's ID, and group 2 the target filename.
+const SUPERSEDED_LINK_RE = /^superseded by \[([^\]\n]+)\]\(\.\/([^)\s]+)\)/
+// The number a legacy H1 opens with, left in a dated record's H1.
+const NUMBERED_TITLE_RE = /^\d+\.\s/
+// A name opening with a hyphenated date, YYYY-MM-DD-: it has the legacy shape and would
+// read as record YYYY, so a real date there is rejected with the compact form to use. Only
+// from the year 2000: no repository numbers its records that high, while a legacy record
+// such as 0003-12-01-cutoff.md has a real date of year 3 and must stay valid.
+const HYPHENATED_DATE_NAME_RE = /^(\d{4})-\d{2}-\d{2}-/
+const HYPHENATED_DATE_FROM_YEAR = 2000
 const DATE_BULLET_RE = /^- \*\*Date:\*\*(.*)$/m
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -34,6 +45,21 @@ function isRealIsoDate(s: string): boolean {
     return false
   const d = new Date(s)
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+
+/** Days from a real ISO date to now; negative for a date ahead. */
+function ageInDays(iso: string): number {
+  return (Date.now() - new Date(iso).getTime()) / 86_400_000
+}
+
+/**
+ * True when a real ISO date lies more than a day ahead. The date is a calendar day parsed
+ * as UTC midnight, while Date.now() is an instant, so today's date written east of UTC reads
+ * as slightly in the future until UTC catches up; a full day of tolerance keeps the check
+ * for real typos (a wrong year) only.
+ */
+function isFuture(iso: string): boolean {
+  return ageInDays(iso) < -1
 }
 const BACKTICK_PATH_RE = /`([^`]+)`/g
 const PATH_CHARS_RE = /^[\w@./-]+$/
@@ -101,20 +127,20 @@ function checkSpecPage(where: string, raw: string): void {
     // typo cannot masquerade as fresh (an Invalid Date's NaN age silently passes).
     errors.push(`${where}: "- **Last reviewed:** ${reviewed}" is not a real calendar date`)
   }
-  else {
-    // The bullet is a calendar date parsed as UTC midnight, while Date.now() is an instant, so
-    // today's date written east of UTC reads as slightly in the future until UTC catches up;
-    // a full day of tolerance keeps the warning for real typos (a wrong year) only.
-    const ageDays = (Date.now() - new Date(reviewed).getTime()) / 86_400_000
-    if (ageDays < -1)
-      warnings.push(`${where}: last reviewed ${reviewed} is in the future — likely a year typo`)
-    else if (ageDays > STALE_DAYS)
-      warnings.push(`${where}: last reviewed ${reviewed} (> ${STALE_DAYS} days ago) — re-verify against the source`)
+  else if (isFuture(reviewed)) {
+    warnings.push(`${where}: last reviewed ${reviewed} is in the future — likely a year typo`)
+  }
+  else if (ageInDays(reviewed) > STALE_DAYS) {
+    warnings.push(`${where}: last reviewed ${reviewed} (> ${STALE_DAYS} days ago) — re-verify against the source`)
   }
 }
 
 // --- decisions -------------------------------------------------------------
-/** Validates every decision record and the decisions index; returns the record count (0 when the directory is absent). */
+/**
+ * Validates every decision record and that the decisions index page exists; returns the
+ * record count (0 when the directory is absent). A dated name cannot collide across
+ * branches, so only legacy numbers are checked for duplicates.
+ */
 function checkDecisions(): number {
   const decisionsDir = join(root, DECISIONS_DIR)
   if (!existsSync(decisionsDir)) {
@@ -126,59 +152,101 @@ function checkDecisions(): number {
     .map(e => e.name)
     .sort(byCodeUnit)
   const seenNums = new Map<string, string>()
+  // For the numbered-by-habit warning: each legacy record's Date, and the filename date of
+  // every dated record, which is its creation day and so never earlier than the switch.
+  const legacyDates: { where: string, date: string }[] = []
+  let firstDated: { file: string, date: string } | undefined
 
   for (const file of decisionFiles) {
     const where = `${DECISIONS_DIR}/${file}`
-    if (!DECISION_FILE_RE.test(file)) {
-      errors.push(`${where}: filename must be NNNN-kebab-title.md`)
+    const identity = decisionIdentity(file)
+    if (!identity) {
+      errors.push(`${where}: filename must be YYYYMMDD-kebab-title.md (a legacy NNNN-kebab-title.md stays valid)`)
       continue
     }
-    const num = decisionNumber(file)
-    if (seenNums.has(num))
-      errors.push(`${where}: duplicate decision number ${num} (also ${seenNums.get(num)}) — the record already on the default branch keeps it; renumber the other on its own branch`)
-    seenNums.set(num, file)
+    const hyphenated = file.match(HYPHENATED_DATE_NAME_RE)
+    if (hyphenated && Number(hyphenated[1]) >= HYPHENATED_DATE_FROM_YEAR && isRealIsoDate(file.slice(0, 10))) {
+      errors.push(`${where}: filename must be YYYYMMDD-kebab-title.md, the date without hyphens (${file.slice(0, 10).replaceAll('-', '')}); as written it reads as legacy record ${identity.id}`)
+      continue
+    }
+    if (identity.legacy) {
+      if (seenNums.has(identity.id))
+        errors.push(`${where}: duplicate decision number ${identity.id} (also ${seenNums.get(identity.id)}) — rename the record not yet on the default branch to YYYYMMDD-kebab-title.md with a title-only H1`)
+      seenNums.set(identity.id, file)
+    }
+    else {
+      const compact = file.slice(0, 8)
+      if (!isRealIsoDate(identity.label)) {
+        errors.push(`${where}: filename date ${compact} is not a real calendar date`)
+        continue
+      }
+      if (isFuture(identity.label))
+        errors.push(`${where}: filename date ${compact} is in the future`)
+      else if (!firstDated || identity.label < firstDated.date)
+        firstDated = { file, date: identity.label }
+    }
 
     // Fences blanked, as the readers do, so a fenced example cannot pose as the H1 or Status.
     const text = stripFences(readFileSync(join(decisionsDir, file), 'utf8'))
-    const h1 = text.match(DECISION_H1_RE)
-    if (!h1)
-      errors.push(`${where}: H1 must be "# ${num}. Title"`)
-    else if (h1[1] !== num)
-      errors.push(`${where}: H1 number ${h1[1]} does not match filename ${num}`)
+    if (identity.legacy) {
+      const h1 = text.match(DECISION_H1_RE)
+      if (!h1)
+        errors.push(`${where}: H1 must be "# ${identity.id}. Title"`)
+      else if (h1[1] !== identity.id)
+        errors.push(`${where}: H1 number ${h1[1]} does not match filename ${identity.id}`)
+    }
+    else {
+      const h1 = text.match(H1_RE)?.[1]?.trim()
+      if (!h1 || NUMBERED_TITLE_RE.test(h1))
+        errors.push(`${where}: H1 must be "# Title" (a dated record carries no number)`)
+    }
 
     const status = text.match(STATUS_BULLET_RE)?.[1]?.trim()
     if (!status) {
       errors.push(`${where}: missing "- **Status:** ..." bullet`)
     }
     else if (!STATUS_VOCAB.test(status)) {
-      errors.push(`${where}: status "${status}" not in vocabulary: proposed | accepted | rejected | deprecated | superseded by NNNN`)
+      errors.push(`${where}: status "${status}" not in vocabulary: proposed | accepted | rejected | deprecated | superseded by [ID](./file.md)`)
     }
     else if (status.startsWith('superseded')) {
-      // A bare "superseded" (no "by NNNN") already failed the vocabulary check above; the
-      // link is demanded once the status is otherwise well-formed, and its target once the
-      // link is, so one underlying problem is reported once.
+      // A bare "superseded" (no "by ID") already failed the vocabulary check above; the
+      // link is demanded once the status is otherwise well-formed, its text once the link
+      // names a record, and its target once the text is right, so one underlying problem is
+      // reported once.
       const link = status.match(SUPERSEDED_LINK_RE)
-      if (!link)
-        errors.push(`${where}: superseded status must link the newer record: "superseded by [NNNN](./NNNN-slug.md)"`)
+      const target = link ? decisionIdentity(link[2]!) : undefined
+      if (!link || !target)
+        errors.push(`${where}: superseded status must link the newer record: "superseded by [ID](./file.md)"`)
+      else if (link[1] !== target.id)
+        errors.push(`${where}: superseded-by link text "${link[1]}" must be ${target.id}, the ID of ./${link[2]}`)
       else if (!existsSync(join(decisionsDir, link[2]!)))
-        errors.push(`${where}: superseded-by target ${link[2]} does not exist`)
+        errors.push(`${where}: superseded-by target ./${link[2]} does not exist`)
     }
 
     const date = text.match(DATE_BULLET_RE)?.[1]?.trim()
     if (!date || !isRealIsoDate(date))
       errors.push(`${where}: missing or non-real "- **Date:** YYYY-MM-DD" bullet`)
+    else if (identity.legacy)
+      legacyDates.push({ where, date })
   }
 
-  const indexPath = join(decisionsDir, 'index.md')
-  if (!existsSync(indexPath))
+  // A numbered record dated after the first dated one was most likely created by habit, from
+  // stale prose, and can collide with another branch's number as before. A warning, not an
+  // error: once such a record is on the default branch it stays, as every accepted record does.
+  if (firstDated) {
+    for (const { where, date } of legacyDates) {
+      if (date > firstDated.date)
+        warnings.push(`${where}: numbered record dated ${date}, after the first dated record ${firstDated.file} — new records are YYYYMMDD-kebab-title.md; unless it is already on the default branch, rename it and drop the number from its H1`)
+    }
+  }
+
+  if (!existsSync(join(decisionsDir, 'index.md')))
     errors.push(`${DECISIONS_DIR}/index.md: missing index page`)
-  else if (!readFileSync(indexPath, 'utf8').includes('<!-- automd:decisionsIndex -->'))
-    errors.push(`${DECISIONS_DIR}/index.md: missing <!-- automd:decisionsIndex --> marker`)
   return decisionFiles.length
 }
 
 // --- specs -------------------------------------------------------------------
-/** Validates the specs layout (areas, flatness), every spec page, and the specs index. */
+/** Validates the specs layout (areas, flatness), every spec page, and that the specs index page exists. */
 function checkSpecs(): void {
   const specsDir = join(root, SPECS_DIR)
   if (!existsSync(specsDir)) {
@@ -209,11 +277,8 @@ function checkSpecs(): void {
     }
   }
 
-  const indexPath = join(specsDir, 'index.md')
-  if (!existsSync(indexPath))
+  if (!existsSync(join(specsDir, 'index.md')))
     errors.push(`${SPECS_DIR}/index.md: missing index page`)
-  else if (!readFileSync(indexPath, 'utf8').includes('<!-- automd:specIndex -->'))
-    errors.push(`${SPECS_DIR}/index.md: missing <!-- automd:specIndex --> marker`)
 }
 
 // --- automd regions ------------------------------------------------------------

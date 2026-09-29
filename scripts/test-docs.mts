@@ -6,11 +6,15 @@
  * to a temp dir, runs each script with that cwd, and asserts the exit code and the messages.
  * Also pins the rulebook budget, the CI-annotation gating, a missing docs dir, the
  * three-step repo-root fallback, the stale-region comparison (with a CRLF checkout), the
- * skills mirror clean, drifted, generated, and absent, and a region holding merge conflict
- * lines: named, then repaired by automd. The skill trees are planted in the copy at test
- * time: a fixture under `.claude/skills` would be listed as a live skill. Runs in CI on
- * Ubuntu and Windows via `pnpm test:docs`. Node builtins only; the repair runs the installed
- * automd in a child process and is skipped, with a note, where automd is not installed.
+ * skills mirror clean, drifted, generated, and absent, a region holding merge conflict
+ * lines (named, then repaired by automd), dated and legacy decision records side by side (a
+ * legacy-only table byte for byte as before), index pages without regions, `docs:list`, and
+ * the property dated names exist for: two git branches that each add a record merge with no
+ * conflict. The skill trees are planted in the copy at test time: a fixture under
+ * `.claude/skills` would be listed as a live skill. Runs in CI on Ubuntu and Windows via
+ * `pnpm test:docs`. Node builtins only; git runs with an isolated config; the automd runs
+ * use the installed automd in a child process and are skipped, with a note, where automd is
+ * not installed.
  */
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -18,7 +22,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
-import { decisionsSidebar, escapeCell, readDecisions, readSpecs, specsSidebar } from './docs/readers.mts'
+import { decisionsSidebar, escapeCell, readDecisions, readSpecs, renderDecisionsIndex, specsSidebar } from './docs/readers.mts'
 import { SKILLS_SOURCE, SKILLS_TARGET } from './docs/skills.mts'
 
 const FIXTURES = join(import.meta.dirname, 'docs', 'fixtures')
@@ -26,6 +30,7 @@ const CHECKERS = {
   'docs:check': join(import.meta.dirname, 'docs', 'check-docs.mts'),
   'docs:portability': join(import.meta.dirname, 'docs', 'check-portability.mts'),
   'gen-skills': join(import.meta.dirname, 'docs', 'gen-skills.mts'),
+  'docs:list': join(import.meta.dirname, 'docs', 'list-docs.mts'),
 } as const
 type Checker = keyof typeof CHECKERS
 
@@ -47,8 +52,8 @@ function plantSkill(dir: string, tree: typeof SKILLS_SOURCE | typeof SKILLS_TARG
 }
 
 interface Run { status: number | null, out: string }
-function run(checker: Checker, cwd: string, env: NodeJS.ProcessEnv = process.env): Run {
-  const r = spawnSync(process.execPath, [CHECKERS[checker]], { cwd, env, encoding: 'utf8' })
+function run(checker: Checker, cwd: string, env: NodeJS.ProcessEnv = process.env, args: string[] = []): Run {
+  const r = spawnSync(process.execPath, [CHECKERS[checker], ...args], { cwd, env, encoding: 'utf8' })
   return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` }
 }
 
@@ -67,7 +72,17 @@ function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
+/** The copy with both index pages rewritten as pages that carry no region, the lists being read from the files. */
+function withoutRegions(dir: string): string {
+  writeFileSync(join(dir, 'docs/internal/decisions/index.md'), '# Decision records\n\nThe list is read from the files.\n')
+  writeFileSync(join(dir, 'docs/internal/specs/index.md'), '# Specifications\n\nThe list is read from the files.\n')
+  return dir
+}
+
 const today = new Date().toISOString().slice(0, 10)
+const now = new Date()
+/** Today in this machine's timezone, as a person or an agent naming a record today writes it. */
+const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 const CI_KEY = 'GITHUB_ACTIONS' // a const key: tsc refuses dot access on process.env, eslint refuses a bracketed literal
 const withoutCi = { ...process.env }
 delete withoutCi[CI_KEY]
@@ -102,7 +117,7 @@ function runAutomd(cwd: string): Run {
   plantSkill(dir, SKILLS_TARGET, 'x', '# x\n')
   const c = run('docs:check', dir, withoutCi)
   check('clean docs:check exits 0', c.status === 0, c.out)
-  check('clean docs:check counts records', c.out.includes('✔ docs:check — 2 decision(s)'), c.out)
+  check('clean docs:check counts records', c.out.includes('✔ docs:check — 4 decision(s)'), c.out)
   check('clean docs:check has no warnings', !c.out.includes('warning'), c.out)
   const p = run('docs:portability', dir, withoutCi)
   check('clean docs:portability exits 0', p.status === 0, p.out)
@@ -120,7 +135,7 @@ function runAutomd(cwd: string): Run {
   const c = run('docs:check', dir, withoutCi)
   check('broken docs:check exits 1', c.status === 1, `status ${c.status}`)
   expectAll('broken docs:check', c.out, [
-    'docs/internal/decisions/bad-name.md: filename must be NNNN-kebab-title.md',
+    'docs/internal/decisions/bad-name.md: filename must be YYYYMMDD-kebab-title.md (a legacy NNNN-kebab-title.md stays valid)',
     'docs/internal/decisions/0001-mismatch.md: H1 number 0002 does not match filename 0001',
     'status "unknown" not in vocabulary',
     '0001-mismatch.md: missing or non-real "- **Date:** YYYY-MM-DD" bullet',
@@ -129,13 +144,19 @@ function runAutomd(cwd: string): Run {
     'docs/internal/decisions/0004-no-h1.md: H1 must be "# 0004. Title"',
     'docs/internal/decisions/0005-no-status.md: missing "- **Status:** ..." bullet',
     'duplicate decision number 0002',
-    'duplicate decision number 0002 (also 0002-duplicate.md) — the record already on the default branch keeps it',
+    'duplicate decision number 0002 (also 0002-duplicate.md) — rename the record not yet on the default branch to YYYYMMDD-kebab-title.md with a title-only H1',
+    'docs/internal/decisions/20260230-not-a-date.md: filename date 20260230 is not a real calendar date',
+    'docs/internal/decisions/29990101-future.md: filename date 29990101 is in the future',
+    'docs/internal/decisions/20260107-numbered-h1.md: H1 must be "# Title" (a dated record carries no number)',
+    'docs/internal/decisions/20260111-no-h1.md: H1 must be "# Title" (a dated record carries no number)',
+    'docs/internal/decisions/20260108-bad-link.md: superseded-by link text "0003" must be 20260107-numbered-h1, the ID of ./20260107-numbered-h1.md',
+    'docs/internal/decisions/20260109-missing-target.md: superseded-by target ./20260110-nope.md does not exist',
+    'warning: docs:check: docs/internal/decisions/0006-late.md: numbered record dated 2026-06-01, after the first dated record 20260107-numbered-h1.md — new records are YYYYMMDD-kebab-title.md; unless it is already on the default branch, rename it',
     'docs/internal/conflicted.md: <!-- automd:specIndex --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`',
     'docs/internal/conflicted.md: unresolved merge conflict marker (line 3)',
     'automd generator failed and wrote a warning comment',
     'docs/internal/stale.md: <!-- automd:decisionsIndex --> region is stale — run `pnpm docs:gen`',
     'docs/internal/unclosed.md: missing <!-- /automd --> after <!-- automd:custom --> (line 3)',
-    'docs/internal/specs/index.md: missing <!-- automd:specIndex --> marker',
     'docs/internal/specs/cli/no-source.md: missing "- **Source:** ..." bullet',
     'docs/internal/specs/stray.md: specs must live in an area directory',
     'docs/internal/specs/cli/stale.md: Source path `src/nope.txt` does not exist',
@@ -155,6 +176,9 @@ function runAutomd(cwd: string): Run {
     '.agents/skills/z/SKILL.md: has no source under .claude/skills — run `pnpm docs:gen` to remove it',
   ])
   check('a "(pending)" inside a comment is not a pending bullet', !c.out.includes('template-copy.md: Source is (pending)') && !c.out.includes('template-copy.md: Tests is (pending)'), c.out)
+  check('an index page without a region is not an error', !c.out.includes('missing <!-- automd:'), c.out)
+  check('a bad filename date is reported once, not also per bullet', c.out.split('20260230-not-a-date.md').length === 2, c.out)
+  check('numbered records dated before the first dated record are not warned', !c.out.includes('0002-duplicate.md: numbered record dated'), c.out)
   check('a conflicted region is reported once, not also as stale or per marker', !c.out.includes('conflicted.md: <!-- automd:specIndex --> region is stale') && !c.out.includes('conflicted.md: unresolved merge conflict marker (line 11)'), c.out)
 }
 
@@ -206,8 +230,7 @@ function runAutomd(cwd: string): Run {
   const cr = run('docs:portability', crlf, withoutCi)
   check('CRLF page passes docs:portability', cr.status === 0, cr.out)
 
-  const d = new Date()
-  const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const local = localToday
   const inTwoDays = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10)
   const spec = join(dir, 'docs/internal/specs/cli/hello.md')
   const original = readFileSync(spec, 'utf8')
@@ -286,7 +309,7 @@ function runAutomd(cwd: string): Run {
 {
   const edited = fixture('clean')
   const index = join(edited, 'docs/internal/decisions/index.md')
-  writeFileSync(index, readFileSync(index, 'utf8').replace('| Second | accepted |', '| Second | proposed |'))
+  writeFileSync(index, readFileSync(index, 'utf8').replace('| Fourth | accepted |', '| Fourth | proposed |'))
   const e = run('docs:check', edited, withoutCi)
   check('stale index region exits 1', e.status === 1, e.out)
   check('stale index region named', e.out.includes('docs/internal/decisions/index.md: <!-- automd:decisionsIndex --> region is stale'), e.out)
@@ -301,17 +324,28 @@ function runAutomd(cwd: string): Run {
 // 9. The readers, called directly: what feeds the index regions and the sidebars.
 {
   const dir = fixture('clean')
-  const decisions = readDecisions(dir).map(d => [d.num, d.title, d.status])
-  check('readDecisions reads both records past the fenced Status', same(decisions, [['0001', 'First', 'superseded by [0002](./0002-second.md)'], ['0002', 'Second', 'accepted']]), JSON.stringify(decisions))
+  const decisions = readDecisions(dir).map(d => [d.id, d.num, d.legacy, d.title, d.status])
+  check('readDecisions reads legacy then dated records past the fenced Status', same(decisions, [
+    ['0001', '0001', true, 'First', 'superseded by [0002](./0002-second.md)'],
+    ['0002', '0002', true, 'Second', 'superseded by [20260105-third](./20260105-third.md)'],
+    ['20260105-third', '2026-01-05', false, 'Third', 'superseded by [20260106-fourth](./20260106-fourth.md)'],
+    ['20260106-fourth', '2026-01-06', false, 'Fourth', 'accepted'],
+  ]), JSON.stringify(decisions))
   const specs = readSpecs(dir)
   check('readSpecs reads the one spec', same(specs, [{ area: 'cli', file: 'hello.md', title: 'Hello' }]), JSON.stringify(specs))
-  check('decisionsSidebar links each record', same(decisionsSidebar(dir), [{ text: '0001. First', link: '/decisions/0001-first' }, { text: '0002. Second', link: '/decisions/0002-second' }]), JSON.stringify(decisionsSidebar(dir)))
+  check('decisionsSidebar labels each record and names a status other than accepted', same(decisionsSidebar(dir), [
+    { text: '0001. First (superseded)', link: '/decisions/0001-first' },
+    { text: '0002. Second (superseded)', link: '/decisions/0002-second' },
+    { text: '2026-01-05 Third (superseded)', link: '/decisions/20260105-third' },
+    { text: '2026-01-06 Fourth', link: '/decisions/20260106-fourth' },
+  ]), JSON.stringify(decisionsSidebar(dir)))
   check('specsSidebar links each spec', same(specsSidebar(dir), [{ text: 'cli: Hello', link: '/specs/cli/hello' }]), JSON.stringify(specsSidebar(dir)))
   check('escapeCell escapes a bare pipe', escapeCell('a | b') === 'a \\| b')
   check('escapeCell leaves an escaped pipe alone', escapeCell('a \\| b') === 'a \\| b')
 
   mkdirSync(join(dir, 'docs/internal/decisions/0003-dir.md'))
-  check('a directory named like a record is not one', readDecisions(dir).length === 2)
+  mkdirSync(join(dir, 'docs/internal/decisions/20260101-dir.md'))
+  check('a directory named like a record is not one', readDecisions(dir).length === 4)
   const c = run('docs:check', dir, withoutCi)
   check('a directory named like a record passes docs:check', c.status === 0, c.out)
 
@@ -365,7 +399,7 @@ function runAutomd(cwd: string): Run {
   const conflicted = fixture('clean')
   const index = join(conflicted, 'docs/internal/decisions/index.md')
   const clean = readFileSync(index, 'utf8')
-  writeFileSync(index, clean.replace('| [0002](./0002-second.md) | Second | accepted |', '<<<<<<< HEAD\n| [0002](./0002-second.md) | Second | accepted |\n=======\n| [0002](./0002-other.md) | Other | accepted |\n>>>>>>> main'))
+  writeFileSync(index, clean.replace('| [2026-01-06](./20260106-fourth.md) | Fourth | accepted |', '<<<<<<< HEAD\n| [2026-01-06](./20260106-fourth.md) | Fourth | accepted |\n=======\n| [2026-01-06](./20260106-other.md) | Other | accepted |\n>>>>>>> main'))
   const c = run('docs:check', conflicted, withoutCi)
   check('conflicted region exits 1', c.status === 1, c.out)
   check('conflicted region named with its remedy', c.out.includes('docs/internal/decisions/index.md: <!-- automd:decisionsIndex --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`; never hand-merge a generated region'), c.out)
@@ -384,6 +418,161 @@ function runAutomd(cwd: string): Run {
   writeFileSync(join(prose, 'docs/internal/setext.md'), 'Setext title\n=======\n\n```text\n<<<<<<< HEAD\n```\n')
   const p = run('docs:check', prose, withoutCi)
   check('a setext underline and a fenced marker pass docs:check', p.status === 0, p.out)
+}
+
+// 13. A legacy-only tree renders its table byte for byte as before dated records, so a
+// child that still commits a region and has no dated record sees no change.
+{
+  const LEGACY_TABLE = [
+    '| # | Title | Status |',
+    '| --- | --- | --- |',
+    '| [0001](./0001-first.md) | First | superseded by [0002](./0002-second.md) |',
+    '| [0002](./0002-second.md) | Second | accepted |',
+  ].join('\n')
+  const LEGACY_PAGE = `# Decision records\n\n<!-- automd:decisionsIndex -->\n\n${LEGACY_TABLE}\n\n<!-- /automd -->\n`
+  const dir = fixture('clean')
+  const decisions = join(dir, 'docs/internal/decisions')
+  rmSync(join(decisions, '20260105-third.md'))
+  rmSync(join(decisions, '20260106-fourth.md'))
+  const second = join(decisions, '0002-second.md')
+  writeFileSync(second, readFileSync(second, 'utf8').replace('- **Status:** superseded by [20260105-third](./20260105-third.md)', '- **Status:** accepted'))
+  writeFileSync(join(decisions, 'index.md'), LEGACY_PAGE)
+  const table = renderDecisionsIndex(readDecisions(dir))
+  check('a legacy-only table renders byte for byte as before', table === LEGACY_TABLE, table)
+  check('no records render the placeholder as before', renderDecisionsIndex([]) === '_No decisions yet. The first one appears here after `pnpm docs:gen`._')
+  const c = run('docs:check', dir, withoutCi)
+  check('a committed legacy-only region stays current', c.status === 0, c.out)
+  if (automdUrl) {
+    const a = runAutomd(dir)
+    check('automd leaves a legacy-only region byte for byte', a.status === 0 && readFileSync(join(decisions, 'index.md'), 'utf8') === LEGACY_PAGE, a.out)
+  }
+}
+
+// 14. An index page need not carry a region: the lists are read from the files.
+{
+  const dir = withoutRegions(fixture('clean'))
+  const c = run('docs:check', dir, withoutCi)
+  check('index pages without regions pass docs:check', c.status === 0 && !c.out.includes('missing <!-- automd:'), c.out)
+  const p = run('docs:portability', dir, withoutCi)
+  check('index pages without regions pass docs:portability', p.status === 0, p.out)
+}
+
+// 15. Legacy records list first whatever their number, and a numbered record dated after
+// the first dated one is warned as numbered by habit. The switch is the earliest dated
+// record's filename date, its creation day, so a backdated Date bullet does not move it.
+{
+  const dir = withoutRegions(fixture('clean'))
+  const decisions = join(dir, 'docs/internal/decisions')
+  writeFileSync(join(decisions, '2100-high.md'), '# 2100. High\n\n- **Status:** accepted\n- **Date:** 2026-01-03\n')
+  const order = readDecisions(dir).map(d => d.file)
+  check('a legacy number of 2100 still lists before the dated records', same(order, ['0001-first.md', '0002-second.md', '2100-high.md', '20260105-third.md', '20260106-fourth.md']), JSON.stringify(order))
+  const third = join(decisions, '20260105-third.md')
+  writeFileSync(third, readFileSync(third, 'utf8').replace('- **Date:** 2026-01-05', '- **Date:** 2025-12-01'))
+  const ok = run('docs:check', dir, withoutCi)
+  check('numbered records dated before the first dated filename pass unwarned', ok.status === 0 && !ok.out.includes('numbered record dated'), ok.out)
+
+  writeFileSync(join(decisions, '0003-same-day.md'), '# 0003. Same day\n\n- **Status:** accepted\n- **Date:** 2026-01-05\n')
+  writeFileSync(join(decisions, '0004-late.md'), '# 0004. Late\n\n- **Status:** accepted\n- **Date:** 2026-01-06\n')
+  const late = run('docs:check', dir, withoutCi)
+  check('a numbered record dated after the first dated record is a warning, not an error', late.status === 0 && late.out.includes('docs/internal/decisions/0004-late.md: numbered record dated 2026-01-06, after the first dated record 20260105-third.md'), late.out)
+  check('a numbered record dated the day of the first dated record is not warned', !late.out.includes('0003-same-day.md: numbered record dated'), late.out)
+}
+
+// 16. A dated record named with today's local date passes in every timezone; two days ahead
+// is an error, not a warning, since the name is the record's ID for good; and a hyphenated
+// date in the name is an error that names the compact form.
+{
+  const dir = withoutRegions(fixture('clean'))
+  const decisions = join(dir, 'docs/internal/decisions')
+  const stamp = localToday.replaceAll('-', '')
+  writeFileSync(join(decisions, `${stamp}-today.md`), `# Today\n\n- **Status:** accepted\n- **Date:** ${localToday}\n`)
+  const ok = run('docs:check', dir, withoutCi)
+  check('a dated record named today passes', ok.status === 0, ok.out)
+  const ahead = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10).replaceAll('-', '')
+  writeFileSync(join(decisions, `${ahead}-ahead.md`), `# Ahead\n\n- **Status:** accepted\n- **Date:** ${localToday}\n`)
+  // The natural slip, a hyphenated date, has the legacy shape: named as a date to compact,
+  // never read as record 2026, and never told to take a `# 2026. Title` H1.
+  writeFileSync(join(decisions, '2026-01-07-hyphenated.md'), '# Hyphenated\n\n- **Status:** accepted\n- **Date:** 2026-01-07\n')
+  // A legacy name whose words read as a date of year 3 is still a legacy record.
+  writeFileSync(join(decisions, '0003-12-01-cutoff.md'), '# 0003. The 12-01 cutoff\n\n- **Status:** accepted\n- **Date:** 2026-01-03\n')
+  const bad = run('docs:check', dir, withoutCi)
+  check('a dated record named two days ahead fails', bad.status === 1 && bad.out.includes(`${ahead}-ahead.md: filename date ${ahead} is in the future`), bad.out)
+  check('a hyphenated date in the name is named with its compact form', bad.out.includes('docs/internal/decisions/2026-01-07-hyphenated.md: filename must be YYYYMMDD-kebab-title.md, the date without hyphens (20260107); as written it reads as legacy record 2026'), bad.out)
+  check('a hyphenated date in the name is reported once', bad.out.split('2026-01-07-hyphenated.md').length === 2, bad.out)
+  check('a legacy name with date-like words is not a hyphenated date', !bad.out.includes('0003-12-01-cutoff.md'), bad.out)
+}
+
+// 17. docs:list prints the lists read from the files: the decisions table in reading order
+// and the spec list, either alone, a plain line when there is nothing, usage on a bad argument.
+{
+  const dir = fixture('clean')
+  const rows = [
+    '| [0001](./0001-first.md) | First |',
+    '| [0002](./0002-second.md) | Second |',
+    '| [2026-01-05](./20260105-third.md) | Third |',
+    '| [2026-01-06](./20260106-fourth.md) | Fourth | accepted |',
+  ]
+  const all = run('docs:list', join(dir, 'docs'), withoutCi)
+  check('docs:list exits 0 from below the repository root', all.status === 0, all.out)
+  const at = rows.map(r => all.out.indexOf(r))
+  check('docs:list prints every record, legacy first, then oldest first', at.every((x, i) => x >= 0 && (i === 0 || x > at[i - 1]!)), all.out)
+  expectAll('docs:list', all.out, ['## Decisions (docs/internal/decisions/, oldest first)', '## Specs (docs/internal/specs/)', '### cli', '- [Hello](./cli/hello.md)'])
+  const specs = run('docs:list', dir, withoutCi, ['specs'])
+  check('docs:list specs prints the specs alone', specs.status === 0 && specs.out.includes('- [Hello](./cli/hello.md)') && !specs.out.includes('## Decisions'), specs.out)
+  const decisions = run('docs:list', dir, withoutCi, ['decisions'])
+  check('docs:list decisions prints the decisions alone', decisions.status === 0 && decisions.out.includes(rows[3]!) && !decisions.out.includes('## Specs'), decisions.out)
+  const bad = run('docs:list', dir, withoutCi, ['nope'])
+  check('docs:list rejects an unknown argument with usage', bad.status === 1 && bad.out.includes('usage: pnpm docs:list [decisions|specs]'), bad.out)
+
+  const empty = fixture('clean')
+  for (const sub of ['docs/internal/decisions', 'docs/internal/specs']) {
+    rmSync(join(empty, sub), { recursive: true, force: true })
+    mkdirSync(join(empty, sub))
+  }
+  const e = run('docs:list', empty, withoutCi)
+  check('docs:list says when there is nothing to list', e.status === 0 && e.out.includes('_No decisions yet._') && e.out.includes('_No specs yet._') && !e.out.includes('docs:gen'), e.out)
+}
+
+// 18. The property dated names exist for: two branches cut from the same commit, each adding
+// a record on the same day, merge into main with no conflict, and the result passes
+// docs:check. Git runs with an isolated config, and the inherited GIT_ variables are dropped
+// so a hook's GIT_DIR or GIT_INDEX_FILE cannot point it at the outer repository.
+{
+  const gitconfig = join(tmp, 'gitconfig')
+  writeFileSync(gitconfig, '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n[core]\n\tautocrlf = false\n')
+  const gitEnv: NodeJS.ProcessEnv = { ...Object.fromEntries(Object.entries(withoutCi).filter(([k]) => !k.toUpperCase().startsWith('GIT_'))), GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1' }
+  const git = (cwd: string, ...args: string[]): Run => {
+    const r = spawnSync('git', args, { cwd, env: gitEnv, encoding: 'utf8' })
+    return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? r.error.message : ''}` }
+  }
+  const stamp = localToday.replaceAll('-', '')
+  const record = (repo: string, slug: string, title: string): void => {
+    writeFileSync(join(repo, 'docs/internal/decisions', `${stamp}-${slug}.md`), `# ${title}\n\n- **Status:** accepted\n- **Date:** ${localToday}\n`)
+  }
+
+  const repo = withoutRegions(fixture('clean'))
+  const steps = [
+    git(repo, 'init', '-q', '-b', 'main'),
+    git(repo, 'add', '-A'),
+    git(repo, 'commit', '-q', '-m', 'base'),
+    git(repo, 'checkout', '-q', '-b', 'a'),
+  ]
+  record(repo, 'use-postgres', 'Use Postgres')
+  steps.push(git(repo, 'add', '-A'), git(repo, 'commit', '-q', '-m', 'a'), git(repo, 'checkout', '-q', '-b', 'b', 'main'))
+  record(repo, 'cache-with-redis', 'Cache with Redis')
+  steps.push(git(repo, 'add', '-A'), git(repo, 'commit', '-q', '-m', 'b'), git(repo, 'checkout', '-q', 'main'))
+  const failed = steps.find(s => s.status !== 0)
+  check('git builds two branches from one base', failed === undefined, failed?.out)
+  const first = git(repo, 'merge', '--no-ff', '-q', '-m', 'merge a', 'a')
+  const second = git(repo, 'merge', '--no-ff', '-q', '-m', 'merge b', 'b')
+  check('two branches that each add a dated record merge into main with no conflict', first.status === 0 && second.status === 0, `${first.out}${second.out}`)
+  const c = run('docs:check', repo, gitEnv)
+  check('the merged records pass docs:check', c.status === 0 && c.out.includes('✔ docs:check — 6 decision(s)'), c.out)
+  const l = run('docs:list', repo, gitEnv, ['decisions'])
+  expectAll('docs:list after the merge', l.out, [
+    `| [${localToday}](./${stamp}-cache-with-redis.md) | Cache with Redis | accepted |`,
+    `| [${localToday}](./${stamp}-use-postgres.md) | Use Postgres | accepted |`,
+  ])
 }
 
 if (fails.length > 0) {
