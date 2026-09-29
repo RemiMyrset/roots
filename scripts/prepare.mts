@@ -4,8 +4,9 @@
  * whose `.git` is a directory. A tarball install and a CI checkout without .git skip it
  * silently. A linked worktree, whose `.git` is a file, skips it with a note: its hooks are the
  * main checkout's, shared by every worktree, and simple-git-hooks would fail there writing to
- * `.git/hooks`. A submodule's `.git` is a file too, so it skips the same way. Behaves the same
- * on every platform, which the shell form `test -d .git && … || true` did not.
+ * `.git/hooks`. A submodule and a worktree of a bare repository have a `.git` file too, and no
+ * main checkout to install from, so the note says their hooks stay off. Behaves the same on
+ * every platform, which the shell form `test -d .git && … || true` did not.
  */
 import { execSync } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
@@ -14,5 +15,5 @@ if (existsSync('.git')) {
   if (statSync('.git').isDirectory())
     execSync('simple-git-hooks', { stdio: 'inherit' })
   else
-    console.log('prepare: git hooks not installed: .git is a file here, as in a linked worktree, whose hooks are the main checkout\'s (run pnpm install there).')
+    console.log('prepare: git hooks not installed: .git is a file here (a linked worktree or a submodule). Git runs the hooks in the directory `git rev-parse --git-common-dir` names; a linked worktree shares its main checkout\'s, so run pnpm install there. With no main checkout (a worktree of a bare repository, a submodule), they stay off.')
 }
