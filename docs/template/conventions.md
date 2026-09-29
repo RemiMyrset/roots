@@ -41,16 +41,15 @@ portability requirement. The choices, each with its why:
   append-only. Metadata is visible bold bullets because YAML frontmatter is
   invisible in VitePress and noisy on GitHub.
 - A decision is named `docs/internal/decisions/YYYYMMDD-kebab-title.md` after
-  the day it was created, with the title alone as its H1, and its ID is that
-  name without `.md`. MADR's `NNNN-` numbers need one party to hand them out,
-  and parallel branches have none, so two branches that each took the next
-  number collided. A date needs no counter; log4brains names records the same
-  way, and Rails migrations use a timestamp. The pull request number was
-  rejected because it is unknown while the record is written, a direct push
-  has none, and one pull request can hold two records. Numbering at merge was rejected because it
-  depends on someone remembering a step before every merge, and two merges
-  still race. Numbered records from before stay valid, are never renamed, and
-  list first.
+  the day it was created, with the title alone as its H1. MADR's `NNNN-`
+  numbers need one party to hand them out, and parallel branches have none, so
+  two branches that each took the next number collided. A date needs no
+  counter; log4brains names records the same way, and Rails migrations use a
+  timestamp. The pull request number was rejected because it is unknown while
+  the record is written, a direct push has none, and one pull request can hold
+  two records. Numbering at merge was rejected because it depends on someone
+  remembering a step before every merge, and two merges still race. Numbered
+  records from before stay valid, are never renamed, and list first.
 - Specs cover externally observable behavior under `docs/internal/specs/`, in
   the two kinds and under the three-place sync defined in
   [spec-discipline](./spec-discipline.md). A spec that lags its code misleads

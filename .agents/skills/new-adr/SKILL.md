@@ -8,11 +8,12 @@ description: Create a new decision record (MADR 4 minimal) named by today's date
 Create a decision record under `docs/internal/decisions/`.
 
 1. Name it `YYYYMMDD-kebab-title.md`: today's date with no hyphens
-   (`date +%Y%m%d` prints it), then a short declarative kebab title, for
-   example `20260929-use-postgres.md`. The date needs no counter, so records
-   written on parallel branches never collide. Never create a numbered
-   `NNNN-` name, even when the folder holds numbered records: those are
-   legacy, stay as they are, and collide across branches.
+   (`date +%Y%m%d` prints it; in PowerShell, `Get-Date -Format yyyyMMdd`),
+   then a short declarative kebab title, for example
+   `20260929-use-postgres.md`. The date needs no counter, so records written
+   on parallel branches never collide. Never create a numbered `NNNN-` name,
+   even when the folder holds numbered records: those are legacy, stay as they
+   are, and collide across branches.
 2. Copy `docs/internal/decisions/_template.md` to that name.
 3. Fill it in: the H1 is `# Title`, with no number or date; set
    `- **Status:**` (a decision being adopted now is `accepted`) and
@@ -29,9 +30,14 @@ Create a decision record under `docs/internal/decisions/`.
    then `pnpm docs:check`; both must pass.
 
 The filename date is the day the record was created and never changes, even
-when the Date bullet later moves to the day it was accepted. If merging the
-default branch reports an add/add conflict on this file, another branch wrote a
-record with the same name on the same day: the same decision, written twice.
-Merge the two into one record rather than renaming either.
+when the Date bullet later moves to the day it was accepted. A record written
+today about an older decision is still named for today; its Date bullet
+carries the older day.
+
+If merging the default branch reports an add/add conflict on this file,
+another branch wrote a record with the same name on the same day. When it is
+the same decision written twice, merge the two into one record; when the
+decisions differ, rename the one not yet on the default branch to a more
+specific title and keep its date.
 
 If the request names the decision topic, use it.

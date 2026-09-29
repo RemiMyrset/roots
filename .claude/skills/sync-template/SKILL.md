@@ -34,7 +34,10 @@ and the contract are in `docs/template/sync-template.md`.
 4. Breaking commits first. Every `!` line and its `BREAKING CHANGE` paragraph is
    an instruction for a hand-edit outside the synced paths: a
    `.claude/settings.json` entry, a devDependency, an orphan file to delete.
-   Apply each one, or tell the user why not.
+   Apply each one, or tell the user why not. When a hand-edit takes the
+   template's text for a file the sync does not stage, the sync has fetched
+   it: `git show template/<ref>:<path>` prints it (a pinned tag is
+   `refs/template-tags/<tag>:<path>`).
 5. Review the staged diff with `git diff --cached`. Deliberate local divergence
    in a synced file is normal: discard that path with
    `git restore --staged --worktree <path>`. A file of your own at a path the

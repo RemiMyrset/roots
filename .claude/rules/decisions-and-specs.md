@@ -16,5 +16,5 @@ When behavior changes, source, tests, and spec change in the same PR.
 
 New decision records are named `YYYYMMDD-kebab-title.md` with the title alone
 as the H1 (the `new-adr` skill); numbered `NNNN-` records are legacy and stay
-as they are. No committed file lists the records: the handbook sidebar and
-`pnpm docs:list` read them from the files. Validate with `pnpm docs:check`.
+as they are. The handbook sidebar and `pnpm docs:list` list the records, read
+from the files. Validate with `pnpm docs:check`.
