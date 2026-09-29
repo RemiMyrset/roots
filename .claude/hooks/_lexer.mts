@@ -141,7 +141,10 @@ const BEFORE_COMMAND: ReadonlySet<string> = new Set(['!', '{', 'if', 'elif', 'th
 // `script` records, once asked, whether a shell runs what the frame prints (feedsShell).
 // `test` is set inside `[[ … ]]`, and `paren` counts the open parentheses that belong to a word
 // or a `[[` expression (`@(a|b)`, `^(#|$)`) rather than to a subshell. `cmd` is set while the
-// next word stands where a command starts, where `[[`, `{`, and `}` are reserved words.
+// next word stands where a command starts, where `[[`, `{`, `}`, `case`, and `function` are
+// reserved words. `fn` is set after `function`, whose next word names the function. `cases`
+// counts the open `case` statements, `subject` the words left before their patterns (the tested
+// word, then `in`), and `pat` is set inside a pattern, which runs to its `)`.
 // `group` is the frame itself as a group of its parent (null for the input), `braces` the open
 // `{ … }` groups, `closed` the groups closed in the current segment, and `sinks` those whose
 // pipeline is still open. `joined` is set when the last segment ended in `|` or `|&`.
@@ -157,6 +160,10 @@ interface Frame {
   test: boolean
   paren: number
   cmd: boolean
+  fn: boolean
+  cases: number
+  subject: number
+  pat: boolean
   group: Group | null
   braces: Group[]
   closed: Group[]
@@ -244,7 +251,7 @@ function heredocEnd(s: string, k: number, h: Heredoc, close: Frame['close']): { 
 function lex(s: string, body: boolean): string[] {
   const out: string[] = []
   const frame = (close: Frame['close'], subst: boolean, arith: boolean, group: Group | null): Frame =>
-    ({ close, subst, arith, q: '', cur: '', brace: 0, pipe: out.length, here: [], test: false, paren: 0, cmd: true, group, braces: [], closed: [], sinks: [], joined: false })
+    ({ close, subst, arith, q: '', cur: '', brace: 0, pipe: out.length, here: [], test: false, paren: 0, cmd: true, fn: false, cases: 0, subject: 0, pat: false, group, braces: [], closed: [], sinks: [], joined: false })
   const stack: Frame[] = [frame('', false, false, null)]
   let f = stack[0]!
   if (body)
@@ -282,6 +289,7 @@ function lex(s: string, body: boolean): string[] {
     f.cur = ''
     f.lead = undefined
     f.cmd = true
+    f.fn = false
     for (const g of f.closed) {
       g.from = out.length
       f.sinks.push(g)
@@ -299,13 +307,15 @@ function lex(s: string, body: boolean): string[] {
     f.sinks = []
     f.pipe = out.length
   }
-  // A word ends. At a command start, `[[` opens a conditional, `{` a group, and `}` closes one;
-  // inside `[[ … ]]`, `]]` closes it. Only the last seven characters are read (no reserved word
-  // is longer), so a long segment stays linear.
+  // A word ends. At a command start, `[[` opens a conditional, `{` a group, `}` closes one, and
+  // `case` a case statement; inside `[[ … ]]`, `]]` closes it. The word after `function` names a
+  // function, so its body starts a new command, as the list after a case pattern does. Only the
+  // last nine characters are read (no reserved word is longer than `function`), so a long
+  // segment stays linear.
   const endWord = (): void => {
-    const tail = f.cur.slice(-7)
+    const tail = f.cur.slice(-9)
     const at = Math.max(tail.lastIndexOf(' '), tail.lastIndexOf('\t'), tail.lastIndexOf('\n'))
-    const w = at < 0 && f.cur.length > 7 ? '\0' : tail.slice(at + 1)
+    const w = at < 0 && f.cur.length > 9 ? '\0' : tail.slice(at + 1)
     if (w === '')
       return
     if (f.test) {
@@ -314,6 +324,33 @@ function lex(s: string, body: boolean): string[] {
         f.paren = 0
         f.cmd = false
       }
+      return
+    }
+    if (f.fn) {
+      cut()
+      return
+    }
+    if (f.subject > 0) {
+      f.subject--
+      f.pat = f.subject === 0
+      return
+    }
+    if (f.pat || (f.cmd && f.cases > 0 && w === 'esac')) {
+      if (w === 'esac') {
+        f.cases--
+        f.pat = false
+        f.cmd = false
+      }
+      return
+    }
+    if (f.cmd && w === 'case') {
+      f.cases++
+      f.subject = 2
+      f.cmd = false
+      return
+    }
+    if (f.cmd && w === 'function') {
+      f.fn = true
       return
     }
     if (f.cmd && w === '[[')
@@ -389,6 +426,26 @@ function lex(s: string, body: boolean): string[] {
     // bash reads a parameter expansion up to its `}`, so a `(` or `)` in it is text (`${x//(/}`).
     if ((c === '(' || c === ')') && f.brace > 0) { f.cur += c; ws = false; continue }
     if (c === '(') {
+      // A case pattern may open with a `(`, which is text; one glued to a word is an extglob's.
+      if (f.pat) {
+        if (!/\s/.test(s[n - 1] ?? ' '))
+          f.paren++
+        f.cur += c
+        ws = false
+        continue
+      }
+      // A function header (`f()`, `f ()`, `function f()`) ends where its body, a new command,
+      // starts. Outside one, an empty `( )` is a syntax error bash never runs.
+      if (!f.test && !f.arith && f.paren === 0) {
+        let k = n + 1
+        while (s[k] === ' ' || s[k] === '\t') k++
+        if (s[k] === ')' && (/[ \t]/.test(s[n - 1] ?? ' ') || (f.cmd && glued(n)))) {
+          f.cur += s.slice(n, k + 1)
+          n = k
+          cut()
+          continue
+        }
+      }
       // Inside `[[ … ]]` a `(` groups, except a process substitution (`<(…)`), which runs.
       if ((f.test || f.paren > 0) ? !/[<>]/.test(s[n - 1] ?? '') : glued(n)) { f.paren++; f.cur += c; ws = false; continue }
       open(')', false, f.arith || s[n + 1] === '(')
@@ -397,6 +454,13 @@ function lex(s: string, body: boolean): string[] {
     if (c === ')') {
       endWord()
       if (f.paren > 0) { f.paren--; f.cur += c; ws = false; continue }
+      // A case pattern ends at its `)`, and the commands after it start a new segment.
+      if (f.pat) {
+        f.pat = false
+        f.cur += c
+        cut()
+        continue
+      }
       if (f.close === ')') { pop(); continue }
     }
     // A comment runs to the end of the line; inside backticks, to the closing backtick. Inside
@@ -481,6 +545,8 @@ function lex(s: string, body: boolean): string[] {
       }
       continue
     }
+    // In a case pattern, `|` separates alternatives (`a|b)`).
+    if (c === '|' && f.pat) { f.cur += c; ws = false; continue }
     if (c === ';' || c === '&' || c === '|') {
       endWord()
       cut()
@@ -488,6 +554,9 @@ function lex(s: string, body: boolean): string[] {
       f.joined = (c === '|' && s[n + 1] !== '|' && s[n - 1] !== '|') || (c === '&' && s[n - 1] === '|')
       if (!f.joined)
         endPipe()
+      // `;;`, `;&`, and `;;&` end a case arm, so a pattern follows.
+      if (f.cases > 0 && c === ';' && (s[n - 1] === ';' || s[n + 1] === '&'))
+        f.pat = true
       continue
     }
     if (c === ' ' || c === '\t')

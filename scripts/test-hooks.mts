@@ -565,6 +565,26 @@ const CASES: Case[] = [
   { guard: 'deny-build-scripts.mts', expect: D, cmd: '[[ -n x ]]>/dev/null; (pnpm approve-builds)' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{ cat <<\'EOF\'\nnpm install\nEOF\n}</dev/null | bash' }, // `}<in` closes the group
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{</dev/null cat <<\'EOF\'\nnpm install\nEOF\n} | bash' }, // `{<in` opens one
+  // A function body and a case arm are commands: a new segment starts after the function header
+  // and after each pattern's `)`.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'f(){ npm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'f() { npm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'f () { npm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'function f() { npm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'function f () { npm install; }; f' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'function show { cat .env; }; show' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in (a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in b|a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in b) :;; a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in a) :;& b) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case a\nin a) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'shopt -s extglob\ncase $1 in !(b)) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case a in a) case b in b) :;; esac;; c) npm install;; esac' },
+  { guard: P, expect: D, cmd: 'case $1 in\n  a) git push origin main;;\nesac' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'case "$1" in -h|--help) echo usage;; *) pnpm run "$1";; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'f() { pnpm install; }; f' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'arr=(); pnpm install' },
   // A `(` or `)` inside `${…}` is text: it neither groups nor closes a substitution.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `y=\${x//(/}; (npm install)` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `y=\${x%(*}; (npm install)` },
@@ -960,6 +980,8 @@ const BUDGET: Record<string, string> = {
   '2000 substitutions with a heredoc': `bash x.sh "${'$(cat <<A\nA\n)'.repeat(2000)}"`,
   '50k glued parentheses': `echo ${'@('.repeat(50_000)}`,
   '20k conditionals': `${'[[ a ]] && '.repeat(20_000)}true`,
+  '20k function headers': `${'f() { :; }; '.repeat(20_000)}f`,
+  '20k case arms': `case x in ${'a|b) :;; '.repeat(20_000)}esac`,
   '5000 heredocs in nested groups': `${'{ cat <<A\nA\n'.repeat(5000)}${'}\n'.repeat(5000)}`,
   '2000 heredocs in nested substitutions': `echo ${'"$(cat <<A\nA\n'.repeat(2000)}${')"'.repeat(2000)} | cat`,
   '5000 heredocs in a continued pipeline': `${'cat <<A |\nA\n'.repeat(5000)}cat`,
