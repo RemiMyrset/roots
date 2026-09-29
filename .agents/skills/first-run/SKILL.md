@@ -22,8 +22,8 @@ calls. Ask before any step whose input you would otherwise have to invent.
    licence holder is `gh api user -q .name`, else `git config user.name`.
    `gh api repos/<owner>/<repo> --jq '.owner.type, .visibility'` prints
    whether the owner is a `User` or an `Organization` and whether the
-   repository is `public`, `private`, or `internal`; without `gh`, ask. Then ask, never
-   invent:
+   repository is `public`, `private`, or `internal`; without `gh`, ask. Then
+   ask, never invent:
    - the one-line pitch; offer `gh repo view --json description -q .description`
      if it is set;
    - the licence: keep MIT, another licence, or none;
@@ -55,8 +55,8 @@ calls. Ask before any step whose input you would otherwise have to invent.
      Another licence: replace the file with
      `gh api licenses/<key> --jq .body` (`gh api licenses --jq '.[].key'`
      lists the keys), fill in its year and holder placeholders, and name it
-     in the `## License` line of `README.md`. None: delete `LICENSE` and the
-     `## License` section of `README.md`.
+     in the link under `## License` in `README.md`. None: delete `LICENSE`
+     and the `## License` section of `README.md`.
    - `.github/CODEOWNERS`: the whole file becomes two lines, the comment
      `# Default reviewers for every path. Later rows override earlier ones; add path-specific owners below.`
      and `* @<owner>` for a user, or `*` followed by the handles the user

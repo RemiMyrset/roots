@@ -30,12 +30,13 @@ same reader, so the two cannot drift.
 Both files are synced: an edit to either is staged for revert on every sync.
 Write your generator in a file of your own under `scripts/docs/` that the
 template does not ship, such as `scripts/docs/project-generators.mts`; the
-sync leaves such a file alone, and it may import the readers. Register it in
-`automd.config.ts`, which is yours unless you list it under `include`, and add
-the marker pair to a page under `docs/`, the only place automd looks. automd
-also ships the built-ins `file` (inline a file), `dir-tree`, and `fetch`. The
-drift gate in `pnpm verify` and CI keeps such a region current;
-`pnpm docs:check` checks only its shape.
+sync leaves such a file alone, and it may import the readers.
+
+Register it in `automd.config.ts`, which is yours unless you list it under
+`include`, and add the marker pair to a page under `docs/`, the only place
+automd looks. automd also ships the built-ins `file` (inline a file),
+`dir-tree`, and `fetch`. The drift gate in `pnpm verify` and CI keeps such a
+region current; `pnpm docs:check` checks only its shape.
 
 A region is opt-in, and the template's own index pages carry none;
 [conventions](./conventions.md) says why. A page may keep the

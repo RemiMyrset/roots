@@ -15,14 +15,16 @@ Work on a branch such as `chore/update-deps`, cut from an up-to-date default
 branch with a clean tree.
 
 1. List. `pnpm outdated -r` prints every dependency with a newer release, with
-   its current and latest version. Note each one whose latest is a new major.
+   its current and latest version. Note each one whose latest is outside its
+   catalog range: a new major, or a new minor of a `0.x` package. Step 5
+   calls both majors.
 2. Raise the catalog ranges. `pnpm update -r` moves every range in the
-   `catalog:` block of `pnpm-workspace.yaml` up to the newest release within
-   its major and refreshes the lockfile. Then run `pnpm lint:fix`: an updated
-   lint config can bring rules that reorder `pnpm-workspace.yaml` or add a
-   setting. Review that diff, keep each comment above the key it explains, and
-   leave the `allowBuilds` entries as they are; each is a human verdict.
-   Commit.
+   `catalog:` block of `pnpm-workspace.yaml` up to the newest release the
+   range allows and refreshes the lockfile. Then run `pnpm lint:fix`: an
+   updated lint config can bring rules that reorder `pnpm-workspace.yaml` or
+   add a setting. Review that diff, keep each comment above the key it
+   explains, and leave the `allowBuilds` entries as they are; each is a human
+   verdict. Commit.
 3. Audit. `pnpm audit` lists the known advisories. `pnpm audit --fix update`
    moves the lockfile to fixed versions within the ranges. Where no such
    release exists, a forced version (`pnpm audit --fix override`) is the last
@@ -30,8 +32,10 @@ branch with a clean tree.
 4. Refresh the action pins. Each `uses:` in `.github/workflows/` names a full
    commit SHA with the release in a trailing comment. For each
    `<owner>/<repo>`:
-   - the latest release: `gh api repos/<owner>/<repo>/releases/latest --jq .tag_name`
-   - its commit: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`
+   - its releases, newest first:
+     `gh api repos/<owner>/<repo>/releases --jq '.[] | select(.prerelease | not) | .tag_name'`;
+     take the newest in the pinned major, and leave a newer major to step 5
+   - that tag's commit: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`
    - its own manifest: `gh api -H "Accept: application/vnd.github.raw" "repos/<owner>/<repo>/contents/action.yml?ref=<sha>"`
      (`action.yaml` in some repositories; an action in a subdirectory keeps it
      there).
@@ -41,7 +45,7 @@ branch with a clean tree.
    refuses every workflow that calls it. Otherwise replace the SHA and set the
    comment to the exact tag (`# v6.1.0`, never `# v6`). Commit.
 5. Majors, npm and actions alike, go in their own commit, one per major, after
-   reading its release notes or changelog for breaking changes. For a package,
+   reading the release notes or changelog for breaking changes. For a package,
    edit its range in the catalog (`^9.0.0` becomes `^10.0.0`), run
    `pnpm install`, and make the code changes it needs in the same commit.
    `@types/node` stays on the node major in `.node-version`. A major that
