@@ -30,17 +30,18 @@ with an unquoted delimiter (`<<EOF`) too, while single-quoted text, a `#`
 comment, and a heredoc body are data, so a quote inside them cannot hide a
 later line. A `#` opens a comment only where bash reads one: at a line start
 or after a space or a tab, never after another space-like byte (a no-break
-space, CR) and never inside `[[ … ]]` or a word's own parentheses
-(`@(#|a)`, `^(#|$)`).
+space, CR) and never inside `[[ … ]]`, `${…}`, or a word's own parentheses
+(`@(#|a)`, `^(#|$)`). A function body and a case arm start a command, as a new
+line does (`f() { …; }`, `case $1 in a) …;; esac`).
 
 A heredoc body a shell reads is lexed as commands: one whose pipeline reaches a
 shell (`bash <<'EOF'`, `cat <<'EOF' | sh`), also on the line after the body
 when a line ends in `|`, one in a group piped to a shell
-(`{ cat <<'EOF' … } | bash`), one fed to `sudo -s`, `sudo -i`, `su`, or
-`busybox sh`, and one in a substitution a shell runs as its script, reads as a
-here-string, or runs under `-c` or `eval` (`bash <(cat <<'EOF' …)`). A
-substitution passed to a script as an argument (`bash x.sh "$(cat <<'EOF' …)"`)
-stays data.
+(`{ cat <<'EOF' … } | bash`), one fed to `sudo -s`, `sudo -i`, `su`,
+`busybox sh`, or a less common shell (`rbash`, `yash`, `tcsh`), and one in a
+substitution a shell runs as its script, reads as a here-string, or runs under
+`-c` or `eval` (`bash <(cat <<'EOF' …)`). A substitution passed to a script as
+an argument (`bash x.sh "$(cat <<'EOF' …)"`) stays data.
 
 ## Registration
 
@@ -61,11 +62,11 @@ when the hook input is not a payload with a string `tool_input.command`
 five seconds. A dispatcher that cannot start (node missing or too old to run
 `.mts`, a file that fails to load) denies as well, because each registration
 maps that failure to exit 2
-([agent-surfaces](./agent-surfaces.md#trust-and-registration) shows how); a
-missing pnpm still fails open under Codex and Gemini, whose registrations run
-through it. The one shape without a command that passes is a Monitor call
-that opens a WebSocket (`tool_input.ws`), which runs no shell and has its own
-approval prompt. One process, not one per guard, keeps a shell call's overhead
+([agent-surfaces](./agent-surfaces.md#trust-and-registration) shows how). A
+missing pnpm still fails open under Codex, and under Gemini on Windows, whose
+registrations run through it. The one shape without a command that passes is a
+Monitor call that opens a WebSocket (`tool_input.ws`), which runs no shell and
+has its own approval prompt. One process, not one per guard, keeps a shell call's overhead
 near node's own startup. Node builtins only, so the guards work
 before `pnpm install` and in any repo they are synced into.
 
@@ -93,7 +94,8 @@ lexer is bash-shaped, so PowerShell spellings are covered only where they
 coincide (`npm install`, `cat .env`, `git push origin main`).
 
 Also out of scope: long or clustered wrapper flags (`sudo --user root`,
-`env --chdir /x`, `sudo -iu root`), an implicit push target git resolves in
+`env --chdir /x`, `sudo -iu root`), a quoted command path with a space in it
+(`"C:\Program Files\nodejs\npm.cmd"`), an implicit push target git resolves in
 another checkout or under another name (`git -C`, `--git-dir`, Gemini's
 `dir_path`, `push.default=upstream`), a hooks path set through `GIT_CONFIG_*`
 variables, and Gemini's own file tools (`read_file`, `grep_search`), which run

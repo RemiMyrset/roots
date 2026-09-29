@@ -1048,8 +1048,8 @@ for (const c of CASES) {
     fails.push(`[${c.guard}] got ${got}${why ? ` (${why})` : ''}, want ${c.expect}: ${c.cmd}`)
 }
 
-// A dispatcher that cannot start must still deny: every harness blocks only on exit 2 and runs
-// the tool call on any other failure. Node told not to strip types fails the way a node too old
+// A dispatcher that cannot start must still deny: no harness blocks on exit 1, and Claude Code
+// and Codex block only on exit 2, so any other failure runs the tool call. Node told not to strip types fails the way a node too old
 // for .mts does, an empty project directory stands in for a missing file, and a PATH without
 // node for a missing node. Each registration runs the way its harness runs it: Claude Code hands
 // its command to sh, or to PowerShell when Git Bash is missing, after putting the project path

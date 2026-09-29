@@ -51,16 +51,24 @@ Claude Code 2.1.198 and later rewrite only that spelling for PowerShell, which
 reads a bare `$CLAUDE_PROJECT_DIR` as empty and would leave the hook failing
 open.
 
-Every harness blocks only on exit 2, so both commands turn a dispatcher that
-cannot start into exit 2. The script ends in `|| exit 2`, which pnpm's shell
-emulator runs on every OS. The Claude Code command ends in
-`; exit $((2*!!($true-$?)))`, which bash reads as arithmetic and PowerShell as
-a subexpression: 0 after a clean run, 2 after anything else.
+Claude Code and Codex block only on exit 2, and Gemini on any exit but 0 and 1,
+so both commands turn a dispatcher that cannot start into exit 2. The script
+ends in `|| exit 2`, which pnpm's shell emulator runs on every OS. The Claude
+Code command ends in `; exit $((2*!!($true-$?)))`, which bash reads as
+arithmetic and PowerShell as a subexpression: 0 after a clean run, 2 after
+anything else.
 
 PowerShell needs that tail even for an ordinary deny: it exits 1 whenever its
 last command failed, whatever the code. `|| exit 2` cannot replace it, because
 PowerShell 7 runs an `exit` after `||` as a program name and Windows
 PowerShell 5.1 has no `||`.
+
+A missing pnpm never reaches the script's `|| exit 2`. Gemini on Linux and
+macOS still blocks on the shell's exit 127, but Codex lets the call through,
+and so does Gemini on Windows, whose own
+`; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }` suffix exits 0 after a
+command that was not found. Which shell Codex runs a hook in on Windows is
+unverified; if it is PowerShell, an ordinary deny exits 1 there and passes too.
 
 ## Skills mirror
 
