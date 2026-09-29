@@ -14,7 +14,9 @@ ways an agent would run a banned package manager, enable a dependency build
 script, read a secret file, push to a protected branch, or skip the git hooks.
 
 What they cover reliably is the direct and common wrapped forms: bare and
-path-prefixed commands, standard wrappers (`sudo`, `env`, `nice`, `timeout`,
+path-prefixed commands in any case, with or without a Windows launcher suffix
+(`npm.cmd`, `bash.exe`) or a version (`corepack yarn@1`), standard wrappers
+(`sudo`, `env`, `nice`, `timeout`,
 `flock`, `xargs`, `mise x` / `mise exec`, …) with their ordinary flags,
 `pnpm exec` / `dlx` / `x` unwrapping, `;` / `&&` / `|` / `$()` separators, glued redirects,
 and quoted paths with either separator (`'C:\repo\.env'`). A
@@ -29,10 +31,16 @@ comment, and a heredoc body are data, so a quote inside them cannot hide a
 later line. A `#` opens a comment only where bash reads one: at a line start
 or after a space or a tab, never after another space-like byte (a no-break
 space, CR) and never inside `[[ … ]]` or a word's own parentheses
-(`@(#|a)`, `^(#|$)`). A body a shell reads (`bash <<'EOF'`, `cat <<'EOF' | sh`) is lexed
-as commands, and so is one inside a substitution a shell runs as its script,
-under `-c`, or under `eval` (`bash <(cat <<'EOF' …)`). A substitution passed to
-a script as an argument (`bash x.sh "$(cat <<'EOF' …)"`) stays data.
+(`@(#|a)`, `^(#|$)`).
+
+A heredoc body a shell reads is lexed as commands: one whose pipeline reaches a
+shell (`bash <<'EOF'`, `cat <<'EOF' | sh`), also on the line after the body
+when a line ends in `|`, one in a group piped to a shell
+(`{ cat <<'EOF' … } | bash`), one fed to `sudo -s`, `sudo -i`, `su`, or
+`busybox sh`, and one in a substitution a shell runs as its script, reads as a
+here-string, or runs under `-c` or `eval` (`bash <(cat <<'EOF' …)`). A
+substitution passed to a script as an argument (`bash x.sh "$(cat <<'EOF' …)"`)
+stays data.
 
 ## Registration
 

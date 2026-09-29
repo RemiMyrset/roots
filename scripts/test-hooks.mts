@@ -87,6 +87,21 @@ function monitor(input: Record<string, unknown>, tool = 'Monitor'): string {
 
 const CASES: Case[] = [
   // --- deny-non-pnpm: this repo is pnpm-only ---------------------------------
+  // Windows launchers, any case, and a corepack or dlx version name the same program.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm.cmd install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'NPM install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'yarn.cmd add foo' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bun.exe install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm.ps1 install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '\'C:\\nodejs\\npm.cmd\' install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'corepack yarn@1 add foo' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm dlx npm@10 install' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm.cmd approve-builds' },
+  { guard: P, expect: D, cmd: 'git.exe push origin main' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'CAT .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'busybox cat .env' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pnpm.cmd install' },
+  { guard: P, expect: A, cmd: 'git.exe push origin feat/x' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '/usr/bin/npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'yarn add foo' },
@@ -510,6 +525,28 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF\nrun `npm install` first\nEOF' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat <<EOF\nrun \\`npm install\\` first, it\'s $HOME\nEOF' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'source .venv/bin/activate && cat > notes.md <<\'EOF\'\nnpm install\nEOF' }, // the shell is not in its pipeline
+  // A pipeline that continues after a line ending in `|`, or a group piped on, reaches a shell
+  // after the body; a launcher with no command starts one that reads it.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF |\nnpm install\nEOF\nbash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\' | # to a shell\nnpm install\nEOF\nbash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{ cat <<EOF\nnpm install\nEOF\n} | bash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '( cat <<EOF\nnpm install\nEOF\n) | bash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{ cat <<EOF; } | bash\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo "$(cat <<\'EOF\'\nnpm install\nEOF\n)" | bash' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash <<< "$(cat <<\'EOF\'\nnpm install\nEOF\n)"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'sudo -s <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'sudo -i <<\'EOF\'\ncat .env\nEOF' },
+  { guard: P, expect: D, cmd: 'su <<\'EOF\'\ngit push origin main\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'sudo su <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'doas -s <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'busybox sh <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'ash <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash.exe <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat <<EOF &&\nnpm install\nEOF\nbash' }, //        `&&` ends the pipeline: cat prints it
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat > notes.md <<\'EOF\'\nnpm install\nEOF\nbash scripts/x.sh' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '{ cat <<\'EOF\'\nnpm install\nEOF\n} > notes.md; bash x.sh' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'git commit -F - <<\'EOF\' && bash scripts/after.sh\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'sudo tee /etc/app.conf <<\'EOF\'\nnpm install\nEOF' },
   // A substitution a shell runs as its script, or under `-c` or `eval`, reads its heredoc as
   // commands; one handed to a shell script as an argument is data.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash <(cat <<\'EOF\'\nnpm install\nEOF\n)' },
@@ -674,6 +711,10 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: 'mise exec -E prod -j 4 -- npm i', head: 'npm' },
   { cmd: 'mise x -C npm -- pnpm i', head: 'npm' }, //           a value that is a banned head is not consumed
   { cmd: 'cat \'C:\\repo\\.env\'', head: 'cat' },
+  { cmd: 'npm.cmd install', head: 'npm' }, //                  launcher suffix stripped
+  { cmd: '\'C:\\nodejs\\NPM.EXE\' i', head: 'npm' }, //         either separator, any case
+  { cmd: 'corepack yarn@1 add x', head: 'yarn' }, //           version suffix stripped
+  { cmd: 'busybox sh -s', head: 'sh' }, //                     busybox runs its applet
 ]
 
 // The session-start hook prints the writing rules as SessionStart context for Codex and
@@ -838,6 +879,9 @@ const BUDGET: Record<string, string> = {
   '2000 substitutions with a heredoc': `bash x.sh "${'$(cat <<A\nA\n)'.repeat(2000)}"`,
   '50k glued parentheses': `echo ${'@('.repeat(50_000)}`,
   '20k conditionals': `${'[[ a ]] && '.repeat(20_000)}true`,
+  '5000 heredocs in nested groups': `${'{ cat <<A\nA\n'.repeat(5000)}${'}\n'.repeat(5000)}`,
+  '2000 heredocs in nested substitutions': `echo ${'"$(cat <<A\nA\n'.repeat(2000)}${')"'.repeat(2000)} | cat`,
+  '5000 heredocs in a continued pipeline': `${'cat <<A |\nA\n'.repeat(5000)}cat`,
 }
 for (const [name, cmd] of Object.entries(BUDGET)) {
   const started = performance.now()

@@ -18,6 +18,7 @@ export const WRAP: ReadonlySet<string> = new Set([
   'sudo', 'doas', 'runuser', 'env', 'command', 'exec', 'eval', 'time', 'timeout', 'nice',
   'ionice', 'taskset', 'chrt', 'nohup', 'setsid', 'stdbuf', 'unbuffer', 'flock', 'xargs',
   'then', 'do', 'else', 'elif', 'if', 'while', 'until', '!', 'builtin', 'corepack', 'mise',
+  'busybox',
 ])
 
 // pnpm global flags that take a separate value (between `pnpm` and its subcommand).
@@ -68,8 +69,15 @@ export function unquote(t: string): string {
   return t.replace(/['"]/g, '')
 }
 
+/**
+ * The command name a word runs, as the guards compare it: quotes and directories (either
+ * separator) dropped, lowercased, and a Windows launcher suffix (`.exe`, `.cmd`, `.bat`,
+ * `.ps1`) and an `@version` suffix (`corepack yarn@1`) stripped, so `NPM`, `npm.cmd`, and
+ * `C:\nodejs\npm.exe` all name npm.
+ */
 export function base(t: string): string {
-  return unquote(t).split('/').pop() ?? ''
+  const name = (unquote(t).split(/[/\\]/).pop() ?? '').toLowerCase()
+  return name.replace(/\.(?:exe|cmd|bat|ps1)$/, '').replace(/(?<=.)@[^@]*$/, '')
 }
 
 // Would consuming `tok` as a wrapper positional / value-flag argument hide a command the guards
@@ -95,14 +103,34 @@ export function skip(t: string): boolean {
 export const SUBST = '$()'
 
 // Heads that run a heredoc body as shell commands, so that body is lexed like the command line.
-const SHELLS: ReadonlySet<string> = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'mksh', 'fish', 'pwsh', 'powershell', 'source', '.'])
+const SHELLS: ReadonlySet<string> = new Set(['bash', 'sh', 'ash', 'zsh', 'dash', 'ksh', 'mksh', 'fish', 'pwsh', 'powershell', 'su', 'source', '.'])
+
+// Whether a command starts a shell that reads its stdin as commands: a shell head (`bash`,
+// `busybox sh`, `sudo su`), or `sudo -s`, `sudo -i`, or `doas -s` with no command after them.
+function startsShell(toks: string[]): boolean {
+  const argv = withoutRedirects(toks)
+  const { i, head } = resolveHead(argv)
+  if (SHELLS.has(head))
+    return true
+  if (i < argv.length)
+    return false
+  let wrap = ''
+  for (const t of argv) {
+    const flag = unquote(t)
+    if (WRAP.has(base(t)))
+      wrap = base(t)
+    else if (wrap === 'sudo' && /^(?:-[A-Za-z]*[is][A-Za-z]*|--shell|--login)$/.test(flag))
+      return true
+    else if (wrap === 'doas' && /^-[A-Za-z]*s[A-Za-z]*$/.test(flag))
+      return true
+  }
+  return false
+}
 
 // Reserved words a command can follow, so a `(` glued to one still opens a subshell
 // (`if(npm i)`, `{(npm i)}`). A `(` glued to any other word is part of that word, as in an
 // extglob (`@(a|b)`) or a `[[ =~ ]]` regex (`^(#|$)`), or a syntax error bash never runs.
 const BEFORE_COMMAND: ReadonlySet<string> = new Set(['!', '{', 'if', 'elif', 'then', 'else', 'while', 'until', 'do', 'time', 'coproc'])
-// `[[` opens a conditional only where a command starts: first, or after those reserved words.
-const TEST_START = /^\s*(?:(?:!|\{|if|elif|then|else|while|until|do|time)\s+)*\[\[$/
 
 // One command context: the input itself, a `(` subshell, or a `$(` / backtick substitution.
 // `q` is the quote state inside it: `"`, `'`, `$` (ANSI-C `$'…'`), or `h` (the body of a
@@ -111,12 +139,41 @@ const TEST_START = /^\s*(?:(?:!|\{|if|elif|then|else|while|until|do|time)\s+)*\[
 // `here` holds the heredocs of that pipeline. `lead` caches leadOf(cur) once it is final, and
 // `script` records, once asked, whether a shell runs what the frame prints (feedsShell).
 // `test` is set inside `[[ … ]]`, and `paren` counts the open parentheses that belong to a word
-// or a `[[` expression (`@(a|b)`, `^(#|$)`) rather than to a subshell.
-interface Frame { close: '' | ')' | '`', subst: boolean, arith: boolean, q: '' | '"' | '\'' | '$' | 'h', cur: string, brace: number, pipe: number, here: Heredoc[], test: boolean, paren: number, lead?: Lead | undefined, script?: boolean }
-// A heredoc waiting for its body, and the output range of the pipeline that owns it (`to` is
-// -1 while that pipeline is open): a shell head in that range reads the body as commands, and
-// so does a shell that runs the frame it sits in (`script`).
-interface Heredoc { delim: string, strip: boolean, quoted: boolean, from: number, to: number, script: boolean }
+// or a `[[` expression (`@(a|b)`, `^(#|$)`) rather than to a subshell. `cmd` is set while the
+// next word stands where a command starts, where `[[`, `{`, and `}` are reserved words.
+// `group` is the frame itself as a group of its parent (null for the input), `braces` the open
+// `{ … }` groups, `closed` the groups closed in the current segment, and `sinks` those whose
+// pipeline is still open. `joined` is set when the last segment ended in `|` or `|&`.
+interface Frame {
+  close: '' | ')' | '`'
+  subst: boolean
+  arith: boolean
+  q: '' | '"' | '\'' | '$' | 'h'
+  cur: string
+  brace: number
+  pipe: number
+  here: Heredoc[]
+  test: boolean
+  paren: number
+  cmd: boolean
+  group: Group | null
+  braces: Group[]
+  closed: Group[]
+  sinks: Group[]
+  joined: boolean
+  lead?: Lead | undefined
+  script?: boolean
+}
+// A heredoc, the output range of the pipeline that owns it (`to` is -1 while that pipeline is
+// open), its body once read, and the innermost group around it. A shell head in that range
+// reads the body as commands, and so does a shell that runs the frame it sits in (`script`),
+// or a shell in a later stage of the pipeline that carries any group around it.
+interface Heredoc { delim: string, strip: boolean, quoted: boolean, from: number, to: number, script: boolean, group: Group | null, body?: string }
+// A `{ … }` group or a nested frame, whose output flows on through the pipeline holding it:
+// [from, to) are the segments of that pipeline after the one holding the group (-1 until
+// known), and `up` is the group around this one. `reaches` records, once worked out, whether a
+// shell follows this group or any group around it.
+interface Group { from: number, to: number, up: Group | null, reaches?: boolean }
 
 // What a command does with the text of a substitution in it, read from its leading words:
 // `shell` when a shell heads it, `runs` when it runs a command string (`eval`, a shell's `-c`).
@@ -146,8 +203,9 @@ function leadOf(cur: string): Lead {
 
 // Whether a shell runs what `child` prints as commands, judged by the parent's command before
 // the child opened: a process substitution handed to a shell as its script (`bash <(…)`,
-// `source <(…)`), or a substitution under `eval` or a shell's `-c`. One passed to a shell as
-// a plain argument (`bash x.sh "$(…)"`) is data the script receives.
+// `source <(…)`), a substitution in a shell's here-string (`bash <<< "$(…)"`), or one under
+// `eval` or a shell's `-c`. One passed to a shell as a plain argument (`bash x.sh "$(…)"`) is
+// data the script receives.
 function feedsShell(parent: Frame, child: Frame): boolean {
   let lead = parent.lead
   if (!lead) {
@@ -155,7 +213,7 @@ function feedsShell(parent: Frame, child: Frame): boolean {
     if (lead.final)
       parent.lead = lead
   }
-  return lead.runs || (lead.shell && !child.subst && parent.cur.endsWith('<'))
+  return lead.runs || (lead.shell && ((!child.subst && parent.cur.endsWith('<')) || /<<<\s*"?$/.test(parent.cur)))
 }
 
 // A heredoc body ends at its delimiter line (leading tabs dropped for `<<-`). Inside `$(`, a
@@ -184,15 +242,20 @@ function heredocEnd(s: string, k: number, h: Heredoc, close: Frame['close']): { 
 // delimiter: only the substitutions in it are commands, and the text itself is dropped.
 function lex(s: string, body: boolean): string[] {
   const out: string[] = []
-  const stack: Frame[] = [{ close: '', subst: false, arith: false, q: body ? 'h' : '', cur: '', brace: 0, pipe: 0, here: [], test: false, paren: 0 }]
+  const frame = (close: Frame['close'], subst: boolean, arith: boolean, group: Group | null): Frame =>
+    ({ close, subst, arith, q: '', cur: '', brace: 0, pipe: out.length, here: [], test: false, paren: 0, cmd: true, group, braces: [], closed: [], sinks: [], joined: false })
+  const stack: Frame[] = [frame('', false, false, null)]
   let f = stack[0]!
+  if (body)
+    f.q = 'h'
   let ws = true // at the start of a word, where `#` opens a comment
   let op = false // the last character was an unquoted `<` or `>`, so a `&` or `|` extends it
-  const pending: Heredoc[] = []
+  const pending: Heredoc[] = [] // heredocs whose body starts at the next newline
+  const bodies: Heredoc[] = [] // heredocs whose body is read, judged once the input ends
   // Per output index: whether a shell heads that segment. Tokenized at most once, so many
   // heredocs in one long pipeline stay linear.
   const shellAt: (boolean | undefined)[] = []
-  const isShellAt = (x: number): boolean => (shellAt[x] ??= SHELLS.has(resolveHead(tokenize(out[x]!)).head))
+  const isShellAt = (x: number): boolean => (shellAt[x] ??= startsShell(tokenize(out[x]!)))
   // Whether a shell runs what the innermost open frame prints. A parent's text stays fixed
   // while a child is open, so each frame's answer is worked out once and kept.
   const scripted = (): boolean => {
@@ -205,16 +268,24 @@ function lex(s: string, body: boolean): string[] {
     }
     return on
   }
+  const inner = (): Group | null => f.braces.at(-1) ?? f.group
   const open = (close: ')' | '`', subst: boolean, arith: boolean): void => {
-    f = { close, subst, arith, q: '', cur: '', brace: 0, pipe: out.length, here: [], test: false, paren: 0 }
+    f = frame(close, subst, arith, { from: -1, to: -1, up: inner() })
     stack.push(f)
     ws = true
   }
-  // A segment ends: its text goes out and the frame starts a new command.
+  // A segment ends: its text goes out and the frame starts a new command. A group closed in it
+  // flows into the segments that follow.
   const cut = (): void => {
     out.push(f.cur)
     f.cur = ''
     f.lead = undefined
+    f.cmd = true
+    for (const g of f.closed) {
+      g.from = out.length
+      f.sinks.push(g)
+    }
+    f.closed = []
     ws = true
   }
   // `;`, `&`, `&&`, `||`, and a newline end the current frame's pipeline.
@@ -222,15 +293,35 @@ function lex(s: string, body: boolean): string[] {
     for (const h of f.here)
       h.to = out.length
     f.here = []
+    for (const g of f.sinks)
+      g.to = out.length
+    f.sinks = []
     f.pipe = out.length
   }
-  // A word ends: a `]]` word closes the `[[` it belongs to. Reads only the word's last
-  // characters, so a long segment stays linear.
+  // A word ends. At a command start, `[[` opens a conditional, `{` a group, and `}` closes one;
+  // inside `[[ … ]]`, `]]` closes it. Only the last seven characters are read (no reserved word
+  // is longer), so a long segment stays linear.
   const endWord = (): void => {
-    if (f.test && f.cur.endsWith(']]') && /^\s?$/.test(f.cur.slice(-3, -2))) {
-      f.test = false
-      f.paren = 0
+    const tail = f.cur.slice(-7)
+    const at = Math.max(tail.lastIndexOf(' '), tail.lastIndexOf('\t'), tail.lastIndexOf('\n'))
+    const w = at < 0 && f.cur.length > 7 ? '\0' : tail.slice(at + 1)
+    if (w === '')
+      return
+    if (f.test) {
+      if (w === ']]') {
+        f.test = false
+        f.paren = 0
+        f.cmd = false
+      }
+      return
     }
+    if (f.cmd && w === '[[')
+      f.test = true
+    else if (f.cmd && w === '{')
+      f.braces.push({ from: -1, to: -1, up: inner() })
+    else if (f.cmd && w === '}' && f.braces.length > 0)
+      f.closed.push(f.braces.pop()!)
+    f.cmd &&= BEFORE_COMMAND.has(w)
   }
   // Whether the `(` at n is glued to the word before it, and not to a reserved word (none is
   // longer than six characters, so only the last seven are read).
@@ -241,10 +332,15 @@ function lex(s: string, body: boolean): string[] {
     const word = tail.slice(tail.search(/\S*$/))
     return word.length === 7 || !BEFORE_COMMAND.has(word)
   }
+  // A frame closes: its last segment goes out, its pipelines end, and as a group it flows into
+  // the segments of its parent's pipeline that follow the one holding it.
   const pop = (): void => {
-    out.push(f.cur)
+    cut()
+    endPipe()
     const done = stack.pop()!
     f = stack.at(-1)!
+    if (done.group)
+      f.closed.push(done.group)
     if (done.subst)
       f.cur += SUBST
     ws = false
@@ -343,7 +439,7 @@ function lex(s: string, body: boolean): string[] {
         k++
       }
       if (k > from) {
-        const h: Heredoc = { delim, strip, quoted, from: f.pipe, to: -1, script: scripted() }
+        const h: Heredoc = { delim, strip, quoted, from: f.pipe, to: -1, script: scripted(), group: inner() }
         pending.push(h)
         f.here.push(h)
       }
@@ -356,62 +452,98 @@ function lex(s: string, body: boolean): string[] {
     if ((c === '&' && (afterOp || s[n + 1] === '>')) || (c === '|' && afterOp && s[n - 1] === '>')) { f.cur += c; ws = false; continue }
     if (c === '\n') {
       endWord()
+      // A line ending in `|` or `|&` continues its pipeline after any heredoc bodies, so
+      // `cat <<EOF |`, the body, then `bash` hands the body to bash.
+      const joined = f.joined && /^\s*$/.test(f.cur)
       cut()
-      if (pending.length > 0) {
-        // Bodies start on the next line, in order. A body is data unless a shell reads it (a
-        // shell heads its pipeline or runs the frame it sits in): then it is lexed as
-        // commands. An unquoted delimiter still runs the body's substitutions. Heredocs in one
-        // pipeline share its range, so each range is scanned once.
-        const ranges = new Map<string, boolean>()
-        const shells = pending.map((h) => {
-          const to = h.to < 0 ? out.length : h.to
-          const key = `${h.from}:${to}`
-          let piped = ranges.get(key)
-          if (piped === undefined) {
-            piped = false
-            for (let x = h.from; x < to && !piped; x++)
-              piped = isShellAt(x)
-            ranges.set(key, piped)
-          }
-          return piped || h.script
-        })
-        let k = n + 1
-        for (const [p, h] of pending.entries()) {
-          const { end, next } = heredocEnd(s, k, h, f.close)
-          if (shells[p])
-            out.push(...lex(s.slice(k, end), false))
-          else if (!h.quoted)
-            out.push(...lex(s.slice(k, end), true))
-          k = next
-        }
-        pending.length = 0
-        n = k - 1
+      // Bodies start on the next line, in order. Each is read here and judged at the end, once
+      // every pipeline that can carry it to a shell has ended.
+      let k = n + 1
+      for (const h of pending) {
+        const { end, next } = heredocEnd(s, k, h, f.close)
+        h.body = s.slice(k, end)
+        bodies.push(h)
+        k = next
       }
-      endPipe()
+      pending.length = 0
+      n = k - 1
+      if (!joined) {
+        endPipe()
+        f.joined = false
+      }
       continue
     }
     if (c === ';' || c === '&' || c === '|') {
       endWord()
       cut()
       // `|` and `|&` join a pipeline; `;`, `&`, `&&`, and `||` end it.
-      if (!((c === '|' && s[n + 1] !== '|' && s[n - 1] !== '|') || (c === '&' && s[n - 1] === '|')))
+      f.joined = (c === '|' && s[n + 1] !== '|' && s[n - 1] !== '|') || (c === '&' && s[n - 1] === '|')
+      if (!f.joined)
         endPipe()
       continue
     }
-    if (c === ' ' || c === '\t') {
+    if (c === ' ' || c === '\t')
       endWord()
-      if (!f.test && f.cur.endsWith('[[') && TEST_START.test(f.cur))
-        f.test = true
-    }
     f.cur += c
     // Bash separates words only at a space, a tab, or a newline (handled above): a `#` after a
     // no-break space, CR, form feed, or vertical tab is part of the word, not a comment.
     ws = c === ' ' || c === '\t'
     op = c === '<' || c === '>'
   }
-  for (const [k, frame] of stack.entries()) {
+  // The input ends: the text of every open frame goes out, and every open range ends.
+  for (const [k, fr] of stack.entries()) {
     if (!(body && k === 0))
-      out.push(frame.cur)
+      out.push(fr.cur)
+  }
+  for (const fr of stack) {
+    for (const h of fr.here)
+      h.to = out.length
+    for (const g of [...fr.closed, ...fr.sinks]) {
+      if (g.from < 0)
+        g.from = out.length
+      g.to = out.length
+    }
+  }
+  // A body is data unless a shell reads it: a shell heads its pipeline, runs the frame it sits
+  // in, or follows a group around it in that group's pipeline. Then it is lexed as commands; an
+  // unquoted delimiter still runs the body's substitutions. Heredocs in one pipeline share its
+  // range, so each range is scanned once.
+  const ranges = new Map<string, boolean>()
+  const shellIn = (from: number, to: number): boolean => {
+    const key = `${from}:${to}`
+    let found = ranges.get(key)
+    if (found === undefined) {
+      found = false
+      for (let x = from; x < to && !found; x++)
+        found = isShellAt(x)
+      ranges.set(key, found)
+    }
+    return found
+  }
+  // Whether a shell follows a group or any group around it, kept on each group on the way, so
+  // many heredocs in deeply nested groups stay linear.
+  const reaches = (g: Group | null): boolean => {
+    const path: Group[] = []
+    let known = false
+    for (let x = g; x; x = x.up) {
+      if (x.reaches !== undefined) {
+        known = x.reaches
+        break
+      }
+      path.push(x)
+    }
+    for (const x of path.reverse()) {
+      known ||= shellIn(x.from, x.to)
+      x.reaches = known
+    }
+    return known
+  }
+  for (const h of bodies) {
+    const shell = h.script || shellIn(h.from, h.to) || reaches(h.group)
+    if (shell)
+      out.push(...lex(h.body ?? '', false))
+    else if (!h.quoted)
+      out.push(...lex(h.body ?? '', true))
   }
   return out
 }
