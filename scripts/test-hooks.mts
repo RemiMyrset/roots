@@ -609,6 +609,7 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'shopt -s extglob\ncase $1 in !(b)) npm install;; esac' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case a in a) case b in b) :;; esac;; c) npm install;; esac' },
   { guard: P, expect: D, cmd: 'case $1 in\n  a) git push origin main;;\nesac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in a) :;; esac|npm install' }, // after `esac`, `|` is a pipe
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'case "$1" in -h|--help) echo usage;; *) pnpm run "$1";; esac' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'f() { pnpm install; }; f' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'arr=(); pnpm install' },

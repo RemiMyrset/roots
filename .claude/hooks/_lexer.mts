@@ -550,8 +550,16 @@ function lex(s: string, body: boolean): string[] {
       }
       continue
     }
-    // In a case pattern, `|` separates alternatives (`a|b)`).
-    if (c === '|' && f.pat) { f.cur += c; ws = false; continue }
+    // In a case pattern, `|` separates alternatives (`a|b)`). The word before it may be the
+    // `esac` that ends the statement, and then `|` is a pipe (`esac|cmd`).
+    if (c === '|' && f.pat) {
+      endWord()
+      if (f.pat) {
+        f.cur += c
+        ws = false
+        continue
+      }
+    }
     if (c === ';' || c === '&' || c === '|') {
       endWord()
       cut()
