@@ -47,7 +47,12 @@ The dispatcher imports every `deny-*.mts` in the directory and runs its
 call, and a guard that throws or exports no verdict denies too. It also denies
 when the hook input is not a payload with a string `tool_input.command`
 (malformed JSON, a missing or null field) and when stdin never closes within
-five seconds. The one shape without a command that passes is a Monitor call
+five seconds. A dispatcher that cannot start (node missing or too old to run
+`.mts`, a file that fails to load) denies as well, because each registration
+maps that failure to exit 2
+([agent-surfaces](./agent-surfaces.md#trust-and-registration) shows how); a
+missing pnpm still fails open under Codex and Gemini, whose registrations run
+through it. The one shape without a command that passes is a Monitor call
 that opens a WebSocket (`tool_input.ws`), which runs no shell and has its own
 approval prompt. One process, not one per guard, keeps a shell call's overhead
 near node's own startup. Node builtins only, so the guards work

@@ -51,6 +51,17 @@ Claude Code 2.1.198 and later rewrite only that spelling for PowerShell, which
 reads a bare `$CLAUDE_PROJECT_DIR` as empty and would leave the hook failing
 open.
 
+Every harness blocks only on exit 2, so both commands turn a dispatcher that
+cannot start into exit 2. The script ends in `|| exit 2`, which pnpm's shell
+emulator runs on every OS. The Claude Code command ends in
+`; exit $((2*!!($true-$?)))`, which bash reads as arithmetic and PowerShell as
+a subexpression: 0 after a clean run, 2 after anything else.
+
+PowerShell needs that tail even for an ordinary deny: it exits 1 whenever its
+last command failed, whatever the code. `|| exit 2` cannot replace it, because
+PowerShell 7 runs an `exit` after `||` as a program name and Windows
+PowerShell 5.1 has no `||`.
+
 ## Skills mirror
 
 `.agents/skills/` is a generated, committed copy of `.claude/skills/`.

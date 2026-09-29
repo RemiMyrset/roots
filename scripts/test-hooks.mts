@@ -839,6 +839,69 @@ for (const c of CASES) {
     fails.push(`[${c.guard}] got ${got}${why ? ` (${why})` : ''}, want ${c.expect}: ${c.cmd}`)
 }
 
+// A dispatcher that cannot start must still deny: every harness blocks only on exit 2 and runs
+// the tool call on any other failure. Node told not to strip types fails the way a node too old
+// for .mts does, an empty project directory stands in for a missing file, and a PATH without
+// node for a missing node. Each registration runs the way its harness runs it: Claude Code hands
+// its command to sh, or to PowerShell when Git Bash is missing, after putting the project path
+// in for the placeholder; Codex and Gemini run the root script through pnpm from a
+// subdirectory, and Gemini parses stdout, so it stays empty. A shell or a pnpm this machine
+// lacks is skipped and named in the summary.
+interface LaunchCase { name: string, cmd: string, expect: 0 | 2, env?: Record<string, string>, project?: string }
+const EMPTY_PROJECT = join(tmp, 'empty-project')
+mkdirSync(EMPTY_PROJECT)
+const LAUNCH_CASES: LaunchCase[] = [
+  { name: 'deny', cmd: 'npm install', expect: D },
+  { name: 'allow', cmd: 'pnpm install', expect: A },
+  { name: 'node cannot load .mts', cmd: 'pnpm install', expect: D, env: { NODE_OPTIONS: '--no-experimental-strip-types' } },
+  { name: 'dispatcher missing', cmd: 'pnpm install', expect: D, project: EMPTY_PROJECT },
+]
+const PLACEHOLDER = ['$', '{CLAUDE_PROJECT_DIR}'].join('')
+const claudeCommands = (claude.hooks?.PreToolUse ?? []).flatMap(e => e.hooks ?? []).map(h => h.command ?? '').filter(c => c.includes('dispatch.mts'))
+const payload = (cmd: string): string => JSON.stringify({ tool_name: 'Bash', tool_input: { command: cmd } })
+const runs = (bin: string, args: string[]): boolean => spawnSync(bin, args, { stdio: 'ignore', timeout: 20_000 }).status === 0
+const launchSkipped: string[] = []
+let launchRuns = 0
+function launched(where: string, c: LaunchCase, status: number | null, stdout = ''): void {
+  launchRuns++
+  if (status !== c.expect)
+    fails.push(`[launch] ${where}, ${c.name}: got ${status ?? 'null'}, want ${c.expect}`)
+  if (stdout !== '')
+    fails.push(`[launch] ${where}, ${c.name}: stdout should be empty, got ${stdout.slice(0, 80)}`)
+}
+if (claudeCommands.length === 0)
+  fails.push('[launch] .claude/settings.json registers no PreToolUse command that runs dispatch.mts')
+for (const shell of ['sh', 'pwsh', 'powershell']) {
+  const ok = shell === 'sh' ? runs('sh', ['-c', 'exit 0']) : runs(shell, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])
+  if (!ok) {
+    launchSkipped.push(shell)
+    continue
+  }
+  for (const command of claudeCommands) {
+    for (const c of LAUNCH_CASES) {
+      const project = c.project ?? REPO
+      const env = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env, CLAUDE_PROJECT_DIR: project }
+      const args = shell === 'sh' ? ['-c', command] : ['-NoProfile', '-NonInteractive', '-Command', command.replaceAll(PLACEHOLDER, project)]
+      launched(`Claude Code under ${shell}`, c, spawnSync(shell, args, { input: payload(c.cmd), env, timeout: 20_000 }).status)
+    }
+    if (shell === 'sh' && process.platform !== 'win32') {
+      const c: LaunchCase = { name: 'node not installed', cmd: 'pnpm install', expect: D }
+      const env = { ...process.env, PATH: EMPTY_PROJECT, CLAUDE_PROJECT_DIR: REPO }
+      launched('Claude Code under sh', c, spawnSync('/bin/sh', ['-c', command], { input: payload(c.cmd), env, timeout: 20_000 }).status)
+    }
+  }
+}
+if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 }).status === 0) {
+  for (const c of LAUNCH_CASES.filter(l => l.project === undefined)) {
+    const env = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env }
+    const r = spawnSync('pnpm -w --silent run guards', { shell: true, cwd: HOOKS, input: payload(c.cmd), env, encoding: 'utf8', timeout: 30_000 })
+    launched('Codex and Gemini through pnpm', c, r.status, r.stdout)
+  }
+}
+else {
+  launchSkipped.push('pnpm')
+}
+
 // A harness that opens stdin and never closes it must not hang the tool call: the dispatcher
 // denies after its timeout, the session hook still prints its context and exits 0. Async on
 // purpose — spawnSync would close the child's stdin. Both start before either is awaited, so
@@ -859,10 +922,11 @@ for (const p of sessionProblems({ name: 'stdin never closed', raw: '', context: 
   fails.push(`[${SESSION}] stdin never closed: ${p}`)
 
 if (fails.length > 0) {
-  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + SESSION_CASES.length + 2} failed:\n`)
+  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + SESSION_CASES.length + launchRuns + 2} failed:\n`)
   for (const f of fails)
     console.error(`  ${f}`)
   console.error('')
   process.exit(1)
 }
-console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${SESSION_CASES.length} session cases + both stdin timeouts + the three registrations pass`)
+const skippedNote = launchSkipped.length > 0 ? ` (${launchSkipped.join(', ')} not installed, skipped)` : ''
+console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${SESSION_CASES.length} session cases + ${launchRuns} launch runs${skippedNote} + both stdin timeouts + the three registrations pass`)
