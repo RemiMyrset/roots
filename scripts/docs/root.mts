@@ -100,8 +100,7 @@ export interface AutomdRegion {
 /**
  * The automd regions of a page, in order, read as automd reads them: an opener inside an
  * earlier region's body belongs to that body, and an opener without a close runs to the end
- * of the text. Offsets index `text` exactly as given, so normalize line endings first only
- * when the caller compares, never when it writes.
+ * of the text. Offsets index `text` exactly as given.
  */
 export function automdRegions(text: string): AutomdRegion[] {
   const close = new RegExp(AUTOMD_CLOSE_RE.source, AUTOMD_CLOSE_RE.flags)
@@ -117,24 +116,6 @@ export function automdRegions(text: string): AutomdRegion[] {
     pos = closed ? closed.index + closed[0].length : text.length
   }
   return out
-}
-
-/**
- * The text with the body of every closed region named `name` replaced by `contents`, framed
- * `\n\n<contents trimmed>\n\n`: the frame automd 0.4.3's transform writes, byte for byte,
- * whatever the file's line endings, so `pnpm docs:gen` afterwards changes nothing. An
- * unclosed region is left alone, as automd leaves it.
- */
-export function writeRegion(text: string, name: string, contents: string): string {
-  let out = ''
-  let at = 0
-  for (const region of automdRegions(text)) {
-    if (region.name !== name || !region.closed)
-      continue
-    out += `${text.slice(at, region.bodyStart)}\n\n${contents.trim()}\n\n`
-    at = region.bodyEnd
-  }
-  return out + text.slice(at)
 }
 
 const OPEN_FENCE_RE = /^ {0,3}(`{3,}|~{3,})/
