@@ -111,12 +111,25 @@ function globSegment(seg: string): RegExp | null {
   }
 }
 
-// Whether a path holding a glob can expand to a probe. A lone name that opens with a wildcard
-// is not tested against the bare names, so `grep x *` stays open; a credential directory is.
+// The key extensions, which a glob's own extension is tested against (`server.pe?`).
+const KEY_EXTENSIONS: readonly string[] = ['pem', 'key', 'p12', 'pfx', 'jks']
+
+// Whether a path holding a glob can expand to a probe, to a file under a `secrets` directory
+// (`secret?/api.txt`), or to a key extension (`certs/*.pe?`). A segment that opens with a
+// wildcard is not tested against a bare name, so `grep x *` and `cat */package.json` stay
+// open, and neither is an extension that opens with `*` (`tsconfig.*`); a credential
+// directory is.
 function globReadsSecret(p: string): boolean {
   const segs = p.split('/')
   if (!segs.some(s => /[*?[]/.test(s)))
     return false
+  if (segs.slice(0, -1).some(seg => !/^[*?[]/.test(seg) && globSegment(seg)?.test('secrets')))
+    return true
+  const last = segs.at(-1)!
+  const ext = last.includes('.') ? last.slice(last.lastIndexOf('.') + 1) : ''
+  const extGlob = ext.startsWith('*') ? null : globSegment(ext)
+  if (extGlob && KEY_EXTENSIONS.some(e => extGlob.test(e)))
+    return true
   return GLOB_PROBES.some((probe) => {
     const have = segs.slice(-probe.length)
     if (have.length < probe.length || (probe.length === 1 && /^[*?[]/.test(have[0]!)))
@@ -152,40 +165,143 @@ function redirectSource(toks: string[], j: number): string | null {
 // find's name and path tests: find matches their pattern as a glob itself, quoted or not.
 const FIND_TESTS: ReadonlySet<string> = new Set(['-name', '-iname', '-path', '-ipath', '-wholename', '-iwholename'])
 const FIND_EXEC = /^-(?:exec|ok)(?:dir)?$/
+// find's primaries that take one word after them (`-newerXY` too), and those always true.
+// Anything else takes none and can be true or false: a primary missing here at worst shifts
+// a word into a primary of its own, which is judged as unknown, the safe side.
+const FIND_ONE_ARG: ReadonlySet<string> = new Set([
+  ...FIND_TESTS, '-regex', '-iregex', '-lname', '-ilname', '-type', '-xtype', '-size', '-perm',
+  '-user', '-group', '-uid', '-gid', '-newer', '-anewer', '-cnewer', '-samefile', '-inum',
+  '-links', '-mtime', '-atime', '-ctime', '-mmin', '-amin', '-cmin', '-used', '-fstype',
+  '-context', '-maxdepth', '-mindepth', '-regextype', '-fprint', '-fprint0', '-fls',
+  '-files0-from', '-printf',
+])
+const FIND_TRUE: ReadonlySet<string> = new Set(['-prune', '-true', '-print', '-print0', '-printf', '-ls', '-maxdepth', '-mindepth', '-depth', '-xdev', '-mount', '-follow', '-daystart', '-noleaf', '-regextype'])
 
-// Whether a `-prune` that is followed by `-o` comes before the walk's -exec, cutting out what
-// the tests ahead of it match (`-path '*/.*' -prune -o …`).
-function pruned(toks: string[], from: number): boolean {
-  for (let k = from; k < toks.length; k++) {
-    const t = unquote(toks[k]!)
-    if (FIND_EXEC.test(t))
-      return false
-    if (t === '-prune') {
-      let j = k + 1
-      while (unquote(toks[j] ?? '') === ')') j++
-      if (/^-or?$/.test(unquote(toks[j] ?? '')))
-        return true
+// Every outcome a find expression can have for one file, as a bit mask over (value, whether an
+// -exec or -ok ran on the file): bit 1 << ((ran ? 2 : 0) + (value ? 1 : 0)).
+type Outcomes = number
+function outcome(value: boolean, ran: boolean): Outcomes {
+  return 1 << ((ran ? 2 : 0) + (value ? 1 : 0))
+}
+// `a -a b`, `a -o b`, or `a , b`: b runs only when a is true, false, or always.
+function combine(a: Outcomes, b: Outcomes, op: 'and' | 'or' | 'list'): Outcomes {
+  let out = 0
+  for (let x = 0; x < 4; x++) {
+    if ((a & (1 << x)) === 0)
+      continue
+    const value = (x & 1) === 1
+    const ran = (x & 2) === 2
+    if ((op === 'and' && !value) || (op === 'or' && value)) {
+      out |= outcome(value, ran)
+      continue
+    }
+    for (let y = 0; y < 4; y++) {
+      if ((b & (1 << y)) !== 0)
+        out |= outcome((y & 1) === 1, ran || (y & 2) === 2)
     }
   }
-  return false
+  return out
+}
+function negate(a: Outcomes): Outcomes {
+  let out = 0
+  for (let x = 0; x < 4; x++) {
+    if ((a & (1 << x)) !== 0)
+      out |= outcome((x & 1) === 0, (x & 2) === 2)
+  }
+  return out
+}
+
+// Whether find runs an -exec or -ok on a file that the test at `target` matches, with every
+// other test free to go either way: `-name '.env*' -type d -prune -o -exec cat {} +` does
+// (a .env file fails `-type d` and falls through), `-path '*/.*' -prune -o -exec …` and
+// `-not -path '*/.*' -exec …` do not. `words` are the unquoted words after `find`.
+function execReaches(words: string[], target: number): boolean {
+  let p = 0
+  // Leading options, then the start points, up to the first word of the expression.
+  while (/^-[HLP]$|^-O\d*$/.test(words[p] ?? ''))
+    p++
+  if (words[p] === '-D')
+    p += 2
+  while (p < words.length && !/^[-(!,]/.test(words[p]!))
+    p++
+  const primary = (): Outcomes => {
+    const at = p
+    const w = words[p++] ?? ''
+    if (FIND_EXEC.test(w)) {
+      while (p < words.length) {
+        const arg = words[p++]!
+        if (arg === ';' || (arg === '+' && words[p - 2] === '{}'))
+          break
+      }
+      return outcome(true, true) | outcome(false, true)
+    }
+    p += FIND_ONE_ARG.has(w) || /^-newer[aBcmt][aBcmt]$/.test(w) ? 1 : 0
+    if (at === target || FIND_TRUE.has(w))
+      return outcome(true, false)
+    return w === '-false' ? outcome(false, false) : outcome(true, false) | outcome(false, false)
+  }
+  const unary = (): Outcomes => {
+    const w = words[p]
+    if (w === '!' || w === '-not') {
+      p++
+      return negate(unary())
+    }
+    if (w === '(') {
+      p++
+      const inner = list()
+      if (words[p] === ')')
+        p++
+      return inner
+    }
+    return primary()
+  }
+  const and = (): Outcomes => {
+    let r = unary()
+    while (p < words.length && !/^(?:-o|-or|\)|,)$/.test(words[p]!)) {
+      if (words[p] === '-a' || words[p] === '-and')
+        p++
+      if (p < words.length)
+        r = combine(r, unary(), 'and')
+    }
+    return r
+  }
+  const or = (): Outcomes => {
+    let r = and()
+    while (words[p] === '-o' || words[p] === '-or') {
+      p++
+      r = combine(r, and(), 'or')
+    }
+    return r
+  }
+  const list = (): Outcomes => {
+    let r = or()
+    while (words[p] === ',') {
+      p++
+      r = combine(r, or(), 'list')
+    }
+    return r
+  }
+  let r = list()
+  // A stray `)` ends nothing: skip it and read on, running what follows too.
+  while (p < words.length) {
+    p++
+    r = combine(r, list(), 'list')
+  }
+  return (r & (outcome(true, true) | outcome(false, true))) !== 0
 }
 
 // Whether a `find … -exec|-ok` walk is pointed at a secret: a word names one, or a name or
-// path test's pattern can match one. A negated test (`-not -path '*/.*'`) or a pruned one
-// keeps what it matches out of the walk, so its pattern is not probed. The program -exec runs
-// is not judged: `-exec sh -c …` can read what it is handed.
+// path test's pattern can match one and a file it matches can still reach the -exec. The
+// program -exec runs is not judged: `-exec sh -c …` can read what it is handed.
 function findReadsSecret(toks: string[], globs: string[], i: number): boolean {
-  if (!toks.some(t => FIND_EXEC.test(unquote(t))))
+  const words = toks.slice(i + 1).map(unquote)
+  if (!words.some(w => FIND_EXEC.test(w)))
     return false
-  let negated = false
   for (let k = i + 1; k < toks.length; k++) {
-    const t = unquote(toks[k]!)
     if (secretAt(toks, globs, k))
       return true
-    if (FIND_TESTS.has(t) && k + 1 < toks.length && !negated && !pruned(toks, k + 2) && secretAt(toks, toks, k + 1))
+    if (FIND_TESTS.has(words[k - i - 1]!) && k + 1 < toks.length && secretAt(toks, toks, k + 1) && execReaches(words, k - i - 1))
       return true
-    // `!` and `-not` negate the next test, or the group a `(` opens.
-    negated = (t === '!' || t === '-not') ? !negated : (t === '(' && negated)
   }
   return false
 }

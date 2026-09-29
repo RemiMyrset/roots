@@ -622,6 +622,30 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -path \'*/.*\' -prune -o -name \'*.md\' -exec wc -l {} +' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . \\( -path ./node_modules -o -path \'*/.*\' \\) -prune -o -type f -exec grep -l x {} +' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -name \'*.md\' -exec grep -l ".*" {} +' },
+  // A test keeps its files out only when nothing else in its branch lets a match fall through.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -name \'.env*\' -type d -prune -o -type f -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -type d -name \'.env*\' -prune -o -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . -name \'.env*\' -path \'./a/*\' -prune -o -type f -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find . \\( -name \'.env*\' -o -type f \\) -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'find -L . -maxdepth 2 -name \'.env*\' -type f -exec head {} \\;' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -name \'.env*\' -o -path ./x -prune -o -type f -exec cat {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . \\( -name node_modules -o -name \'.*\' \\) -prune -o -type f -exec grep -l TODO {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -path \'*/.*\' -prune -o -type f -print -exec wc -l {} +' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'find . -name .git -prune -o -type f -exec grep -l TODO {} +' },
+  // A glob can also reach a file under a secrets directory or with a key extension.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat secret?/api.txt' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat secrets*/api.txt' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat Secret[s]/api.txt' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat certs/server.pe?' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat certs/server.[p]em' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat certs/*.pe*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'head certs/*.pe?' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat keystore.jk?' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat server.ke?' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat tsconfig.*' }, //          an extension that opens with *
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat docs/*.p?' }, //           no key extension has two letters
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat */package.json scripts/*.mts' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'head -n 20 src/*.[jt]s' },
 
   // --- the release script's body, run through pnpm or pnpx ----------------------------
   { guard: P, expect: D, cmd: 'pnpm changelogen --release --push --no-github' },

@@ -121,13 +121,15 @@ case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
 readable; `credentials`, `config`, and `hosts.yml` count only under their
 credential directory): direct readers, `<` redirects (including `$(<file)` and
 `<>`), `pnpm exec` wrappers, and a glob that can expand to one of those names
-(`.env*`, `~/.ssh/*`). A glob counts only where bash expands it: a quoted or
+(`.env*`, `~/.ssh/*`, `secret?/api.txt`, `certs/*.pe?`). A glob counts only where bash expands it: a quoted or
 escaped `*`, `?`, or `[` is text, so a search pattern such as
 `grep "import .* from"` passes. `find -exec` and `-ok` are denied when a word
 names a secret or a `-name` or `-path` pattern can match one, quoted or not,
-because find matches it itself. A negated or pruned pattern
-(`-not -path '*/.*'`, `-path '*/.*' -prune -o`) keeps those files out and
-passes.
+because find matches it itself. A pattern whose matches can never reach the
+`-exec` passes: a negated one (`-not -path '*/.*'`), or a pruned one with
+nothing else in its branch (`-path '*/.*' -prune -o`). A pruned one beside
+another test (`-name '.env*' -type d -prune -o`) is denied, because a match
+that fails the other test falls through to the `-exec`.
 
 The guard is the broader of the two; the Read list stays a curated subset so
 `.env.example` remains openable. `.env.example` is the one carve-out; other
