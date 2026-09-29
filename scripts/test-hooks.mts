@@ -478,6 +478,23 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $#; npm install' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo hi # ; npm install' },
   { guard: P, expect: A, cmd: 'git push origin feat/x # dont push main' },
+  // A `(` inside `[[ … ]]` or glued to a word (an extglob) groups text, so a `#` after it is text.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'while read -r p; do [[ $p =~ ^(#|$) ]] && continue; npm install "$p"; done < deps.txt' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'while IFS= read -r l; do [[ $l =~ ^[[:space:]]*(#|$) ]] && continue; npm install "$l"; done < f' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ "#" =~ (#|a) ]] && npm install' },
+  { guard: P, expect: D, cmd: '[[ "#" =~ (#|a) ]] && git push origin main' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: '[[ "#" =~ (#|a) ]] && cat .env' },
+  { guard: B, expect: D, cmd: '[[ "#" =~ (#|a) ]] && git commit --no-verify -m x' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: '[[ "#" =~ (#|a) ]] && pnpm approve-builds' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ "a" == @(#|a) ]] && npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ a &&\n (#) ]] && npm install' }, //   `[[` spans the newline
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n <(npm install) ]]' }, //         a process substitution still runs
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'if(npm install) then :; fi' }, //     a reserved word, then a subshell
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{(npm install)}' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=(a # it\'s b\n); npm install' }, //  an array's `#` is a comment
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo [[ # ; npm install' }, //         `[[` as an argument opens nothing
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '[[ $l =~ ^(npm|yarn) ]] && echo legacy' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '[[ $f == @(*.ts|*.mts) ]] && pnpm exec eslint "$f"' },
   // A body a shell reads is commands; an unquoted delimiter still runs the body's substitutions.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash <<\'EOF\'\nnpm install\nEOF' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'sh <<EOF\ncat .env\nEOF' },
@@ -812,6 +829,8 @@ const BUDGET: Record<string, string> = {
   '2500 heredocs in one pipeline': `${'cat <<A |'.repeat(2500)} cat\nA\n`,
   '5000 heredocs after ;': `${'cat <<A;'.repeat(5000)}\nA\n`,
   '2000 substitutions with a heredoc': `bash x.sh "${'$(cat <<A\nA\n)'.repeat(2000)}"`,
+  '50k glued parentheses': `echo ${'@('.repeat(50_000)}`,
+  '20k conditionals': `${'[[ a ]] && '.repeat(20_000)}true`,
 }
 for (const [name, cmd] of Object.entries(BUDGET)) {
   const started = performance.now()

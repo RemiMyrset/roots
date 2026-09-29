@@ -97,13 +97,22 @@ export const SUBST = '$()'
 // Heads that run a heredoc body as shell commands, so that body is lexed like the command line.
 const SHELLS: ReadonlySet<string> = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'mksh', 'fish', 'pwsh', 'powershell', 'source', '.'])
 
+// Reserved words a command can follow, so a `(` glued to one still opens a subshell
+// (`if(npm i)`, `{(npm i)}`). A `(` glued to any other word is part of that word, as in an
+// extglob (`@(a|b)`) or a `[[ =~ ]]` regex (`^(#|$)`), or a syntax error bash never runs.
+const BEFORE_COMMAND: ReadonlySet<string> = new Set(['!', '{', 'if', 'elif', 'then', 'else', 'while', 'until', 'do', 'time', 'coproc'])
+// `[[` opens a conditional only where a command starts: first, or after those reserved words.
+const TEST_START = /^\s*(?:(?:!|\{|if|elif|then|else|while|until|do|time)\s+)*\[\[$/
+
 // One command context: the input itself, a `(` subshell, or a `$(` / backtick substitution.
 // `q` is the quote state inside it: `"`, `'`, `$` (ANSI-C `$'…'`), or `h` (the body of a
 // heredoc with an unquoted delimiter, where only `$(`, backticks, and `\` are special).
 // `pipe` is the index in the output where its current pipeline's first segment lands, and
 // `here` holds the heredocs of that pipeline. `lead` caches leadOf(cur) once it is final, and
 // `script` records, once asked, whether a shell runs what the frame prints (feedsShell).
-interface Frame { close: '' | ')' | '`', subst: boolean, arith: boolean, q: '' | '"' | '\'' | '$' | 'h', cur: string, brace: number, pipe: number, here: Heredoc[], lead?: Lead | undefined, script?: boolean }
+// `test` is set inside `[[ … ]]`, and `paren` counts the open parentheses that belong to a word
+// or a `[[` expression (`@(a|b)`, `^(#|$)`) rather than to a subshell.
+interface Frame { close: '' | ')' | '`', subst: boolean, arith: boolean, q: '' | '"' | '\'' | '$' | 'h', cur: string, brace: number, pipe: number, here: Heredoc[], test: boolean, paren: number, lead?: Lead | undefined, script?: boolean }
 // A heredoc waiting for its body, and the output range of the pipeline that owns it (`to` is
 // -1 while that pipeline is open): a shell head in that range reads the body as commands, and
 // so does a shell that runs the frame it sits in (`script`).
@@ -175,7 +184,7 @@ function heredocEnd(s: string, k: number, h: Heredoc, close: Frame['close']): { 
 // delimiter: only the substitutions in it are commands, and the text itself is dropped.
 function lex(s: string, body: boolean): string[] {
   const out: string[] = []
-  const stack: Frame[] = [{ close: '', subst: false, arith: false, q: body ? 'h' : '', cur: '', brace: 0, pipe: 0, here: [] }]
+  const stack: Frame[] = [{ close: '', subst: false, arith: false, q: body ? 'h' : '', cur: '', brace: 0, pipe: 0, here: [], test: false, paren: 0 }]
   let f = stack[0]!
   let ws = true // at the start of a word, where `#` opens a comment
   let op = false // the last character was an unquoted `<` or `>`, so a `&` or `|` extends it
@@ -197,7 +206,7 @@ function lex(s: string, body: boolean): string[] {
     return on
   }
   const open = (close: ')' | '`', subst: boolean, arith: boolean): void => {
-    f = { close, subst, arith, q: '', cur: '', brace: 0, pipe: out.length, here: [] }
+    f = { close, subst, arith, q: '', cur: '', brace: 0, pipe: out.length, here: [], test: false, paren: 0 }
     stack.push(f)
     ws = true
   }
@@ -214,6 +223,23 @@ function lex(s: string, body: boolean): string[] {
       h.to = out.length
     f.here = []
     f.pipe = out.length
+  }
+  // A word ends: a `]]` word closes the `[[` it belongs to. Reads only the word's last
+  // characters, so a long segment stays linear.
+  const endWord = (): void => {
+    if (f.test && f.cur.endsWith(']]') && /^\s?$/.test(f.cur.slice(-3, -2))) {
+      f.test = false
+      f.paren = 0
+    }
+  }
+  // Whether the `(` at n is glued to the word before it, and not to a reserved word (none is
+  // longer than six characters, so only the last seven are read).
+  const glued = (n: number): boolean => {
+    if (/[\s;&|<>()`=]/.test(s[n - 1] ?? ' '))
+      return false
+    const tail = f.cur.slice(-7)
+    const word = tail.slice(tail.search(/\S*$/))
+    return word.length === 7 || !BEFORE_COMMAND.has(word)
   }
   const pop = (): void => {
     out.push(f.cur)
@@ -262,10 +288,20 @@ function lex(s: string, body: boolean): string[] {
     if (c === '$' && s[n + 1] === '{') { f.brace++; f.cur += '${'; n++; ws = false; continue }
     if (c === '}' && f.brace > 0) { f.brace--; f.cur += c; ws = false; continue }
     if (c === '`') { open('`', true, false); continue }
-    if (c === '(') { open(')', false, f.arith || s[n + 1] === '('); continue }
-    if (c === ')' && f.close === ')') { pop(); continue }
-    // A comment runs to the end of the line; inside backticks, to the closing backtick.
-    if (c === '#' && ws && f.brace === 0 && !f.arith) {
+    if (c === '(') {
+      // Inside `[[ … ]]` a `(` groups, except a process substitution (`<(…)`), which runs.
+      if ((f.test || f.paren > 0) ? !/[<>]/.test(s[n - 1] ?? '') : glued(n)) { f.paren++; f.cur += c; ws = false; continue }
+      open(')', false, f.arith || s[n + 1] === '(')
+      continue
+    }
+    if (c === ')') {
+      endWord()
+      if (f.paren > 0) { f.paren--; f.cur += c; ws = false; continue }
+      if (f.close === ')') { pop(); continue }
+    }
+    // A comment runs to the end of the line; inside backticks, to the closing backtick. Inside
+    // `[[ … ]]` and a word's own parentheses, bash reads a `#` as text.
+    if (c === '#' && ws && f.brace === 0 && !f.arith && !f.test && f.paren === 0) {
       let e = s.indexOf('\n', n)
       if (e < 0)
         e = s.length
@@ -319,6 +355,7 @@ function lex(s: string, body: boolean): string[] {
     // `&` inside `2>&1`, `<&3`, and `&>file`, and `|` inside `>|file`, belong to a redirect.
     if ((c === '&' && (afterOp || s[n + 1] === '>')) || (c === '|' && afterOp && s[n - 1] === '>')) { f.cur += c; ws = false; continue }
     if (c === '\n') {
+      endWord()
       cut()
       if (pending.length > 0) {
         // Bodies start on the next line, in order. A body is data unless a shell reads it (a
@@ -354,11 +391,17 @@ function lex(s: string, body: boolean): string[] {
       continue
     }
     if (c === ';' || c === '&' || c === '|') {
+      endWord()
       cut()
       // `|` and `|&` join a pipeline; `;`, `&`, `&&`, and `||` end it.
       if (!((c === '|' && s[n + 1] !== '|' && s[n - 1] !== '|') || (c === '&' && s[n - 1] === '|')))
         endPipe()
       continue
+    }
+    if (c === ' ' || c === '\t') {
+      endWord()
+      if (!f.test && f.cur.endsWith('[[') && TEST_START.test(f.cur))
+        f.test = true
     }
     f.cur += c
     ws = /\s/.test(c)

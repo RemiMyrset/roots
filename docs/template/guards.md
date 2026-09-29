@@ -26,7 +26,8 @@ reads a redirection (`2>&1`, `> log`) as an argument. A `$()` or backtick
 substitution runs wherever bash runs it, inside double quotes and in a heredoc
 with an unquoted delimiter (`<<EOF`) too, while single-quoted text, a `#`
 comment, and a heredoc body are data, so a quote inside them cannot hide a
-later line. A body a shell reads (`bash <<'EOF'`, `cat <<'EOF' | sh`) is lexed
+later line. A `#` opens a comment only where bash reads one, never inside
+`[[ … ]]` or a word's own parentheses (`@(#|a)`, `^(#|$)`). A body a shell reads (`bash <<'EOF'`, `cat <<'EOF' | sh`) is lexed
 as commands, and so is one inside a substitution a shell runs as its script,
 under `-c`, or under `eval` (`bash <(cat <<'EOF' …)`). A substitution passed to
 a script as an argument (`bash x.sh "$(cat <<'EOF' …)"`) stays data.
