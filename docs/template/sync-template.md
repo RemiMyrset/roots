@@ -2,9 +2,9 @@
 
 - **Source:** `scripts/sync-template.mts`
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
-- **Last reviewed:** 2026-09-27
+- **Last reviewed:** 2026-09-29
 
-The contract for `pnpm sync:template`. The tests pin behaviors 1 to 24; the
+The contract for `pnpm sync:template`. The tests pin behaviors 1 to 25; the
 per-file-error branch of behavior 23 is untested. The user-facing recipe is the
 [Recipe](#recipe) section below.
 
@@ -69,6 +69,12 @@ file is refused like any other change (behavior 7), and a stashed one takes
 its lists with it. Never edit `MECHANICS` in the script itself: the script is
 synced, and the edit would be staged for revert on the next run.
 
+An organization that keeps its own fork of roots as its template syncs the
+fork from roots, and a repository made from the fork syncs from the fork. The
+fork's state file comes with the repository's first commit and names the fork
+as the repository that wrote it (`repo`), so the first sync there takes the
+fork as the template (behavior 25). Pass a URL to sync from another one.
+
 A repo that predates the script, or holds an older copy that never recorded a
 sync point, bootstraps with plain git, so a private fork works with whatever
 auth git already has. Overwrite an older copy; behavior 7 says why. In Claude
@@ -102,6 +108,18 @@ other option, or a second bare argument, is refused.
 The template URL is the first match of: the argument; `url` in
 `.template-sync.json`; the existing `template` remote; the built-in roots URL.
 The argument must match `^[\w@:/.+~%-]+$` and not start with `-`.
+
+A state file is inherited when it came with the repository rather than from a
+sync here: it records a `commit`, the one commit that wrote it is a root
+commit, it has no change in the index or the worktree, and the `repo` it names
+is not this repository's `origin` (compared by host and path), or it names
+none. Its `commit` is dropped, so the run is a first sync, and a warning on
+stderr says so.
+
+When an inherited file names a `repo`, that URL replaces its `url`, and its
+`ref`, `exclude`, and `include` are dropped too: they configured the writer's
+own sync. When it names none, its `url`, `ref`, and lists stay, and the
+warning says to pass the template's URL.
 
 The ref is the first match of: `--ref`; `ref` in the state file; `main`. It
 must match `^\w[\w./+-]*$` and contain no `..`. The `template` remote is
@@ -153,6 +171,7 @@ staged whenever it changes:
   "url": "https://github.com/RemiMyrset/roots.git",
   "ref": "<branch or tag; absent means main>",
   "commit": "<40 hex, the template commit whose mechanics are staged>",
+  "repo": "<this repository's origin URL>",
   "exclude": ["<synced path to skip>"],
   "include": ["<extra path to pull>"]
 }
@@ -162,6 +181,12 @@ staged whenever it changes:
 `--ref main` unpins. `exclude` and `include` are optional and preserved across
 rewrites. `commit` always records the fetched template head, never an inferred
 baseline.
+
+`repo` is taken from `origin` the first time the file is written where one
+exists, with the user and token of an `http(s)` URL dropped, and is kept after
+that, so a contributor whose `origin` is a fork never changes it; a file that
+lacks it is rewritten to add it. Correct it by hand if the repository moves.
+It must match the same pattern as `url`.
 
 A missing state file, or one without `commit`, means a first sync; a file
 holding only `url`, `ref`, `exclude`, or `include` is a configuration written
@@ -383,13 +408,28 @@ stderr.
     shipped a file at that path or, given a recorded commit the template no
     longer has, whatever its path; otherwise it is the repository's own (a
     skill, rule, guard, or included path) and is never mentioned.
+25. Given a state file that came with the repository's first commit (a
+    repository made with **Use this template** from one that syncs, such as
+    an organization's fork of roots), when run with no URL, then stderr warns
+    that it holds another repository's sync point and the run is a first sync.
+    When the file names its writer in `repo`, the writer is the template and
+    the file's `ref`, `exclude`, and `include` are dropped; when it names none,
+    the file's `url`, `ref`, and lists are used and the warning says to pass
+    the template's URL. The rewritten state is this repository's, so a rerun
+    before the commit is not inherited. A clone whose later commit wrote the
+    file, whatever its `origin`, is not inherited, nor is a history squashed
+    into one commit whose `repo` is its own `origin`. `repo` is written once
+    and kept; a file without it gets it on the next run, from `origin` with
+    the user and token of an `http(s)` URL dropped.
 
 ## Edge cases and gotchas
 
 - The script syncs itself. The staged copy takes effect on the next run; the
   running process is unaffected. Customize via the state file, never the list.
 - The state file's `url` and `ref` beat a stale per-clone remote on purpose:
-  the file is shared through git, the remote is not.
+  the file is shared through git, the remote is not. An inherited file is the
+  exception (behavior 25): it is shared from the repository this one was made
+  from.
 - `root time` is a heuristic: a template commit made long before it was pushed
   can predate a copy taken from an older head. The `Baseline:` note says so,
   and the staged diff does not depend on it.

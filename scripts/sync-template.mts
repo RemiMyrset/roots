@@ -20,7 +20,8 @@
  * repo lacks, as follow-ups to apply by hand. A first sync infers where this repo branched off the template — shared
  * history, the root commit's tree, or the root commit's time — so the list starts
  * there. The sync point (template URL, ref, commit) is recorded in .template-sync.json
- * and staged with the rest, so the next run knows where to start.
+ * with this repo's own URL and staged with the rest, so the next run knows where to start,
+ * and a repo made from this one knows the file is not its own.
  *
  * Contract and behavior branches: docs/template/sync-template.md. Regression suite:
  * scripts/test-sync.mts (`pnpm test:sync`). Node builtins only. This file is itself
@@ -84,6 +85,7 @@ interface RawState {
   url?: unknown
   ref?: unknown
   commit?: unknown
+  repo?: unknown
   exclude?: unknown
   include?: unknown
 }
@@ -93,19 +95,22 @@ interface StateFile {
   url: string
   ref?: string
   commit: string
+  repo?: string
   exclude?: string[]
   include?: string[]
 }
 
 /**
  * The committed sync point: where the mechanics came from, which ref is tracked, and which
- * template commit they match. Only `commit` is written by the sync alone; a file without it
- * is a configuration written before the first sync.
+ * template commit they match, with the URL of the repository that wrote it (`repo`). Only
+ * `commit` and `repo` are written by the sync alone; a file without `commit` is a
+ * configuration written before the first sync.
  */
 interface SyncState {
   url?: string
   ref?: string
   commit?: string
+  repo?: string
   exclude?: string[]
   include?: string[]
 }
@@ -271,10 +276,13 @@ function readState(): { state?: SyncState, warnings: string[] } {
   const o = raw as RawState
   const state: SyncState = {}
   const warnings: string[] = []
-  if (o.url !== undefined) {
-    if (typeof o.url !== 'string' || !URL_RE.test(o.url))
-      invalidState(`"url" must be a git URL or path matching ${String(URL_RE)}`)
-    state.url = o.url
+  for (const key of ['url', 'repo'] as const) {
+    const v = o[key]
+    if (v === undefined)
+      continue
+    if (typeof v !== 'string' || !URL_RE.test(v))
+      invalidState(`"${key}" must be a git URL or path matching ${String(URL_RE)}`)
+    state[key] = v
   }
   if (o.ref !== undefined) {
     if (typeof o.ref !== 'string' || !isRef(o.ref))
@@ -308,12 +316,13 @@ function readState(): { state?: SyncState, warnings: string[] } {
 }
 
 function writeState(state: SyncState & { url: string, commit: string }): void {
-  // Field order in the file: url, ref, commit, exclude, include.
+  // Field order in the file: url, ref, commit, repo, exclude, include.
   const out: StateFile = {
-    $comment: 'Written by scripts/sync-template.mts: the template URL, the branch or tag it tracks ("ref", absent means main), and the last template commit synced into this repo. Commit it together with the sync. "exclude" (synced paths to skip) and "include" (extra paths to pull) are yours to edit.',
+    $comment: 'Written by scripts/sync-template.mts: the template URL, the branch or tag it tracks ("ref", absent means main), the last template commit synced into this repo, and this repo\'s own URL ("repo"), which tells a repo made from this one that the file came with it. Commit it together with the sync. "exclude" (synced paths to skip) and "include" (extra paths to pull) are yours to edit.',
     url: state.url,
     ...(state.ref !== undefined ? { ref: state.ref } : {}),
     commit: state.commit,
+    ...(state.repo !== undefined ? { repo: state.repo } : {}),
     ...(state.exclude ? { exclude: state.exclude } : {}),
     ...(state.include ? { include: state.include } : {}),
   }
@@ -323,6 +332,32 @@ function writeState(state: SyncState & { url: string, commit: string }): void {
 /** The host and path of a git URL (https, ssh, scp-form) or a local path, for comparing remotes. */
 function hostPath(url: string): string {
   return url.trim().replace(/^[a-z+]+:\/\//i, '').replace(/^[^@/]+@/, '').replace(/^([^/:]+):/, '$1/').replace(/\.git$/, '').replace(/\/+$/, '').toLowerCase()
+}
+
+/** This repository's URL to record as `repo`: the origin, an http(s) user and token dropped; undefined without an origin or when it fails URL_RE. */
+function ownUrl(origin: string | undefined): string | undefined {
+  const url = origin?.replace(/^(https?:\/\/)[^/@]*@/i, '$1')
+  return url !== undefined && URL_RE.test(url) ? url : undefined
+}
+
+/**
+ * Whether the state file is another repository's that came with this one: "Use this template"
+ * on a repository that syncs, such as an organization's fork of roots, copies its state file
+ * into the new repository's first commit. That is the case when the file records a sync point,
+ * only a root commit wrote it, it has no change here, and the writer it names (`repo`) is not
+ * this repository's origin, or it names none. A clone or fork of this repository carries the
+ * commits that wrote the file, and a history squashed into one commit names its own origin.
+ */
+function inherited(state: SyncState, origin: string | undefined): boolean {
+  if (state.commit === undefined)
+    return false
+  if (state.repo !== undefined && origin !== undefined && hostPath(state.repo) === hostPath(origin))
+    return false
+  if (tryGit(['status', '--porcelain', '--', STATE_FILE]) !== '')
+    return false
+  // Two at most: a second writer settles it, so a long history is not walked to its root.
+  const writers = lines(tryGit(['rev-list', '--max-count=2', 'HEAD', '--', STATE_FILE]))
+  return writers.length === 1 && tryGit(['rev-parse', '-q', '--verify', `${writers[0]}^`]) === null
 }
 
 interface Fetched {
@@ -637,19 +672,38 @@ if (toplevel === null)
   fail('Not a git repository — run this from inside your project.')
 process.chdir(toplevel.trim())
 
-const { state, warnings } = readState()
+const { state: stateFile, warnings } = readState()
 for (const w of warnings)
   console.error(`Warning: ${w}`)
 
 const args = parseArgs(process.argv.slice(2))
+const origin = tryGit(['remote', 'get-url', 'origin'])?.trim()
+
+// A state file that came with this repository is the sync point of the repository it was made
+// from. Its sync point is never this one's, so the run is a first sync. When it names its
+// writer, that repository is the template, and the writer's own ref and lists go with it;
+// otherwise all the file can say is its url, ref, and lists.
+let state = stateFile
+if (stateFile && inherited(stateFile, origin)) {
+  const came = `${STATE_FILE} came with this repository's first commit, so it holds the sync point of the repository this one was made from`
+  if (stateFile.repo === undefined) {
+    const { commit: _commit, ...configuration } = stateFile
+    state = configuration
+    console.error(`Warning: ${came}, not this one's: running a first sync, keeping its url, ref, exclude, and include. If that repository is your template (a fork of roots), pass its URL.`)
+  }
+  else {
+    state = { url: stateFile.repo }
+    console.error(`Warning: ${came} (${stateFile.repo}), not this one's: running a first sync${args.url === undefined ? ` from ${stateFile.repo}` : ''}, without its ref, exclude, or include. Pass a URL to sync from another template.`)
+  }
+}
+
 const existingRemote = tryGit(['remote', 'get-url', REMOTE])?.trim()
 const url = args.url ?? state?.url ?? existingRemote ?? TEMPLATE_URL
 const ref = args.ref ?? state?.ref ?? DEFAULT_REF
 
 // The template must never sync from itself: it would stage a state file and report a
 // clean no-op that is easy to commit by mistake.
-const origin = tryGit(['remote', 'get-url', 'origin'])
-if (origin !== null && hostPath(origin) === hostPath(url))
+if (origin !== undefined && hostPath(origin) === hostPath(url))
   fail(`This checkout is the template itself (origin is ${url}) — run the sync in a repository made from it.`)
 
 const exclude = new Set(state?.exclude ?? [])
@@ -794,14 +848,19 @@ const settings = settingsFollowUps(
   !existsSync(SETTINGS),
 )
 
+// `repo` is written once, from this repository's origin, and kept after that: a contributor
+// whose origin is a fork of this repository must not rename it.
 const next: SyncState & { url: string, commit: string } = { url, commit: head }
 if (ref !== DEFAULT_REF)
   next.ref = ref
+const repo = state?.repo ?? ownUrl(origin)
+if (repo !== undefined)
+  next.repo = repo
 if (state?.exclude)
   next.exclude = state.exclude
 if (state?.include)
   next.include = state.include
-if (!state || state.url !== url || state.commit !== head || (state.ref ?? DEFAULT_REF) !== ref) {
+if (!state || state.url !== url || state.commit !== head || (state.ref ?? DEFAULT_REF) !== ref || state.repo !== next.repo) {
   writeState(next)
   git(['add', '--', STATE_FILE])
 }

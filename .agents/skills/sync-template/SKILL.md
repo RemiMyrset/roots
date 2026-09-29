@@ -30,7 +30,11 @@ and the contract are in `docs/template/sync-template.md`.
    deleting the file drops its `exclude` and `include`.
    Read the output top to bottom. On a first sync, the `Baseline:` line says how
    the starting point was found: `root time` is approximate, `none` means no
-   commit list this run.
+   commit list this run. A warning that `.template-sync.json` came with this
+   repository's first commit means it was made from a repository that syncs,
+   such as an organization's fork of roots: the sync took that repository as
+   the template, or the warning asks for its URL. Tell the user which template
+   was used.
 4. Breaking commits first. Every `!` line and its `BREAKING CHANGE` paragraph is
    an instruction for a hand-edit outside the synced paths: a
    `.claude/settings.json` entry, a devDependency, an orphan file to delete.

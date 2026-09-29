@@ -81,7 +81,7 @@ function staged(cwd: string): string[] {
   return lines
 }
 
-interface State { url?: string, ref?: string, commit?: string, exclude?: unknown, include?: unknown }
+interface State { url?: string, ref?: string, commit?: string, repo?: string, exclude?: unknown, include?: unknown }
 function readState(cwd: string): State {
   try {
     return JSON.parse(readFileSync(join(cwd, STATE), 'utf8')) as State
@@ -818,6 +818,77 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   const back = run(kid)
   check('dropped exclusion exits 0', back.status === 0, back.detail)
   check('dropped exclusion retires the rule the template retired meanwhile', staged(kid).includes('D .claude/rules/extra.md'), staged(kid).join(', '))
+}
+
+// 25. A fork used as a template: its state file records its own sync from upstream, and "Use
+// this template" copies that file into each repository made from it. There it came with the
+// first commit and names another repository as its writer, so the sync takes the fork as the
+// template, as a first sync, instead of reverting the fork's customizations from upstream. A
+// clone with another origin, or a history squashed into one commit, is not a copy.
+{
+  const acme = join(tmp, 'acme')
+  git(tmp, 'clone', '-q', URL, acme)
+  const ACME_URL = pathToFileURL(acme).href
+  git(acme, 'remote', 'set-url', 'origin', ACME_URL)
+  write(acme, '.claude/skills/x/SKILL.md', '# x, the acme way\n')
+  commit(acme, 'feat: acme skill')
+  const synced = run(acme, URL)
+  check('fork syncs from upstream', synced.status === 0, synced.detail)
+  gitSafe(acme, 'restore', '--staged', '--worktree', '--', '.claude/skills/x/SKILL.md')
+  gitSafe(acme, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  const forkState = readState(acme)
+  check('fork records itself as the writer', forkState.url === URL && forkState.repo === ACME_URL, JSON.stringify(forkState))
+  const acmeHead = git(acme, 'rev-parse', 'HEAD').trim()
+
+  const app = join(tmp, 'acme-app')
+  copyTree(acme, app)
+  git(app, 'init', '-q', '-b', 'main')
+  commit(app, 'Initial commit')
+  git(app, 'remote', 'add', 'origin', 'file:///example/acme-app')
+  const r = run(app)
+  check('copy of a fork exits 0', r.status === 0, r.detail)
+  check('copy of a fork says whose state file it holds', r.stderr.includes('came with this repository\'s first commit') && r.stderr.includes(ACME_URL), r.stderr)
+  check('copy of a fork syncs from the fork', r.stdout.startsWith(`Template: ${ACME_URL}\n`), r.stdout)
+  check('copy of a fork runs a first sync', r.stdout.includes('first sync') && r.stdout.includes(`Baseline: ${acmeHead.slice(0, 7)} (root tree)`), r.stdout)
+  check('copy of a fork keeps the fork\'s customization', !staged(app).some(l => l.includes('skills/x/SKILL.md')) && readFileSync(join(app, '.claude/skills/x/SKILL.md'), 'utf8') === '# x, the acme way\n', staged(app).join(', '))
+  const own = readState(app)
+  check('copy of a fork records the fork and itself', own.url === ACME_URL && own.commit === acmeHead && own.repo === 'file:///example/acme-app', JSON.stringify(own))
+  const again = run(app)
+  check('copy of a fork rerun before commit is its own', again.status === 0 && again.stderr === '' && again.stdout.includes('unchanged since last sync'), again.detail)
+  gitSafe(app, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+
+  const clone = join(tmp, 'acme-app-clone')
+  git(tmp, 'clone', '-q', pathToFileURL(app).href, clone)
+  const cloned = run(clone)
+  check('clone with another origin keeps the recorded template', cloned.status === 0 && cloned.stderr === '' && cloned.stdout.startsWith(`Template: ${ACME_URL}\n`) && cloned.stdout.includes('unchanged since last sync'), cloned.detail)
+  check('clone with another origin keeps the recorded writer', staged(clone).length === 0 && readState(clone).repo === 'file:///example/acme-app', staged(clone).join(', '))
+  write(clone, STATE, json({ url: ACME_URL, commit: acmeHead }))
+  commit(clone, 'chore: a state file from an older script')
+  git(clone, 'remote', 'set-url', 'origin', 'https://ghp-token@example.com/acme/app.git')
+  const older = run(clone)
+  check('state file with no writer records this origin once, credentials dropped', older.status === 0 && older.stdout.includes('unchanged since last sync') && staged(clone).includes(`M ${STATE}`) && readState(clone).repo === 'https://example.com/acme/app.git', `${older.detail}; ${JSON.stringify(readState(clone))}`)
+
+  const squashed = join(tmp, 'acme-app-squashed')
+  copyTree(app, squashed)
+  git(squashed, 'init', '-q', '-b', 'main')
+  commit(squashed, 'chore: squash history')
+  git(squashed, 'remote', 'add', 'origin', 'file:///example/acme-app')
+  const flat = run(squashed)
+  check('squashed history with its own state file is not a copy', flat.status === 0 && flat.stderr === '' && flat.stdout.includes('unchanged since last sync'), flat.detail)
+
+  const legacy = join(tmp, 'acme-legacy')
+  copyTree(acme, legacy)
+  write(legacy, STATE, json({ url: URL, commit: forkState.commit, exclude: ['.gemini/settings.json'] }))
+  git(legacy, 'init', '-q', '-b', 'main')
+  commit(legacy, 'Initial commit')
+  const old = run(legacy)
+  check('copy of an unnamed writer exits 0', old.status === 0, old.detail)
+  check('copy of an unnamed writer says to pass the template', old.stderr.includes('came with this repository\'s first commit') && old.stderr.includes('pass its URL'), old.stderr)
+  check('copy of an unnamed writer runs a first sync from the recorded url', old.stdout.startsWith(`Template: ${URL}\n`) && old.stdout.includes('first sync'), old.stdout)
+  check('copy of an unnamed writer keeps the lists', JSON.stringify(readState(legacy).exclude) === '[".gemini/settings.json"]', JSON.stringify(readState(legacy)))
+  gitSafe(legacy, 'restore', '--staged', '--worktree', '--', '.claude/skills/x/SKILL.md')
+  const rerun = run(legacy)
+  check('copy with no origin, rerun before commit, reads its own sync point', rerun.status === 0 && rerun.stderr === '' && rerun.stdout.includes('unchanged since last sync'), rerun.detail)
 }
 
 if (fails.length > 0) {
