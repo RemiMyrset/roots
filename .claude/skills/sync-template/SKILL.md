@@ -35,7 +35,9 @@ and the contract are in `docs/template/sync-template.md`.
    repository's first commit means it was made from a repository that syncs,
    such as an organization's fork of roots: the sync took that repository as
    the template, or the warning asks for its URL. Tell the user which template
-   was used.
+   was used. A `Recorded this repository as <url>` line names the URL a
+   repository made from this one will sync from; when it is a personal fork or
+   a mirror, set `repo` in `.template-sync.json` to the canonical URL.
 4. Breaking commits first. Every `!` line and its `BREAKING CHANGE` paragraph is
    an instruction for a hand-edit outside the synced paths: a
    `.claude/settings.json` entry, a devDependency, an orphan file to delete.
@@ -58,6 +60,9 @@ and the contract are in `docs/template/sync-template.md`.
    and `catalog.*` lines are `pnpm-workspace.yaml` edits: "missing here" and
    "changed on the template" entries are edits to make; "differs" (first sync)
    needs judgment; "customized locally" is informational, leave those alone.
+   A dependency is the exception: list the `devDependencies.*` and
+   `catalog.*` entries to add or re-range for the user and edit only those
+   they confirm, per the ask-first rule in `AGENTS.md`.
    A `devDependencies` entry of `catalog:` needs its `catalog.*` entry too.
    `Files` lines are template files outside the synced paths: run the printed
    `git restore` for each one this repo needs, such as a config a synced gate

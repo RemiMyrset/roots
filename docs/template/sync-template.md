@@ -4,7 +4,7 @@
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
 - **Last reviewed:** 2026-09-29
 
-The contract for `pnpm sync:template`. The tests pin behaviors 1 to 26; the
+The contract for `pnpm sync:template`. The tests pin behaviors 1 to 27; the
 per-file-error branch of behavior 23 is untested. The user-facing recipe is the
 [Recipe](#recipe) section below.
 
@@ -118,8 +118,9 @@ A state file is inherited when it came with the repository rather than from a
 sync here: it records a `commit`, the one commit that wrote it is a root
 commit, it has no change in the index or the worktree, and the `repo` it names
 is not this repository's `origin` (compared by host and path), or it names
-none. Its `commit` is dropped, so the run is a first sync, and a warning on
-stderr says so.
+none. A shallow clone never inherits: git cuts the parents off its oldest
+commits, so a root commit there may not be one. An inherited file's `commit`
+is dropped, so the run is a first sync, and a warning on stderr says so.
 
 When an inherited file names a `repo`, that URL replaces its `url`, and its
 `ref`, `exclude`, and `include` are dropped too: they configured the writer's
@@ -190,8 +191,10 @@ baseline.
 `repo` is taken from `origin` the first time the file is written where one
 exists, with the user and token of an `http(s)` URL dropped, and is kept after
 that, so a contributor whose `origin` is a fork never changes it; a file that
-lacks it is rewritten to add it. Correct it by hand if the repository moves.
-It must match the same pattern as `url`.
+lacks it is rewritten to add it. The run that writes it first says so in its
+report, since that `origin` may itself be a personal fork or a mirror. Correct
+it by hand then, or if the repository moves. It must match the same pattern as
+`url`.
 
 A missing state file, or one without `commit`, means a first sync; a file
 holding only `url`, `ref`, `exclude`, or `include` is a configuration written
@@ -247,7 +250,9 @@ stdout, in order:
    by one line per staged entry: the status letter (`M`, `A`, `D`; rename
    detection is off, so a rename is a `D` and an `A`), two spaces, the path,
    and for the script itself the suffix
-   `(this script — the new version runs next time)`. Then, only when a checkout
+   `(this script — the new version runs next time)`. Then, only when this run
+   records `repo` for the first time, a `Recorded this repository as <url>`
+   line. Then, only when a checkout
    failed, a `Skipped` header with one `<path>  <reason>` line each, and only
    when a file that may be the template's stays, a `Kept` header with one line
    per such file (behavior 24).
@@ -435,7 +440,8 @@ stderr.
     file, whatever its `origin`, is not inherited, nor is a history squashed
     into one commit whose `repo` is its own `origin`. `repo` is written once
     and kept; a file without it gets it on the next run, from `origin` with
-    the user and token of an `http(s)` URL dropped.
+    the user and token of an `http(s)` URL dropped, and stdout names the URL
+    recorded.
 26. Given a template that changed what a synced gate relies on outside the
     synced paths, when run, then the `devDependencies`, `simple-git-hooks`, and
     `lint-staged` blocks of `package.json` are compared like its `scripts`
@@ -449,6 +455,11 @@ stderr.
     `Files` with the command that fetches it; `Files` is skipped when the sync
     point is not on the template head's history (no baseline, a lost or newer
     recorded commit).
+27. Given a shallow clone (`git clone --depth 1`, the default of
+    `actions/checkout`) whose state file was written by a commit the clone cut
+    off, when run, then the file is this repository's own, not inherited: the
+    sync starts at its recorded commit and lists every template commit since,
+    breaking ones with their footer.
 
 ## Edge cases and gotchas
 

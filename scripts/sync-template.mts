@@ -348,7 +348,9 @@ function ownUrl(origin: string | undefined): string | undefined {
  * into the new repository's first commit. That is the case when the file records a sync point,
  * only a root commit wrote it, it has no change here, and the writer it names (`repo`) is not
  * this repository's origin, or it names none. A clone or fork of this repository carries the
- * commits that wrote the file, and a history squashed into one commit names its own origin.
+ * commits that wrote the file, and a history squashed into one commit names its own origin. A
+ * shallow clone never counts: its oldest commits have their parents cut off, so the one that
+ * wrote the file there can look like a root commit without being one.
  */
 function inherited(state: SyncState, origin: string | undefined): boolean {
   if (state.commit === undefined)
@@ -356,6 +358,8 @@ function inherited(state: SyncState, origin: string | undefined): boolean {
   if (state.repo !== undefined && origin !== undefined && hostPath(state.repo) === hostPath(origin))
     return false
   if (tryGit(['status', '--porcelain', '--', STATE_FILE]) !== '')
+    return false
+  if (tryGit(['rev-parse', '--is-shallow-repository'])?.trim() === 'true')
     return false
   // Two at most: a second writer settles it, so a long history is not walked to its root.
   const writers = lines(tryGit(['rev-list', '--max-count=2', 'HEAD', '--', STATE_FILE]))
@@ -1037,6 +1041,10 @@ else {
     out.push(`  ${status}  ${file}${note}`)
   }
 }
+// The first `repo` comes from whoever runs the sync first, and their origin may be a fork of
+// this repository: said out loud, so a wrong one is corrected before it is committed.
+if (state?.repo === undefined && next.repo !== undefined)
+  out.push(`Recorded this repository as ${next.repo} ("repo" in ${STATE_FILE}): a repository made from this one with "Use this template" syncs from it. If that is a personal fork or a mirror, set "repo" to the canonical URL before you commit.`)
 if (skipped.length > 0) {
   out.push('Skipped (git checkout failed — fix and re-run):')
   for (const s of skipped)

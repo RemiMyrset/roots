@@ -845,6 +845,7 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   gitSafe(acme, 'commit', '-q', '-m', 'chore: sync mechanics from template')
   const forkState = readState(acme)
   check('fork records itself as the writer', forkState.url === UPSTREAM && forkState.repo === ACME_URL, JSON.stringify(forkState))
+  check('fork says which URL it recorded as itself', synced.stdout.includes(`Recorded this repository as ${ACME_URL} ("repo" in ${STATE})`), synced.stdout)
   const acmeHead = git(acme, 'rev-parse', 'HEAD').trim()
 
   const app = join(tmp, 'acme-app')
@@ -860,8 +861,10 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('copy of a fork keeps the fork\'s customization', !staged(app).some(l => l.includes('skills/x/SKILL.md')) && readFileSync(join(app, '.claude/skills/x/SKILL.md'), 'utf8') === '# x, the acme way\n', staged(app).join(', '))
   const own = readState(app)
   check('copy of a fork records the fork and itself', own.url === ACME_URL && own.commit === acmeHead && own.repo === 'file:///example/acme-app', JSON.stringify(own))
+  check('copy of a fork says which URL it recorded as itself', r.stdout.includes('Recorded this repository as file:///example/acme-app'), r.stdout)
   const again = run(app)
   check('copy of a fork rerun before commit is its own', again.status === 0 && again.stderr === '' && again.stdout.includes('unchanged since last sync'), again.detail)
+  check('a recorded writer is announced once', !again.stdout.includes('Recorded this repository'), again.stdout)
   gitSafe(app, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 
   const clone = join(tmp, 'acme-app-clone')
@@ -874,6 +877,7 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   git(clone, 'remote', 'set-url', 'origin', 'https://ghp-token@example.com/acme/app.git')
   const older = run(clone)
   check('state file with no writer records this origin once, credentials dropped', older.status === 0 && older.stdout.includes('unchanged since last sync') && staged(clone).includes(`M ${STATE}`) && readState(clone).repo === 'https://example.com/acme/app.git', `${older.detail}; ${JSON.stringify(readState(clone))}`)
+  check('the writer taken from a contributor\'s origin is announced for review', older.stdout.includes('Recorded this repository as https://example.com/acme/app.git') && older.stdout.includes('personal fork'), older.stdout)
 
   const squashed = join(tmp, 'acme-app-squashed')
   copyTree(app, squashed)
@@ -961,6 +965,35 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('no baseline lists every template devDependency two-way', none.stdout.includes('  devDependencies.secretlint  missing here\n') && none.stdout.includes('  devDependencies.eslint  missing here\n'), none.stdout)
   check('no pnpm-workspace.yaml skips the catalog', none.stdout.includes('Catalog: skipped — no pnpm-workspace.yaml here.'), none.stdout)
   check('no baseline skips the files', none.stdout.includes('Files: skipped — '), none.stdout)
+}
+
+// 27. A shallow clone cuts the parents off its oldest commit, so the commit that wrote the state
+// file there looks like a root commit. Its state file, written by the script before behavior 25
+// and so naming no writer, is still this repository's own: the sync starts at the recorded
+// commit and lists the breaking one since.
+{
+  const shallowTemplate = join(tmp, 'shallow-template')
+  mkdirSync(shallowTemplate)
+  git(shallowTemplate, 'init', '-q', '-b', 'main')
+  write(shallowTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(shallowTemplate, '.claude/skills/x/SKILL.md', '# x\n')
+  const recorded = commit(shallowTemplate, 'chore: t1', T1_AT)
+  const shallowUrl = pathToFileURL(shallowTemplate).href
+  const kid = join(tmp, 'shallow-child')
+  copyTree(shallowTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  write(kid, STATE, json({ url: shallowUrl, commit: recorded }))
+  commit(kid, 'Initial commit', COPY_AT)
+  write(kid, 'src/app.ts', 'export const app = true\n')
+  commit(kid, 'feat: own work', COPY_AT)
+  write(shallowTemplate, '.claude/skills/x/SKILL.md', '# x v2\n')
+  commit(shallowTemplate, 'feat!: new required config\n\nBREAKING CHANGE: add foo to package.json by hand.\n', T2_AT)
+  const shallow = join(tmp, 'shallow-clone')
+  git(tmp, 'clone', '-q', '--depth', '1', pathToFileURL(kid).href, shallow)
+  const r = run(shallow)
+  check('shallow clone exits 0', r.status === 0, r.detail)
+  check('shallow clone reads its own state file', r.stderr === '' && !r.stdout.includes('first sync'), r.detail)
+  check('shallow clone lists the breaking commit since the sync point', r.stdout.includes('1 commit since last sync') && r.stdout.includes('BREAKING CHANGE: add foo to package.json by hand.'), r.stdout)
 }
 
 if (fails.length > 0) {
