@@ -11,13 +11,19 @@ frontmatter.
 1. **Links** are relative markdown links with the `.md` extension:
    `[text](./file.md)`, `[text](../dir/file.md#heading)`. Never wikilinks
    (`[[page]]`) or embeds (`![[file]]`), which are Obsidian-only, and never
-   absolute `](/...)` links. The target must exist, and so must the anchor: a
-   `#fragment` into a markdown page (a bare `#fragment` means this page) must
-   be the GitHub slug of one of its ATX headings. The slug is the heading text
-   lowercased, with everything but letters, digits, underscores, hyphens, and
-   whitespace dropped and each whitespace character turned into a hyphen; a
-   repeated slug gets `-1`, `-2`. VitePress slugs a heading with inner
-   punctuation or a leading digit differently, so do not anchor into one.
+   absolute links, however spelled (`](/x)`, `]( /x)`, `](</x>)`, or the
+   `/x` on the line after `](` or a reference's `]:`). The target
+   must exist in the case written: macOS and Windows find `./agents.md` for
+   `AGENTS.md`, Linux and GitHub do not. A space in a target is written `%20`
+   or the target is wrapped in `<...>`, since GitHub ends an unbracketed target
+   at the space; the checker decodes `%20` before it looks. The anchor must
+   exist too: a `#fragment` into a markdown page (a bare `#fragment` means
+   this page) must be the GitHub slug of one of its ATX headings. The slug is
+   the heading text lowercased, with everything but letters, digits,
+   underscores, hyphens, and whitespace dropped and each whitespace character
+   turned into a hyphen; a repeated slug gets `-1`, `-2`. VitePress slugs a
+   heading with inner punctuation or a leading digit differently, so do not
+   anchor into one.
 2. **Callouts** use only GitHub-alert syntax with the five UPPERCASE types:
    `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, `> [!CAUTION]`.
    All three renderers style these natively. The checker rejects any other
@@ -31,7 +37,12 @@ frontmatter.
    needs frontmatter and would not render on GitHub.
 4. **Images** live beside the doc (for example `./images/`) and are referenced
    relatively: `![alt](./images/x.png)`. Never VitePress `public/`-rooted
-   `/x.png` paths, never Obsidian embeds.
+   `/x.png` paths, never Obsidian embeds. A page under `docs/public/` links and
+   embeds nothing outside `docs/public/`: the public build bundles what a page
+   embeds, so an image from `docs/internal/` would be published. The build
+   follows symlinks, so the checker refuses one under `docs/public/` that
+   leads out of it, a page or a directory, and resolves each link through
+   them. A link to `docs/public/` itself, such as `[home](./)`, is inside.
 5. **Headings**: exactly one H1 per page, and unique text per file. The
    checker keys on the GitHub slug, so two headings that differ only in case or
    punctuation are duplicates. Backticks, emoji, and non-ASCII characters in a
@@ -52,7 +63,10 @@ frontmatter.
 8. **Emoji** are real Unicode characters, never `:shortcode:` colon codes
    (Obsidian renders those literally).
 9. **HTML** is limited to `<details>`/`<summary>` and `<br>`; the checker
-   rejects every other tag. VitePress compiles every page as a Vue template
+   rejects every other tag, one whose attributes run onto the next line
+   included. Inline code is exempt on every line it spans: a generic type in
+   backticks that wraps onto the next line is code, not a tag. VitePress
+   compiles every page as a Vue template
    and evaluates two opening braces in a row as an interpolation, in inline
    code as much as in prose, so the checker rejects them anywhere but fenced
    code: show one in a fenced block. A single brace, or a `<` that opens no
@@ -61,7 +75,11 @@ frontmatter.
     snippet syntax.
 11. GFM tables (kept simple), task lists, footnotes, fenced code with language
     tags, standard emphasis, lists, and blockquotes are **freely portable**.
+    The checker skips fenced code at the top level, in a blockquote, and in a
+    list item at the item's indent; code indented four spaces instead of fenced
+    is checked as prose.
 
 Obsidian users open `docs/` as the vault. The committed
 `docs/.obsidian/app.json` turns markdown links on with relative link format, so
-Obsidian emits rule-1-compliant links by default.
+Obsidian emits rule-1-compliant links by default, a pasted image's spaces
+written as `%20`.

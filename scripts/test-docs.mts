@@ -8,21 +8,26 @@
  * three-step repo-root fallback, the stale-region comparison (with a CRLF checkout), the
  * skills mirror clean, drifted, generated, and absent, a region holding merge conflict
  * lines (named, then repaired by automd), dated and legacy decision records side by side (a
- * legacy-only table byte for byte as before), index pages without regions, `docs:list`, and
- * the property dated names exist for: two git branches that each add a record merge with no
- * conflict. The skill trees are planted in the copy at test time: a fixture under
+ * legacy-only table byte for byte as before), index pages without regions, `docs:list`, a
+ * Status keyword matched whole, Source and Tests values with a line reference or no path,
+ * fences nested in list items, inline code wrapped across lines, link targets spelled with a
+ * space, percent-encoding, or the wrong case or starting on the next line, public pages that
+ * link outside docs/public or to its root, symlinks out of docs/public (made at test time,
+ * skipped where the platform refuses one), and the property dated names exist
+ * for: two git branches that each add a record merge with no conflict. The skill trees are planted in the copy at test time: a fixture under
  * `.claude/skills` would be listed as a live skill. Runs in CI on Ubuntu and Windows via
  * `pnpm test:docs`. Node builtins only; git runs with an isolated config; the automd runs
  * use the installed automd in a child process and are skipped, with a note, where automd is
  * not installed.
  */
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { decisionsSidebar, escapeCell, readDecisions, readSpecs, renderDecisionsIndex, specsSidebar } from './docs/readers.mts'
+import { stripFences } from './docs/root.mts'
 import { SKILLS_SOURCE, SKILLS_TARGET } from './docs/skills.mts'
 
 const FIXTURES = join(import.meta.dirname, 'docs', 'fixtures')
@@ -175,6 +180,16 @@ function runAutomd(cwd: string): Run {
     // A copy of the spec template that keeps its guidance comments, which mention "(pending)".
     'docs/internal/specs/cli/template-copy.md: Source path `src/missing.ts` does not exist',
     'docs/internal/specs/cli/template-copy.md: Tests path `test/missing.ts` does not exist',
+    // A plain keyword matches whole, and a record cannot be superseded by itself.
+    'docs/internal/decisions/20260114-near-keyword.md: status "acceptedd" not in vocabulary',
+    'docs/internal/decisions/20260115-self-superseded.md: superseded-by link points at this record itself — link the newer record that replaces it',
+    // A line reference is dropped before the path is checked, a value with no backticked
+    // path is refused, and a path in the wrong case is named with the case on disk.
+    'docs/internal/specs/cli/line-refs.md: Source path `src/nope.ts:42` does not exist',
+    'docs/internal/specs/cli/line-refs.md: Tests path `test/nope.ts#L3-L5` does not exist',
+    'docs/internal/specs/cli/no-path.md: Source names no path to check — write the repo-relative path in backticks (`src/feature.ts`), or (pending) before the code exists',
+    'docs/internal/specs/cli/no-path.md: Tests names no path to check',
+    'docs/internal/specs/cli/wrong-case.md: Source path `readme.md` is README.md on disk; the case must match, or Linux CI fails it',
     '.agents/skills/y/SKILL.md: missing — run `pnpm docs:gen` to mirror .claude/skills',
     '.agents/skills/x/SKILL.md: differs from .claude/skills/x/SKILL.md — never hand-edit the mirror',
     '.agents/skills/z/SKILL.md: has no source under .claude/skills — run `pnpm docs:gen` to remove it',
@@ -214,10 +229,25 @@ function runAutomd(cwd: string): Run {
     'README.md:40  Vue interpolation',
     'README.md:42  callout type "[!NOTE] Custom title"',
     'README.md:45  callout type "[!NOTE]-"',
+    'README.md:48  raw HTML tag beyond <details>/<summary>/<br>, split across lines',
+    'README.md:51  root-absolute inline link "</abs.md>"',
+    'README.md:53  root-absolute inline link " /abs.md"',
+    'README.md:55  link target with a space: ./My Doc.md — write the space as %20 or wrap the target in <...> (rule 1)',
+    'README.md:57  relative link in the wrong case: ./agents.md — on disk it is AGENTS.md',
+    // A destination may start on the line after `](` or `]:`, and a backtick no later line of
+    // its paragraph closes is a literal one, hiding nothing after it.
+    'README.md:59  root-absolute inline link " /abs.md"',
+    'README.md:62  absolute link "[padded]: /abs.md"',
+    'README.md:65  raw HTML tag beyond <details>/<summary>/<br>, split across lines',
+    'docs/public/index.md:3  link or image outside docs/public: ../internal/images/diagram.svg — the public site would publish it',
+    'docs/public/index.md:3  link or image outside docs/public: ../internal/stale.md',
     'docs/internal/README.md  no H1',
     'docs/internal/README.md  README.md inside a site directory',
     'docs/index.md  index.md outside a site directory',
   ])
+  check('a split tag is reported once, on its first line', !p.out.includes('README.md:49'), p.out)
+  check('a raw-space link is not also reported broken', !p.out.includes('broken relative link: ./My Doc.md'), p.out)
+  check('a wrong-case link is not also reported broken', !p.out.includes('broken relative link: ./agents.md'), p.out)
 }
 
 // 3b. Heading grammar matches CommonMark: an H1 indented up to three spaces is an H1, and a
@@ -606,6 +636,102 @@ function runAutomd(cwd: string): Run {
     `| [${stamp}-cache-with-redis](./${stamp}-cache-with-redis.md) | Cache with Redis | accepted |`,
     `| [${stamp}-use-postgres](./${stamp}-use-postgres.md) | Use Postgres | accepted |`,
   ])
+}
+
+// 19. What docs:check accepts: a line reference after a Source or Tests path, and a comment
+// after a Status keyword.
+{
+  const dir = withoutRegions(fixture('clean'))
+  const spec = join(dir, 'docs/internal/specs/cli/hello.md')
+  writeFileSync(spec, readFileSync(spec, 'utf8')
+    .replace('2026-09-07', today)
+    .replace('`src/hello.txt`', '`src/hello.txt:3`')
+    .replace('`test/hello.txt`', '`test/hello.txt#L1-L2`'))
+  const contract = join(dir, 'docs/template/contract.md')
+  writeFileSync(contract, readFileSync(contract, 'utf8').replace('2026-09-07', today))
+  const fourth = join(dir, 'docs/internal/decisions/20260106-fourth.md')
+  writeFileSync(fourth, readFileSync(fourth, 'utf8').replace('- **Status:** accepted', '- **Status:** accepted <!-- after review -->'))
+  const c = run('docs:check', dir, withoutCi)
+  check('line references and a commented Status pass docs:check', c.status === 0 && !c.out.includes('warning'), c.out)
+}
+
+// 20. What the fence and link checks accept: a fence nested in a list item is code, not
+// prose; inline code wrapped onto the next line is code on both lines; a percent-encoded
+// link names the file with the space; and a public page links within docs/public, the site's
+// root included. stripFences, which docs:check and the anchor check read pages through,
+// tracks list items the same way and ends a list item's fence with the item.
+{
+  const dir = fixture('clean')
+  const page = [
+    '# Nested fences',
+    '',
+    '1. A step:',
+    '   - an example nested one level deeper:',
+    '',
+    '     ```html',
+    '     <div>[[not a wikilink]] {{ not vue }}</div>',
+    '     ```',
+    '',
+    '- ```text',
+    '  <span>a fence opened on the item line</span>',
+    '  ```',
+    '',
+    '![diagram](./images/My%20Diagram.svg)',
+    '',
+    'The custom element is written `<my-element',
+    'data-x="1">` in a page, and generics like `Map<string,',
+    'number>` wrap too. Write `[text](./missing.md)',
+    'as a link` to link a page.',
+    '',
+  ].join('\n')
+  writeFileSync(join(dir, 'docs/internal/nested.md'), page)
+  mkdirSync(join(dir, 'docs/internal/images'))
+  writeFileSync(join(dir, 'docs/internal/images/My Diagram.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+  mkdirSync(join(dir, 'docs/public/images'), { recursive: true })
+  writeFileSync(join(dir, 'docs/public/index.md'), '# Public\n\nA ![diagram](./images/d.svg), [this page](./index.md), and [the home page](./).\n')
+  writeFileSync(join(dir, 'docs/public/images/d.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+  mkdirSync(join(dir, 'docs/public/guide'))
+  writeFileSync(join(dir, 'docs/public/guide/start.md'), '# Start\n\nBack [home](../) or to [the index](../index.md).\n')
+  const p = run('docs:portability', dir, withoutCi)
+  check('nested fences, a %20 link, and a public page linking inside docs/public pass', p.status === 0 && !p.out.includes('warning'), p.out)
+
+  check('stripFences blanks a fence nested two list levels deep', stripFences('- a\n  - b\n\n    ```md\n    # not a heading\n    ```\n# Real\n') === '- a\n  - b\n\n\n\n\n# Real\n')
+  check('stripFences ends a list item\'s fence with the item', stripFences('- item\n\n  ```\n  code\n# Heading\n') === '- item\n\n\n\n# Heading\n')
+  check('stripFences reads an over-indented fence as code in the item, not a fence', stripFences('- item\n\n      ```\n# Heading\n') === '- item\n\n      ```\n# Heading\n')
+}
+
+// 21. The public build follows a symlink, so one under docs/public that resolves outside it
+// publishes what it names: a directory that links to docs/internal, a page embedding through
+// it, and a page that is a symlink to an internal page are each refused. A junction on Windows
+// needs no privilege, a file symlink may; each is skipped, with a note, where it cannot be made.
+{
+  const dir = fixture('clean')
+  mkdirSync(join(dir, 'docs/internal/images'), { recursive: true })
+  writeFileSync(join(dir, 'docs/internal/images/secret.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+  writeFileSync(join(dir, 'docs/internal/secret.md'), '# Secret\n\nInternal only.\n')
+  mkdirSync(join(dir, 'docs/public'))
+  writeFileSync(join(dir, 'docs/public/index.md'), '# Public\n\nAn ![image](./img/secret.svg).\n')
+  const link = (target: string, path: string, type: 'junction' | 'file'): boolean => {
+    try {
+      symlinkSync(join(dir, target), join(dir, path), type)
+      return true
+    }
+    catch (error) {
+      console.log(`  (${path} symlink: skipped, none can be made here: ${(error as Error).message})`)
+      return false
+    }
+  }
+  const linkedDir = link('docs/internal/images', 'docs/public/img', 'junction')
+  const linkedPage = link('docs/internal/secret.md', 'docs/public/handbook.md', 'file')
+  const p = run('docs:portability', dir, withoutCi)
+  if (linkedDir || linkedPage)
+    check('a symlink under docs/public to docs/internal exits 1', p.status === 1, p.out)
+  if (linkedDir) {
+    check('a directory symlink out of docs/public is named', p.out.includes('docs/public/img  symlink to docs/internal/images, outside docs/public'), p.out)
+    check('a public page embedding through a symlink is named', p.out.includes('docs/public/index.md:3  link or image outside docs/public: ./img/secret.svg'), p.out)
+  }
+  if (linkedPage)
+    check('a page symlinked into docs/public is named', p.out.includes('docs/public/handbook.md  symlink to docs/internal/secret.md, outside docs/public'), p.out)
 }
 
 if (fails.length > 0) {
