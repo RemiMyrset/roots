@@ -109,7 +109,7 @@ export function skip(t: string): boolean {
 export const SUBST = '$()'
 
 // Heads that run a heredoc body as shell commands, so that body is lexed like the command line.
-const SHELLS: ReadonlySet<string> = new Set(['bash', 'sh', 'ash', 'zsh', 'dash', 'ksh', 'mksh', 'fish', 'pwsh', 'powershell', 'su', 'source', '.'])
+const SHELLS: ReadonlySet<string> = new Set(['bash', 'rbash', 'sh', 'ash', 'zsh', 'dash', 'ksh', 'mksh', 'oksh', 'yash', 'posh', 'csh', 'tcsh', 'fish', 'pwsh', 'powershell', 'su', 'source', '.'])
 
 // Whether a command starts a shell that reads its stdin as commands: a shell head (`bash`,
 // `busybox sh`, `sudo su`), or `sudo -s`, `sudo -i`, or `doas -s` with no command after them.

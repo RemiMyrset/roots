@@ -645,6 +645,9 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'busybox sh <<\'EOF\'\nnpm install\nEOF' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'ash <<\'EOF\'\nnpm install\nEOF' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'bash.exe <<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\' | rbash\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\' | yash\nnpm install\nEOF' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'tcsh <<\'EOF\'\ncat .env\nEOF' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat <<EOF &&\nnpm install\nEOF\nbash' }, //        `&&` ends the pipeline: cat prints it
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat > notes.md <<\'EOF\'\nnpm install\nEOF\nbash scripts/x.sh' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: '{ cat <<\'EOF\'\nnpm install\nEOF\n} > notes.md; bash x.sh' },
