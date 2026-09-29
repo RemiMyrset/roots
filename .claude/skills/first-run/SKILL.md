@@ -63,17 +63,14 @@ calls. Ask before any step whose input you would otherwise have to invent.
    expected):
    `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --add-topic pnpm --add-topic turborepo --add-topic ai-agents --enable-wiki=false --enable-projects=false --delete-branch-on-merge`
    (add the product's own topics),
-   then `gh workflow run labels.yml`,
-   `gh api -X PUT repos/<owner>/<repo>/vulnerability-alerts`, and
+   then `gh workflow run labels.yml` and
    `gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true`
-   (the docs-toolchain Renovate section says why). If the user wants the public docs
+   ("Keep dependencies current" in `docs/template/docs-toolchain.md` says
+   why). If the user wants the public docs
    published: `gh api -X POST repos/<owner>/<repo>/pages -f build_type=workflow`,
    `gh workflow run pages.yml`, and
    `gh repo edit <owner>/<repo> --homepage https://<owner>.github.io/<repo>/`.
    If not authenticated, print the commands for the user instead.
-   Then print the Renovate install link, `https://github.com/apps/renovate`,
-   for the user: `gh` cannot install a GitHub App, and `renovate.json` is
-   already in the tree.
 6. Delete the `## First run` section from `README.md`, from that heading to the
    line before the next `## ` heading, then run `pnpm docs:portability` and
    `pnpm verify` once more.

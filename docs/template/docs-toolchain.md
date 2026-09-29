@@ -103,44 +103,22 @@ so only the team can read it: Cloudflare Access in front of Cloudflare Pages
 reachable only over VPN/Tailscale. The shipped noindex meta and `robots.txt`
 stay as a second guard in case a gate is ever misconfigured.
 
-### Keep dependencies current with Renovate
+### Keep dependencies current
 
-`renovate.json` at the repo root is synced. It asks for one grouped pull
-request with every minor and patch update before 06:00 UTC on Mondays, waits
-two days after a release (the pnpm cooldown, `minimumReleaseAge`), keeps the
-action SHA pins and their version comments current, groups the workflow and
-devcontainer bumps, and automerges non-major npm updates once every check on
-the branch is green. Action bumps, majors, and security fixes wait for a human:
-the done gate cannot tell a malicious action from a good one, and a major needs
-reading.
-A dependency dashboard issue lists what is pending, with a checkbox per update
-to pull it on demand. The rationale, the options weighed, and the costs are
-in [conventions](./conventions.md).
+Nothing updates dependencies on a schedule. Ask an agent to run the
+`update-deps` skill: it lists what is outdated, raises the catalog ranges in
+`pnpm-workspace.yaml`, audits, refreshes the action SHA pins and their version
+comments, runs the done gate, and opens a pull request, with each major in its
+own commit. pnpm refuses any version published in the last 48 hours
+(`minimumReleaseAge`), at install and during an update alike. Why roots ships
+no update bot is in [conventions](./conventions.md).
 
-Nothing runs until the Mend Renovate app is installed on the repository at
-`https://github.com/apps/renovate` (two clicks; free for public and private
-repositories; it then scans every four hours). It opens an onboarding pull
-request that lists what it found; merge it. An organization that forbids
-third-party apps runs the same config through `renovatebot/github-action` on a
-schedule instead, with a GitHub App of its own for the token.
-
-Automerge is Renovate's own, not GitHub's native auto-merge: GitHub merges the
-moment the *required* checks pass, and without a branch ruleset none are
-required. The ruleset from [guards](./guards.md#push-protection) is still
-worth creating; it makes the requirement explicit on the server. To change the
-policy in one child, edit `renovate.json` there and list it under `exclude` in
-`.template-sync.json`.
-
-Two repository settings complete the picture and are worth applying on first
-run: vulnerability alerts, without which Renovate's security pull requests
-never fire (alerts are GitHub's advisory feed, not Dependabot pull requests),
-and required SHA pinning for actions, which makes GitHub refuse a workflow
-that references an action by a mutable tag. The check reaches inside a pinned
-composite action too, so before merging an action bump, read the new
-release's own `action.yml` for a tag-only `uses:`.
+First run turns on required SHA pinning for actions, which makes GitHub refuse
+a workflow that references an action by a mutable tag. The check reaches
+inside a pinned composite action too, so an action bump waits until the new
+release's own `action.yml` has no tag-only `uses:`; the skill checks it.
 
 ```sh
-gh api -X PUT repos/OWNER/REPO/vulnerability-alerts
 gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true
 ```
 

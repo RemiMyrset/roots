@@ -43,9 +43,10 @@ Not for anyone who wants an unopinionated starter.
   [sync-template](./docs/template/sync-template.md).
 - Supply-chain defaults and a sandbox: dependency build scripts off, a 48-hour
   release cooldown, pinned actions, secrets scanned at commit and in CI
-  ([guards](./docs/template/guards.md#secrets-in-commits)), a Renovate config
-  that keeps dependencies and pins current in one grouped PR a week
-  ([docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current-with-renovate)),
+  ([guards](./docs/template/guards.md#secrets-in-commits)), an `update-deps`
+  skill that refreshes dependencies and pins in one PR when you ask, with no
+  bot to install
+  ([docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current)),
   and a devcontainer for unattended runs
   ([docs-toolchain](./docs/template/docs-toolchain.md#sandbox-agents-in-a-devcontainer)).
 
@@ -118,25 +119,18 @@ flowchart LR
    ```sh
    gh repo edit OWNER/REPO --description "your pitch" --add-topic typescript --add-topic pnpm --add-topic turborepo --add-topic ai-agents --enable-wiki=false --enable-projects=false --delete-branch-on-merge
    gh workflow run labels.yml   # seeds the labels from .github/labels.yml
-   gh api -X PUT repos/OWNER/REPO/vulnerability-alerts                       # Renovate's security PRs need the alerts
    gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true
    ```
 
-6. **Renovate.** Install the app on the repository at
-   [github.com/apps/renovate](https://github.com/apps/renovate); `renovate.json`
-   is already in place and the app opens an onboarding PR to confirm it. What
-   the config does, and the self-hosted fallback, are in
-   [docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current-with-renovate).
-   **(skill prints the link)**
-7. **Commit and push.** Delete this section, then
+6. **Commit and push.** Delete this section, then
    `git commit -am "chore: initialize from roots"` and push `main` yourself.
    This is the one direct push, and it is yours: the push guard denies it to
    agents. Everything after lands through a PR. **(skill proposes the commit;
    it never pushes)**
-8. **Branch ruleset.** Run the command under
+7. **Branch ruleset.** Run the command under
    [Push protection](./docs/template/guards.md#push-protection) in guards; it
    says when the ruleset can be created and what it costs.
-9. **Publish the public docs (optional).** Enable GitHub Pages with
+8. **Publish the public docs (optional).** Enable GitHub Pages with
    `gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow`; the `pages`
    workflow deploys `docs/public/` on each push to `main` that touches its
    inputs from then on. Then
