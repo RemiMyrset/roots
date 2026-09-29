@@ -44,3 +44,14 @@ A `{{ vue }}` in inline code is still evaluated.
 
 > [!NOTE]-
 > A folded alert.
+
+A split <img
+  src="x.png"> tag.
+
+An [angle-bracket absolute](</abs.md>) link.
+
+A [space-padded absolute]( /abs.md) link.
+
+A [raw space](./My Doc.md) link.
+
+A [wrong-case](./agents.md) link.

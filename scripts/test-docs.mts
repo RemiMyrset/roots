@@ -9,9 +9,10 @@
  * skills mirror clean, drifted, generated, and absent, a region holding merge conflict
  * lines (named, then repaired by automd), dated and legacy decision records side by side (a
  * legacy-only table byte for byte as before), index pages without regions, `docs:list`, a
- * Status keyword matched whole, Source and Tests values with a line reference or no path, and
- * the property dated names exist for: two git branches that each add a record merge with no
- * conflict. The skill trees are planted in the copy at test time: a fixture under
+ * Status keyword matched whole, Source and Tests values with a line reference or no path,
+ * fences nested in list items, link targets spelled with a space, percent-encoding, or the
+ * wrong case, public pages that link outside docs/public, and the property dated names exist
+ * for: two git branches that each add a record merge with no conflict. The skill trees are planted in the copy at test time: a fixture under
  * `.claude/skills` would be listed as a live skill. Runs in CI on Ubuntu and Windows via
  * `pnpm test:docs`. Node builtins only; git runs with an isolated config; the automd runs
  * use the installed automd in a child process and are skipped, with a note, where automd is
@@ -24,6 +25,7 @@ import { join } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { decisionsSidebar, escapeCell, readDecisions, readSpecs, renderDecisionsIndex, specsSidebar } from './docs/readers.mts'
+import { stripFences } from './docs/root.mts'
 import { SKILLS_SOURCE, SKILLS_TARGET } from './docs/skills.mts'
 
 const FIXTURES = join(import.meta.dirname, 'docs', 'fixtures')
@@ -225,7 +227,20 @@ function runAutomd(cwd: string): Run {
     'README.md:40  Vue interpolation',
     'README.md:42  callout type "[!NOTE] Custom title"',
     'README.md:45  callout type "[!NOTE]-"',
+    'README.md:48  raw HTML tag beyond <details>/<summary>/<br>, split across lines',
+    'README.md:51  root-absolute inline link "</abs.md>"',
+    'README.md:53  root-absolute inline link " /abs.md"',
+    'README.md:55  link target with a space: ./My Doc.md — write the space as %20 or wrap the target in <...> (rule 1)',
+    'README.md:57  relative link in the wrong case: ./agents.md — on disk it is AGENTS.md',
+    'docs/public/index.md:3  link or image outside docs/public: ../internal/images/diagram.svg — the public site would publish it',
+    'docs/public/index.md:3  link or image outside docs/public: ../internal/stale.md',
+    'docs/internal/README.md  no H1',
+    'docs/internal/README.md  README.md inside a site directory',
+    'docs/index.md  index.md outside a site directory',
   ])
+  check('a split tag is reported once, on its first line', !p.out.includes('README.md:49'), p.out)
+  check('a raw-space link is not also reported broken', !p.out.includes('broken relative link: ./My Doc.md'), p.out)
+  check('a wrong-case link is not also reported broken', !p.out.includes('broken relative link: ./agents.md'), p.out)
 }
 
 // 3b. Heading grammar matches CommonMark: an H1 indented up to three spaces is an H1, and a
@@ -631,6 +646,43 @@ function runAutomd(cwd: string): Run {
   writeFileSync(fourth, readFileSync(fourth, 'utf8').replace('- **Status:** accepted', '- **Status:** accepted <!-- after review -->'))
   const c = run('docs:check', dir, withoutCi)
   check('line references and a commented Status pass docs:check', c.status === 0 && !c.out.includes('warning'), c.out)
+}
+
+// 20. What the fence and link checks accept: a fence nested in a list item is code, not
+// prose; a percent-encoded link names the file with the space; and a public page links
+// within docs/public. stripFences, which docs:check and the anchor check read pages through,
+// tracks list items the same way and ends a list item's fence with the item.
+{
+  const dir = fixture('clean')
+  const page = [
+    '# Nested fences',
+    '',
+    '1. A step:',
+    '   - an example nested one level deeper:',
+    '',
+    '     ```html',
+    '     <div>[[not a wikilink]] {{ not vue }}</div>',
+    '     ```',
+    '',
+    '- ```text',
+    '  <span>a fence opened on the item line</span>',
+    '  ```',
+    '',
+    '![diagram](./images/My%20Diagram.svg)',
+    '',
+  ].join('\n')
+  writeFileSync(join(dir, 'docs/internal/nested.md'), page)
+  mkdirSync(join(dir, 'docs/internal/images'))
+  writeFileSync(join(dir, 'docs/internal/images/My Diagram.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+  mkdirSync(join(dir, 'docs/public/images'), { recursive: true })
+  writeFileSync(join(dir, 'docs/public/index.md'), '# Public\n\nA ![diagram](./images/d.svg) and [this page](./index.md).\n')
+  writeFileSync(join(dir, 'docs/public/images/d.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+  const p = run('docs:portability', dir, withoutCi)
+  check('nested fences, a %20 link, and a public page linking inside docs/public pass', p.status === 0 && !p.out.includes('warning'), p.out)
+
+  check('stripFences blanks a fence nested two list levels deep', stripFences('- a\n  - b\n\n    ```md\n    # not a heading\n    ```\n# Real\n') === '- a\n  - b\n\n\n\n\n# Real\n')
+  check('stripFences ends a list item\'s fence with the item', stripFences('- item\n\n  ```\n  code\n# Heading\n') === '- item\n\n\n\n# Heading\n')
+  check('stripFences reads an over-indented fence as code in the item, not a fence', stripFences('- item\n\n      ```\n# Heading\n') === '- item\n\n      ```\n# Heading\n')
 }
 
 if (fails.length > 0) {
