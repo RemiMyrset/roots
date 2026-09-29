@@ -385,6 +385,8 @@ function lex(s: string, body: boolean): string[] {
     if (c === '$' && s[n + 1] === '{') { f.brace++; f.cur += '${'; n++; ws = false; continue }
     if (c === '}' && f.brace > 0) { f.brace--; f.cur += c; ws = false; continue }
     if (c === '`') { open('`', true, false); continue }
+    // bash reads a parameter expansion up to its `}`, so a `(` or `)` in it is text (`${x//(/}`).
+    if ((c === '(' || c === ')') && f.brace > 0) { f.cur += c; ws = false; continue }
     if (c === '(') {
       // Inside `[[ … ]]` a `(` groups, except a process substitution (`<(…)`), which runs.
       if ((f.test || f.paren > 0) ? !/[<>]/.test(s[n - 1] ?? '') : glued(n)) { f.paren++; f.cur += c; ws = false; continue }

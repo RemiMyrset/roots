@@ -561,6 +561,11 @@ const CASES: Case[] = [
   { guard: 'deny-build-scripts.mts', expect: D, cmd: '[[ -n x ]]>/dev/null; (pnpm approve-builds)' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{ cat <<\'EOF\'\nnpm install\nEOF\n}</dev/null | bash' }, // `}<in` closes the group
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{</dev/null cat <<\'EOF\'\nnpm install\nEOF\n} | bash' }, // `{<in` opens one
+  // A `(` or `)` inside `${…}` is text: it neither groups nor closes a substitution.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `y=\${x//(/}; (npm install)` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `y=\${x%(*}; (npm install)` },
+  { guard: P, expect: D, cmd: `echo \${x#(}; (git push origin main)` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "$(echo \${x:-)}; npm install)"` },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo [[ # ; npm install' }, //         `[[` as an argument opens nothing
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: '[[ $l =~ ^(npm|yarn) ]] && echo legacy' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: '[[ $f == @(*.ts|*.mts) ]] && pnpm exec eslint "$f"' },
