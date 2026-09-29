@@ -109,15 +109,17 @@ export function escapeCell(s: string): string {
 
 /**
  * The decisions table: what `pnpm docs:list` prints, and what automd writes into a page
- * that keeps a decisionsIndex region. A placeholder line when there are no records. A
- * legacy-only tree renders byte for byte as before dated records, so a region a child
- * still commits stays current.
+ * that keeps a decisionsIndex region. A placeholder line when there are no records. Each
+ * row links its record by ID, the text a supersede link needs, and the first column is
+ * headed `ID` once a dated record exists. A legacy-only tree renders byte for byte as before
+ * dated records, `#` header included, so a region a child still commits stays current.
  */
 export function renderDecisionsIndex(decisions: DecisionEntry[]): string {
   if (decisions.length === 0)
     return '_No decisions yet. The first one appears here after `pnpm docs:gen`._'
-  const rows = decisions.map(d => `| [${d.num}](./${d.file}) | ${escapeCell(d.title)} | ${escapeCell(d.status)} |`)
-  return ['| # | Title | Status |', '| --- | --- | --- |', ...rows].join('\n')
+  const header = decisions.every(d => d.legacy) ? '| # | Title | Status |' : '| ID | Title | Status |'
+  const rows = decisions.map(d => `| [${d.id}](./${d.file}) | ${escapeCell(d.title)} | ${escapeCell(d.status)} |`)
+  return [header, '| --- | --- | --- |', ...rows].join('\n')
 }
 
 /** The area-grouped spec list: what `pnpm docs:list` prints, and what automd writes into a page that keeps a specIndex region. A placeholder line when there are no specs. */

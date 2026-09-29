@@ -1,7 +1,8 @@
 /**
  * Structural lint for the decisions/specs system — enforces the couplings that
- * generation cannot: record format (a dated YYYYMMDD- name with a real, past date and a
- * title-only H1, or a legacy NNNN- name whose H1 and number match), metadata bullets,
+ * generation cannot: record format (a dated YYYYMMDD- name with a real date from 2000 on,
+ * not ahead, and a title-only H1, or a legacy NNNN- name whose H1 and number match; a
+ * hyphenated date in a name is rejected), metadata bullets,
  * supersede links naming the target's ID and the record they point at, spec Source/Tests
  * paths resolving on disk, review-date freshness, both index pages present, every automd
  * region under docs/ closed, free of automd's warning comment and of merge conflict lines,
@@ -28,14 +29,19 @@ const STATUS_VOCAB = /^(?:proposed|accepted|rejected|deprecated|superseded by \[
 // Prefix-anchored like STATUS_VOCAB, so trailing text stays accepted; group 1 is the link
 // text, which must be the target's ID, and group 2 the target filename.
 const SUPERSEDED_LINK_RE = /^superseded by \[([^\]\n]+)\]\(\.\/([^)\s]+)\)/
-// The number a legacy H1 opens with, left in a dated record's H1.
-const NUMBERED_TITLE_RE = /^\d+\.\s/
-// A name opening with a hyphenated date, YYYY-MM-DD-: it has the legacy shape and would
-// read as record YYYY, so a real date there is rejected with the compact form to use. Only
-// from the year 2000: no repository numbers its records that high, while a legacy record
-// such as 0003-12-01-cutoff.md has a real date of year 3 and must stay valid.
-const HYPHENATED_DATE_NAME_RE = /^(\d{4})-\d{2}-\d{2}-/
-const HYPHENATED_DATE_FROM_YEAR = 2000
+// What a dated record's H1 must not open with: a number and a dot (a legacy H1, or the old
+// template's `NNNN.` placeholder left in place) or a date, compact or hyphenated. The lists
+// add the date themselves; a bare number, as in "# 3 regions", is still a title.
+const LABELLED_TITLE_RE = /^(?:\d+|N{4})\.\s|^\d{4}-?\d{2}-?\d{2}\b/
+// A name opening with a hyphenated date, padded or not, with or without a day or a slug
+// (2026-09-29-x, 2026-9-29-x, 2026-09-29.md): it has the legacy shape and would read as
+// record YYYY, so it is rejected, with the compact form when the date is real. Only from
+// DATE_FROM_YEAR: no repository numbers its records that high, while a legacy record such as
+// 0003-12-01-cutoff.md must stay valid.
+const HYPHENATED_DATE_NAME_RE = /^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?(?:-|\.md$)/
+// The earliest year a filename date may carry. A dated name records the day it was created,
+// so an earlier year is a typo, and it would move the numbered-by-habit switch back with it.
+const DATE_FROM_YEAR = 2000
 const DATE_BULLET_RE = /^- \*\*Date:\*\*(.*)$/m
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -165,8 +171,11 @@ function checkDecisions(): number {
       continue
     }
     const hyphenated = file.match(HYPHENATED_DATE_NAME_RE)
-    if (hyphenated && Number(hyphenated[1]) >= HYPHENATED_DATE_FROM_YEAR && isRealIsoDate(file.slice(0, 10))) {
-      errors.push(`${where}: filename must be YYYYMMDD-kebab-title.md, the date without hyphens (${file.slice(0, 10).replaceAll('-', '')}); as written it reads as legacy record ${identity.id}`)
+    if (hyphenated && Number(hyphenated[1]) >= DATE_FROM_YEAR) {
+      const [, year, month, day] = hyphenated
+      const iso = day === undefined ? '' : `${year}-${month!.padStart(2, '0')}-${day.padStart(2, '0')}`
+      const compact = isRealIsoDate(iso) ? ` (${iso.replaceAll('-', '')})` : ''
+      errors.push(`${where}: filename must be YYYYMMDD-kebab-title.md, the date without hyphens${compact}; as written it reads as legacy record ${identity.id}`)
       continue
     }
     if (identity.legacy) {
@@ -182,6 +191,8 @@ function checkDecisions(): number {
       }
       if (isFuture(identity.label))
         errors.push(`${where}: filename date ${compact} is in the future`)
+      else if (Number(compact.slice(0, 4)) < DATE_FROM_YEAR)
+        errors.push(`${where}: filename date ${compact} is before ${DATE_FROM_YEAR}; a dated name carries the day the record was created`)
       else if (!firstDated || identity.label < firstDated.date)
         firstDated = { file, date: identity.label }
     }
@@ -197,8 +208,8 @@ function checkDecisions(): number {
     }
     else {
       const h1 = text.match(H1_RE)?.[1]?.trim()
-      if (!h1 || NUMBERED_TITLE_RE.test(h1))
-        errors.push(`${where}: H1 must be "# Title" (a dated record carries no number)`)
+      if (!h1 || LABELLED_TITLE_RE.test(h1))
+        errors.push(`${where}: H1 must be "# Title", the title alone (a dated record's H1 carries no number or date)`)
     }
 
     const status = text.match(STATUS_BULLET_RE)?.[1]?.trim()
@@ -231,12 +242,14 @@ function checkDecisions(): number {
   }
 
   // A numbered record dated after the first dated one was most likely created by habit, from
-  // stale prose, and can collide with another branch's number as before. A warning, not an
-  // error: once such a record is on the default branch it stays, as every accepted record does.
+  // stale prose, and can collide with another branch's number as before. The dates alone
+  // cannot tell that from a dated record named for a day before it was created, so the
+  // warning names both. A warning, not an error: once either record is on the default branch
+  // it stays, as every accepted record does.
   if (firstDated) {
     for (const { where, date } of legacyDates) {
       if (date > firstDated.date)
-        warnings.push(`${where}: numbered record dated ${date}, after the first dated record ${firstDated.file} — new records are YYYYMMDD-kebab-title.md; unless it is already on the default branch, rename it and drop the number from its H1`)
+        warnings.push(`${where}: numbered record dated ${date}, after the first dated record ${firstDated.file} was created. Either this record was numbered by habit: new records are YYYYMMDD-kebab-title.md, so unless it is already on the default branch, rename it and drop the number from its H1. Or ${firstDated.file} is named for a day before it was created: unless it is already on the default branch, rename it to its creation day.`)
     }
   }
 
@@ -342,7 +355,10 @@ function checkAutomdMarkers(): void {
         continue
       }
       if (body.split('\n').some(line => CONFLICT_LINE_RE.test(line))) {
-        errors.push(`${where}: ${marker} region holds merge conflict lines — regenerate it with \`pnpm docs:gen\`; never hand-merge a generated region`)
+        // An index region conflicts again on the next pair of branches that each add an entry;
+        // the lasting fix is to drop it, since the sidebar and docs:list read the files.
+        const lasting = Object.hasOwn(INDEX_RENDERERS, region.name) ? '. To stop the next conflict, delete the region: the handbook sidebar and `pnpm docs:list` read the list from the files' : ''
+        errors.push(`${where}: ${marker} region holds merge conflict lines — regenerate it with \`pnpm docs:gen\`; never hand-merge a generated region${lasting}`)
         continue
       }
       if (!region.closed)

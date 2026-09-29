@@ -147,12 +147,16 @@ function runAutomd(cwd: string): Run {
     'duplicate decision number 0002 (also 0002-duplicate.md) — rename the record not yet on the default branch to YYYYMMDD-kebab-title.md with a title-only H1',
     'docs/internal/decisions/20260230-not-a-date.md: filename date 20260230 is not a real calendar date',
     'docs/internal/decisions/29990101-future.md: filename date 29990101 is in the future',
-    'docs/internal/decisions/20260107-numbered-h1.md: H1 must be "# Title" (a dated record carries no number)',
-    'docs/internal/decisions/20260111-no-h1.md: H1 must be "# Title" (a dated record carries no number)',
+    'docs/internal/decisions/20260107-numbered-h1.md: H1 must be "# Title", the title alone (a dated record\'s H1 carries no number or date)',
+    'docs/internal/decisions/20260111-no-h1.md: H1 must be "# Title", the title alone (a dated record\'s H1 carries no number or date)',
+    // The old template's placeholder left in the H1, and a date the list adds itself.
+    'docs/internal/decisions/20260112-placeholder-h1.md: H1 must be "# Title", the title alone (a dated record\'s H1 carries no number or date)',
+    'docs/internal/decisions/20260113-dated-h1.md: H1 must be "# Title", the title alone (a dated record\'s H1 carries no number or date)',
+    'docs/internal/decisions/19991231-too-early.md: filename date 19991231 is before 2000; a dated name carries the day the record was created',
     'docs/internal/decisions/20260108-bad-link.md: superseded-by link text "0003" must be 20260107-numbered-h1, the ID of ./20260107-numbered-h1.md',
     'docs/internal/decisions/20260109-missing-target.md: superseded-by target ./20260110-nope.md does not exist',
-    'warning: docs:check: docs/internal/decisions/0006-late.md: numbered record dated 2026-06-01, after the first dated record 20260107-numbered-h1.md — new records are YYYYMMDD-kebab-title.md; unless it is already on the default branch, rename it',
-    'docs/internal/conflicted.md: <!-- automd:specIndex --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`',
+    'warning: docs:check: docs/internal/decisions/0006-late.md: numbered record dated 2026-06-01, after the first dated record 20260107-numbered-h1.md was created. Either this record was numbered by habit: new records are YYYYMMDD-kebab-title.md, so unless it is already on the default branch, rename it and drop the number from its H1. Or 20260107-numbered-h1.md is named for a day before it was created: unless it is already on the default branch, rename it to its creation day.',
+    'docs/internal/conflicted.md: <!-- automd:specIndex --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`; never hand-merge a generated region. To stop the next conflict, delete the region: the handbook sidebar and `pnpm docs:list` read the list from the files',
     'docs/internal/conflicted.md: unresolved merge conflict marker (line 3)',
     'automd generator failed and wrote a warning comment',
     'docs/internal/stale.md: <!-- automd:decisionsIndex --> region is stale — run `pnpm docs:gen`',
@@ -179,6 +183,7 @@ function runAutomd(cwd: string): Run {
   check('an index page without a region is not an error', !c.out.includes('missing <!-- automd:'), c.out)
   check('a bad filename date is reported once, not also per bullet', c.out.split('20260230-not-a-date.md').length === 2, c.out)
   check('numbered records dated before the first dated record are not warned', !c.out.includes('0002-duplicate.md: numbered record dated'), c.out)
+  check('a filename date before 2000 does not become the first dated record', !c.out.includes('after the first dated record 19991231-too-early.md'), c.out)
   check('a conflicted region is reported once, not also as stale or per marker', !c.out.includes('conflicted.md: <!-- automd:specIndex --> region is stale') && !c.out.includes('conflicted.md: unresolved merge conflict marker (line 11)'), c.out)
 }
 
@@ -399,10 +404,10 @@ function runAutomd(cwd: string): Run {
   const conflicted = fixture('clean')
   const index = join(conflicted, 'docs/internal/decisions/index.md')
   const clean = readFileSync(index, 'utf8')
-  writeFileSync(index, clean.replace('| [2026-01-06](./20260106-fourth.md) | Fourth | accepted |', '<<<<<<< HEAD\n| [2026-01-06](./20260106-fourth.md) | Fourth | accepted |\n=======\n| [2026-01-06](./20260106-other.md) | Other | accepted |\n>>>>>>> main'))
+  writeFileSync(index, clean.replace('| [20260106-fourth](./20260106-fourth.md) | Fourth | accepted |', '<<<<<<< HEAD\n| [20260106-fourth](./20260106-fourth.md) | Fourth | accepted |\n=======\n| [20260106-other](./20260106-other.md) | Other | accepted |\n>>>>>>> main'))
   const c = run('docs:check', conflicted, withoutCi)
   check('conflicted region exits 1', c.status === 1, c.out)
-  check('conflicted region named with its remedy', c.out.includes('docs/internal/decisions/index.md: <!-- automd:decisionsIndex --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`; never hand-merge a generated region'), c.out)
+  check('conflicted region named with its remedy and the lasting fix', c.out.includes('docs/internal/decisions/index.md: <!-- automd:decisionsIndex --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`; never hand-merge a generated region. To stop the next conflict, delete the region: the handbook sidebar and `pnpm docs:list` read the list from the files'), c.out)
   check('conflicted region not also reported stale', !c.out.includes('region is stale'), c.out)
   if (automdUrl) {
     const a = runAutomd(conflicted)
@@ -412,6 +417,12 @@ function runAutomd(cwd: string): Run {
   else {
     console.log('  (automd not installed: the docs:gen repair of a conflicted region is skipped)')
   }
+
+  // A region no index generator writes gets the regenerate remedy alone: deleting it drops content.
+  const custom = fixture('clean')
+  writeFileSync(join(custom, 'docs/internal/custom.md'), '# Custom\n\n<!-- automd:custom -->\n<<<<<<< HEAD\na\n=======\nb\n>>>>>>> main\n<!-- /automd -->\n')
+  const u = run('docs:check', custom, withoutCi)
+  check('a conflicted custom region is named without the index advice', u.status === 1 && u.out.includes('docs/internal/custom.md: <!-- automd:custom --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`; never hand-merge a generated region\n') && !u.out.includes('custom.md: <!-- automd:custom --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`; never hand-merge a generated region. To stop'), u.out)
 
   // A setext `=======` underline and a fenced example are not conflicts.
   const prose = fixture('clean')
@@ -474,8 +485,14 @@ function runAutomd(cwd: string): Run {
   writeFileSync(join(decisions, '0003-same-day.md'), '# 0003. Same day\n\n- **Status:** accepted\n- **Date:** 2026-01-05\n')
   writeFileSync(join(decisions, '0004-late.md'), '# 0004. Late\n\n- **Status:** accepted\n- **Date:** 2026-01-06\n')
   const late = run('docs:check', dir, withoutCi)
-  check('a numbered record dated after the first dated record is a warning, not an error', late.status === 0 && late.out.includes('docs/internal/decisions/0004-late.md: numbered record dated 2026-01-06, after the first dated record 20260105-third.md'), late.out)
+  check('a numbered record dated after the first dated record is a warning, not an error', late.status === 0 && late.out.includes('docs/internal/decisions/0004-late.md: numbered record dated 2026-01-06, after the first dated record 20260105-third.md was created. Either this record was numbered by habit'), late.out)
   check('a numbered record dated the day of the first dated record is not warned', !late.out.includes('0003-same-day.md: numbered record dated'), late.out)
+
+  // A dated record named for a past day moves the switch back and flags older numbered
+  // records; the dates cannot tell that from habit, so the warning names the dated record too.
+  writeFileSync(join(decisions, '20240115-retro.md'), '# Retro\n\n- **Status:** accepted\n- **Date:** 2024-01-15\n')
+  const retro = run('docs:check', dir, withoutCi)
+  check('a backdated dated name is named as the other cause', retro.status === 0 && retro.out.includes('docs/internal/decisions/0001-first.md: numbered record dated 2026-01-01, after the first dated record 20240115-retro.md was created. Either this record was numbered by habit') && retro.out.includes('Or 20240115-retro.md is named for a day before it was created: unless it is already on the default branch, rename it to its creation day.'), retro.out)
 }
 
 // 16. A dated record named with today's local date passes in every timezone; two days ahead
@@ -486,13 +503,21 @@ function runAutomd(cwd: string): Run {
   const decisions = join(dir, 'docs/internal/decisions')
   const stamp = localToday.replaceAll('-', '')
   writeFileSync(join(decisions, `${stamp}-today.md`), `# Today\n\n- **Status:** accepted\n- **Date:** ${localToday}\n`)
+  // A title may open with a bare number or a year: only a number and a dot, or a date, is a label.
+  writeFileSync(join(decisions, `${stamp}-three-regions.md`), `# 3 regions per service\n\n- **Status:** accepted\n- **Date:** ${localToday}\n`)
+  writeFileSync(join(decisions, `${stamp}-roadmap.md`), `# 2026 roadmap priorities\n\n- **Status:** accepted\n- **Date:** ${localToday}\n`)
   const ok = run('docs:check', dir, withoutCi)
   check('a dated record named today passes', ok.status === 0, ok.out)
+  check('a dated title opening with a bare number or a year passes', !ok.out.includes('three-regions.md') && !ok.out.includes('roadmap.md'), ok.out)
   const ahead = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10).replaceAll('-', '')
   writeFileSync(join(decisions, `${ahead}-ahead.md`), `# Ahead\n\n- **Status:** accepted\n- **Date:** ${localToday}\n`)
   // The natural slip, a hyphenated date, has the legacy shape: named as a date to compact,
   // never read as record 2026, and never told to take a `# 2026. Title` H1.
   writeFileSync(join(decisions, '2026-01-07-hyphenated.md'), '# Hyphenated\n\n- **Status:** accepted\n- **Date:** 2026-01-07\n')
+  // Near misses: unpadded, no slug, and a date that is not real, which gets no compact form.
+  writeFileSync(join(decisions, '2026-1-8-unpadded.md'), '# Unpadded\n\n- **Status:** accepted\n- **Date:** 2026-01-08\n')
+  writeFileSync(join(decisions, '2026-01-09.md'), '# No slug\n\n- **Status:** accepted\n- **Date:** 2026-01-09\n')
+  writeFileSync(join(decisions, '2026-02-30-not-real.md'), '# Not real\n\n- **Status:** accepted\n- **Date:** 2026-01-10\n')
   // A legacy name whose words read as a date of year 3 is still a legacy record.
   writeFileSync(join(decisions, '0003-12-01-cutoff.md'), '# 0003. The 12-01 cutoff\n\n- **Status:** accepted\n- **Date:** 2026-01-03\n')
   const bad = run('docs:check', dir, withoutCi)
@@ -500,6 +525,12 @@ function runAutomd(cwd: string): Run {
   check('a hyphenated date in the name is named with its compact form', bad.out.includes('docs/internal/decisions/2026-01-07-hyphenated.md: filename must be YYYYMMDD-kebab-title.md, the date without hyphens (20260107); as written it reads as legacy record 2026'), bad.out)
   check('a hyphenated date in the name is reported once', bad.out.split('2026-01-07-hyphenated.md').length === 2, bad.out)
   check('a legacy name with date-like words is not a hyphenated date', !bad.out.includes('0003-12-01-cutoff.md'), bad.out)
+  expectAll('a hyphenated near miss', bad.out, [
+    'docs/internal/decisions/2026-1-8-unpadded.md: filename must be YYYYMMDD-kebab-title.md, the date without hyphens (20260108); as written it reads as legacy record 2026',
+    'docs/internal/decisions/2026-01-09.md: filename must be YYYYMMDD-kebab-title.md, the date without hyphens (20260109); as written it reads as legacy record 2026',
+    'docs/internal/decisions/2026-02-30-not-real.md: filename must be YYYYMMDD-kebab-title.md, the date without hyphens; as written it reads as legacy record 2026',
+  ])
+  check('a hyphenated name is never told to take a numbered H1', !bad.out.includes('H1 must be "# 2026. Title"') && !bad.out.includes('duplicate decision number 2026'), bad.out)
 }
 
 // 17. docs:list prints the lists read from the files: the decisions table in reading order
@@ -509,18 +540,20 @@ function runAutomd(cwd: string): Run {
   const rows = [
     '| [0001](./0001-first.md) | First |',
     '| [0002](./0002-second.md) | Second |',
-    '| [2026-01-05](./20260105-third.md) | Third |',
-    '| [2026-01-06](./20260106-fourth.md) | Fourth | accepted |',
+    '| [20260105-third](./20260105-third.md) | Third |',
+    '| [20260106-fourth](./20260106-fourth.md) | Fourth | accepted |',
   ]
   const all = run('docs:list', join(dir, 'docs'), withoutCi)
   check('docs:list exits 0 from below the repository root', all.status === 0, all.out)
   const at = rows.map(r => all.out.indexOf(r))
   check('docs:list prints every record, legacy first, then oldest first', at.every((x, i) => x >= 0 && (i === 0 || x > at[i - 1]!)), all.out)
-  expectAll('docs:list', all.out, ['## Decisions (docs/internal/decisions/, oldest first)', '## Specs (docs/internal/specs/)', '### cli', '- [Hello](./cli/hello.md)'])
+  expectAll('docs:list', all.out, ['## Decisions (docs/internal/decisions/, numbered records first, then dated ones oldest first)', '| ID | Title | Status |', '## Specs (docs/internal/specs/)', '### cli', '- [Hello](./cli/hello.md)'])
   const specs = run('docs:list', dir, withoutCi, ['specs'])
   check('docs:list specs prints the specs alone', specs.status === 0 && specs.out.includes('- [Hello](./cli/hello.md)') && !specs.out.includes('## Decisions'), specs.out)
   const decisions = run('docs:list', dir, withoutCi, ['decisions'])
   check('docs:list decisions prints the decisions alone', decisions.status === 0 && decisions.out.includes(rows[3]!) && !decisions.out.includes('## Specs'), decisions.out)
+  const dashed = run('docs:list', dir, withoutCi, ['--', 'decisions'])
+  check('docs:list takes the npm habit `-- decisions`', dashed.status === 0 && dashed.out.includes(rows[3]!) && !dashed.out.includes('## Specs'), dashed.out)
   const bad = run('docs:list', dir, withoutCi, ['nope'])
   check('docs:list rejects an unknown argument with usage', bad.status === 1 && bad.out.includes('usage: pnpm docs:list [decisions|specs]'), bad.out)
 
@@ -570,8 +603,8 @@ function runAutomd(cwd: string): Run {
   check('the merged records pass docs:check', c.status === 0 && c.out.includes('✔ docs:check — 6 decision(s)'), c.out)
   const l = run('docs:list', repo, gitEnv, ['decisions'])
   expectAll('docs:list after the merge', l.out, [
-    `| [${localToday}](./${stamp}-cache-with-redis.md) | Cache with Redis | accepted |`,
-    `| [${localToday}](./${stamp}-use-postgres.md) | Use Postgres | accepted |`,
+    `| [${stamp}-cache-with-redis](./${stamp}-cache-with-redis.md) | Cache with Redis | accepted |`,
+    `| [${stamp}-use-postgres](./${stamp}-use-postgres.md) | Use Postgres | accepted |`,
   ])
 }
 

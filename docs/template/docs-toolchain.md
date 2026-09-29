@@ -31,13 +31,15 @@ Register a new generator in `automd.config.ts` and add the marker pair to the
 target page. automd also ships the built-ins `file` (inline a file),
 `dir-tree`, and `fetch`.
 
-A region is opt-in, and the template's own index pages carry none. A list
-committed into a page conflicts whenever two branches each add an entry, so
-the decisions and specs lists are read from the files instead, by the sidebar
-and `pnpm docs:list`. A page may keep the `decisionsIndex` or `specIndex`
-region, and `pnpm docs:check` still holds it current. A merge conflict inside
-a region is fixed with `pnpm docs:gen`, which rewrites the whole region; never
-merge one by hand.
+A region is opt-in, and the template's own index pages carry none;
+[conventions](./conventions.md) says why. A page may keep the
+`decisionsIndex` or `specIndex` region, and `pnpm docs:check` still holds it
+current.
+
+A kept region conflicts whenever two branches each add an entry.
+`pnpm docs:gen` fixes the conflict by rewriting the whole region, so never
+merge one by hand. Deleting the region stops the conflicts, since the sidebar
+and `pnpm docs:list` read the lists from the files.
 
 ## Recipes
 

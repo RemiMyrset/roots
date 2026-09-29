@@ -9,7 +9,11 @@ import process from 'node:process'
 import { readDecisions, readSpecs, renderDecisionsIndex, renderSpecIndex } from './readers.mts'
 import { DECISIONS_DIR, SPECS_DIR } from './root.mts'
 
-const [which, ...rest] = process.argv.slice(2)
+// `pnpm docs:list -- decisions`, the npm habit, hands the `--` through; it separates nothing here.
+const args = process.argv.slice(2)
+if (args[0] === '--')
+  args.shift()
+const [which, ...rest] = args
 if (rest.length > 0 || (which !== undefined && which !== 'decisions' && which !== 'specs')) {
   console.error('usage: pnpm docs:list [decisions|specs]')
   process.exit(1)
@@ -20,7 +24,7 @@ if (rest.length > 0 || (which !== undefined && which !== 'decisions' && which !=
 const sections: string[] = []
 if (which !== 'specs') {
   const decisions = readDecisions()
-  sections.push(`## Decisions (${DECISIONS_DIR}/, oldest first)`, decisions.length > 0 ? renderDecisionsIndex(decisions) : '_No decisions yet._')
+  sections.push(`## Decisions (${DECISIONS_DIR}/, numbered records first, then dated ones oldest first)`, decisions.length > 0 ? renderDecisionsIndex(decisions) : '_No decisions yet._')
 }
 if (which !== 'decisions') {
   const specs = readSpecs()
