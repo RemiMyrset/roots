@@ -17,10 +17,11 @@ What they cover reliably is the direct and common wrapped forms: bare and
 path-prefixed commands in any case, with or without a Windows launcher suffix
 (`npm.cmd`, `bash.exe`) or a version (`corepack yarn@1`), standard wrappers
 (`sudo`, `env`, `nice`, `timeout`, `flock`, `xargs`, `mise x` / `mise exec`,
-…) with their short flags, `pnpm exec` / `dlx` / `x` unwrapping, `;` / `&&` /
-`|` / `$()` separators, glued redirects, and quoted paths with either
-separator (`'C:\repo\.env'`). A regression suite (`pnpm test:hooks`) pins every
-covered case so a fix for one form never silently reopens another.
+…) with their short flags, `pnpm exec` / `dlx` / `x` unwrapping, pnpm's own
+`pn`, `pnx`, and `pnpx`, `;` / `&&` / `|` / `$()` separators, glued redirects,
+and quoted paths with either separator (`'C:\repo\.env'`). A regression suite
+(`pnpm test:hooks`) pins every covered case so a fix for one form never
+silently reopens another.
 
 The shared lexer splits a command where bash does, and the push guard never
 reads a redirection (`2>&1`, `> log`) as an argument. A `$()` or backtick
@@ -284,7 +285,8 @@ binding); the admin bypass above still lets a human release:
 
 `deny-build-scripts` keeps dependency build scripts off, as the AGENTS.md rule
 on `allowBuilds` requires. Wherever pnpm is a command word, `pnpm dlx` and
-`pnpm exec` lines included, it denies `approve-builds` and `--allow-build`. It
+`pnpm exec` lines and the `pn`, `pnx`, and `pnpx` shorthands included, it
+denies `approve-builds` and `--allow-build`. It
 also denies a setting that allows builds (`allowBuilds`,
 `onlyBuiltDependencies`, `dangerouslyAllowAllBuilds`) where it is set: as a
 flag (`--config.allowBuilds=…`) or after `pnpm config set` or `pnpm set`.

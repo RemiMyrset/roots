@@ -101,6 +101,18 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'CAT .env' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'busybox cat .env' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pnpm.cmd install' },
+  // pnpm's own `pn` is pnpm, and its `pnx` and `pnpx` are `pnpm dlx`.
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pn approve-builds' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnx --allow-build=esbuild create-vite' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpx --allow-build=esbuild create-vite' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'timeout pnx --allow-build=esbuild create-vite' }, // not a duration
+  { guard: P, expect: D, cmd: 'pn exec git push origin main' },
+  { guard: P, expect: D, cmd: 'pn release' },
+  { guard: P, expect: D, cmd: 'pnx changelogen --release --push' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnx npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'pnpx cat .env' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pn install' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnx create-vite my-app' },
   { guard: P, expect: A, cmd: 'git.exe push origin feat/x' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '/usr/bin/npm install' },
@@ -831,6 +843,8 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: 'corepack yarn@1 add x', head: 'yarn' }, //           version suffix stripped
   { cmd: 'busybox sh -s', head: 'sh' }, //                     busybox runs its applet
   { cmd: '(npm install)', head: 'npm' }, //                     a `(` left on a word is a misread
+  { cmd: 'pn exec npm i', head: 'npm' }, //                      `pn` is pnpm
+  { cmd: 'pnx -y npm i', head: 'npm' }, //                       `pnx` is `pnpm dlx`
 ]
 
 // The session-start hook prints the writing rules as SessionStart context for Codex and

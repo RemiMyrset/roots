@@ -7,7 +7,7 @@
  * ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md.
  */
 import type { Verdict } from './_lexer.mts'
-import { base, exportedWords, leadIndex, segments, tokenize, unquote } from './_lexer.mts'
+import { base, exportedWords, leadIndex, PNPM_DLX, segments, tokenize, unquote } from './_lexer.mts'
 
 // The subcommand and the flag that approve a dependency's build scripts, anywhere on a pnpm line.
 const APPROVE = /approve-builds|--allow-build/i
@@ -15,11 +15,13 @@ const APPROVE = /approve-builds|--allow-build/i
 // key (`allowBuilds`, `only-built-dependencies`), a flag, or a `pnpm_config_*` variable.
 const SETTING = /allow[-_]?builds|only[-_]?built[-_]?dependencies|dangerously[-_]?allow[-_]?all[-_]?builds/i
 
-// Whether the pnpm command at `lead` enables builds: it approves them, sets a setting through a
-// flag (`--config.allowBuilds=…`, `--dangerously-allow-all-builds`), or names one after
-// `pnpm config set` or its `pnpm set` shorthand. A setting named anywhere else is read, not set.
+// Whether the pnpm command at `lead` (`pn`, `pnx`, and `pnpx` too) enables builds: it approves
+// them, sets a setting through a flag (`--config.allowBuilds=…`,
+// `--dangerously-allow-all-builds`), or names one after `pnpm config set` or its `pnpm set`
+// shorthand. A setting named anywhere else is read, not set.
 function pnpmEnables(toks: string[], lead: number): boolean {
-  if (base(toks[lead] ?? '') !== 'pnpm')
+  const b = base(toks[lead] ?? '')
+  if (b !== 'pnpm' && !PNPM_DLX.has(b))
     return false
   const words = toks.slice(lead + 1).map(unquote)
   const set = words.indexOf('set')

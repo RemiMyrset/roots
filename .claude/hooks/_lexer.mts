@@ -73,22 +73,27 @@ export function unquote(t: string): string {
  * The command name a word runs, as the guards compare it: quotes and directories (either
  * separator) dropped, lowercased, and a Windows launcher suffix (`.exe`, `.cmd`, `.bat`,
  * `.ps1`) and an `@version` suffix (`corepack yarn@1`) stripped, so `NPM`, `npm.cmd`, and
- * `C:\nodejs\npm.exe` all name npm. A leading `(` is dropped too: the lexer opens a subshell
- * there, so a word that still starts with one is a misread, and it names what it runs.
+ * `C:\nodejs\npm.exe` all name npm. pnpm's own `pn` names pnpm. A leading `(` is dropped too:
+ * the lexer opens a subshell there, so a word that still starts with one is a misread, and it
+ * names what it runs.
  */
 export function base(t: string): string {
   const name = (unquote(t).replace(/^\(+/, '').split(/[/\\]/).pop() ?? '').toLowerCase()
-  return name.replace(/\.(?:exe|cmd|bat|ps1)$/, '').replace(/(?<=.)@[^@]*$/, '')
+  const bare = name.replace(/\.(?:exe|cmd|bat|ps1)$/, '').replace(/(?<=.)@[^@]*$/, '')
+  return bare === 'pn' ? 'pnpm' : bare
 }
+
+/** pnpm's own shorthands for `pnpm dlx`, which resolveHead() unwraps like it. */
+export const PNPM_DLX: ReadonlySet<string> = new Set(['pnpx', 'pnx'])
 
 // Would consuming `tok` as a wrapper positional / value-flag argument hide a command the guards
 // must inspect? If so, refuse to consume it and let it fall through as the head (fail toward
-// deny). Covers the banned package managers and pnpm/corepack — the heads the lexer natively
-// knows; a reader head (deny-secret-reads) mis-consumed by a duration-less `timeout` is left as
-// a documented, shell-rejected non-exploitable edge.
+// deny). Covers the banned package managers and pnpm (its shorthands too) and corepack — the
+// heads the lexer natively knows; a reader head (deny-secret-reads) mis-consumed by a
+// duration-less `timeout` is left as a documented, shell-rejected non-exploitable edge.
 export function wouldHideHead(tok: string): boolean {
   const b = base(tok)
-  return BANNED.has(b) || b === 'pnpm' || b === 'corepack'
+  return BANNED.has(b) || b === 'pnpm' || PNPM_DLX.has(b) || b === 'corepack'
 }
 
 export function skip(t: string): boolean {
@@ -839,27 +844,31 @@ export function leadIndex(toks: string[]): number {
 export interface Head { i: number, head: string, probe: boolean }
 
 // Resolve the real command head: lead-skip, detect a leading `command -v` PROBE (never an
-// argument to a real head), then LOOP-unwrap `pnpm [flags] exec|dlx|x <cmd>` repeatedly so
-// nested `pnpm exec pnpm exec npm` resolves through to `npm`.
+// argument to a real head), then LOOP-unwrap `pnpm [flags] exec|dlx|x <cmd>` and its
+// `pnx|pnpx [flags] <cmd>` shorthands repeatedly so nested `pnpm exec pnpm exec npm` resolves
+// through to `npm`.
 export function resolveHead(toks: string[]): Head {
   const i0 = leadIndex(toks)
   const probe = toks.some((t, k) => k < i0 && unquote(t) === 'command' && /^-[vV]$/.test(unquote(toks[k + 1] ?? '')))
   let i = i0
-  while (base(toks[i] ?? '') === 'pnpm') {
+  for (;;) {
+    const b = base(toks[i] ?? '')
+    const dlx = PNPM_DLX.has(b)
+    if (b !== 'pnpm' && !dlx)
+      break
     let e = i + 1
     while (e < toks.length) {
       const t = unquote(toks[e]!)
       if (t.startsWith('-')) { if (PNPM_VALUE_FLAG.has(t)) e++; e++; continue }
       break
     }
-    if (e < toks.length && /^(exec|dlx|x)$/.test(unquote(toks[e]!))) {
-      let k = e + 1
-      while (k < toks.length && skip(toks[k]!)) k++
-      i = k
+    if (!dlx) {
+      if (e >= toks.length || !/^(exec|dlx|x)$/.test(unquote(toks[e]!)))
+        break
+      e++
     }
-    else {
-      break
-    }
+    while (e < toks.length && skip(toks[e]!)) e++
+    i = e
   }
   return { i, head: base(toks[i] ?? ''), probe }
 }

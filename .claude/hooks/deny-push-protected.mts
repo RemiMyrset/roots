@@ -169,12 +169,12 @@ function isChangelogen(t: string): boolean {
   return base(t).replace(/@[^@]*$/, '') === 'changelogen'
 }
 
-// Index of the changelogen word: at the head (directly, or via pnpm exec/dlx unwrapping), or
-// behind npx or pnpx and their flags (`npx -y changelogen@latest …`); -1 when absent.
+// Index of the changelogen word: at the head (directly, or via pnpm exec/dlx, pnx, or pnpx
+// unwrapping), or behind npx and its flags (`npx -y changelogen@latest …`); -1 when absent.
 function changelogenAt(toks: string[], i: number, head: string): number {
   if (isChangelogen(toks[i] ?? ''))
     return i
-  if (head !== 'npx' && head !== 'pnpx')
+  if (head !== 'npx')
     return -1
   let k = i + 1
   while (k < toks.length) {
