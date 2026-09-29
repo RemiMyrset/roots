@@ -80,20 +80,29 @@ flowchart LR
 > through this list once, then delete the section. In Claude Code the
 > `first-run` skill does every step marked **(skill)** and hands you the rest.
 
-1. **Prove the done gate.** `pnpm install && pnpm verify`, green before you
-   touch anything. **(skill)**
-2. **Name it.** **(skill; it asks you for the one-line pitch)**
+1. **Prove the done gate.** With node 24 and pnpm installed as
+   [Setup](#setup) says, `pnpm install && pnpm verify`, green before you touch
+   anything. **(skill)**
+2. **Name it.** **(skill; it asks for the pitch, the licence, and the owners
+   it cannot derive)**
    - `package.json`: `name` (your repo slug), `description`, and
      `repository.url`.
    - This file: the H1 and the pitch above; delete "Who it is for, and not
      for", "What is in the box", and the diagram under Layout, which describe
-     the template. Keep the provenance line under "Where things live".
+     the template. Under "Where things live", delete the parenthetical that
+     names the template's own site and keep the provenance line.
    - `docs/public/index.md` and `getting-started.md`: two stubs for your
      product; the shipped pages describe the template and the public site
      publishes what is here.
-   - `LICENSE`: the copyright holder and year (the template ships MIT).
-   - `.github/CODEOWNERS`: `@RemiMyrset` becomes your GitHub user or team, and
-     the comment above it goes.
+   - `LICENSE`: the template ships MIT; set the copyright holder and year.
+     For another licence replace the file; for none delete it and the License
+     section at the end of this file.
+   - `.github/CODEOWNERS`: `@RemiMyrset` becomes your GitHub user, or in an
+     organization a team (`@org/team`) or user handles, since an organization
+     name alone is not a valid owner; the comment above it goes.
+   - `SECURITY.md`, private repositories only: a contact address replaces the
+     **Report a vulnerability** button, which GitHub offers on public
+     repositories alone (step 5 turns it on there).
    - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` in both links.
    - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact becomes yours.
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
@@ -119,6 +128,7 @@ flowchart LR
    ```sh
    gh repo edit OWNER/REPO --description "your pitch" --add-topic typescript --add-topic pnpm --add-topic turborepo --add-topic ai-agents --enable-wiki=false --enable-projects=false --delete-branch-on-merge
    gh workflow run labels.yml   # seeds the labels from .github/labels.yml
+   gh api -X PUT repos/OWNER/REPO/private-vulnerability-reporting   # public repositories: SECURITY.md's reporting button
    gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true
    ```
 
@@ -130,12 +140,12 @@ flowchart LR
 7. **Branch ruleset.** Run the command under
    [Push protection](./docs/template/guards.md#push-protection) in guards; it
    says when the ruleset can be created and what it costs.
-8. **Publish the public docs (optional).** Enable GitHub Pages with
-   `gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow`; the `pages`
-   workflow deploys `docs/public/` on each push to `main` that touches its
-   inputs from then on. Then
-   `gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/`.
-   **(skill)**
+8. **Publish the public docs (optional).** After the push, run the three
+   commands under
+   [Publish the public site on GitHub Pages](./docs/template/docs-toolchain.md#publish-the-public-site-on-github-pages):
+   enable Pages, run the first deploy (`gh workflow run pages.yml`), and set
+   the homepage. On a private repository Pages needs GitHub Pro, Team, or
+   Enterprise. **(skill prints them)**
 
 ## Setup
 

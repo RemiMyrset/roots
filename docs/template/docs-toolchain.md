@@ -56,8 +56,10 @@ broken build or action pin shows before merge. Until Pages is enabled the run
 is green and says "the site was built but not deployed", so a repository that
 never wants a public site pays nothing and sees no red.
 
-Enable it once, either under Settings → Pages → Build and deployment → Source:
-GitHub Actions, or:
+Enable it once, after `main` holds your own pages rather than the template's,
+either under Settings → Pages → Build and deployment → Source: GitHub Actions,
+or with the commands below. Pages is free on public repositories; a private
+one needs GitHub Pro, Team, or Enterprise.
 
 ```sh
 gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow
@@ -191,9 +193,10 @@ changelogen for `changesets` the day packages need independent versions.
 
 ### Toolchain pinning beyond node
 
-`.node-version` is the portable pin, read by fnm, mise, volta, nvm, Vercel,
-and Netlify. For one file covering node, pnpm, and other tools, add
-`mise.toml` and keep `.node-version` for compatibility. The `packageManager`
+`.node-version` is the portable pin, read by fnm, mise, and Netlify. nvm reads
+only `.nvmrc` and Volta only the `volta` field in `package.json`, so a team on
+either adds that beside it. For one file covering node, pnpm, and other tools,
+add `mise.toml` and keep `.node-version` for compatibility. The `packageManager`
 field in `package.json` is an exact hash-pinned pnpm version that never
 floats; refresh it periodically with `corepack use pnpm@latest` (or
 `pnpm self-update` where pnpm is not corepack-managed), and both rewrite the
