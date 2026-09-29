@@ -54,9 +54,9 @@ branch with a clean tree.
      there).
 
    Refuse a release whose manifest has a `uses:` pinned by a tag rather than a
-   40-character SHA: first run turns on required SHA pinning, and GitHub then
-   refuses every workflow that calls it. Otherwise replace the SHA and set the
-   comment to the exact tag (`# v6.1.0`, never `# v6`). Commit.
+   40-character SHA; "Keep dependencies current" in
+   `docs/template/docs-toolchain.md` says why. Otherwise replace the SHA and
+   set the comment to the exact tag (`# v6.1.0`, never `# v6`). Commit.
 5. Majors, npm and actions alike, go in their own commit, one per major, after
    reading the release notes or changelog for breaking changes. For a package,
    edit its range in the catalog (`^9.0.0` becomes `^10.0.0`), run
