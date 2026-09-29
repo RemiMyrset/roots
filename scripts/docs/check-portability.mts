@@ -1,4 +1,3 @@
-import type { FenceState } from './root.mts'
 /**
  * Portability guard: every markdown doc must render acceptably in GitHub,
  * VitePress, AND Obsidian. Blocking. A lint, not a build.
@@ -18,6 +17,7 @@ import type { FenceState } from './root.mts'
  *
  * Adapted from an earlier internal docs-portability checker.
  */
+import type { FenceState } from './root.mts'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import process from 'node:process'
