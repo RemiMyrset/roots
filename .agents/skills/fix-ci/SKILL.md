@@ -19,8 +19,9 @@ step has a local twin, and the fix is local.
 3. Fix at the source. A failing check means the code, the doc, or the lockfile
    is wrong, never the checker: do not loosen a rule, skip a test, or add
    `--no-verify` (the guards deny it anyway). A stale lockfile is
-   `pnpm install`, then commit `pnpm-lock.yaml`. Stale generated docs are
-   `pnpm docs:gen`, then commit the output.
+   `pnpm install`, then commit `pnpm-lock.yaml`. Stale generated docs, or
+   merge conflict lines inside a generated region, are `pnpm docs:gen`, which
+   rewrites the whole region; commit the output and never hand-merge one.
 4. If the failing gate is a template mechanic (`pnpm verify` marks them
    "template mechanics": `test:hooks`, `test:sync`, `test:docs`,
    `test:gates`), read which file the failure names. A file this repository

@@ -7,28 +7,37 @@ and the growth paths roots leaves open.
 
 | Command | What it does |
 | --- | --- |
-| `pnpm docs:gen` | automd indexes (decisions and specs) and the `.agents/skills` mirror (mutates files) |
+| `pnpm docs:gen` | the `.agents/skills` mirror and any automd region a page keeps (mutates files) |
 | `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness |
+| `pnpm docs:list` | the decisions table and the spec list, read from the files (read-only; `decisions` or `specs` prints one) |
 | `pnpm docs:portability` | portability lint (GitHub, VitePress, Obsidian), blocking |
 | `pnpm docs:internal:dev` / `docs:internal:build` | internal handbook site: preview / build |
 | `pnpm docs:public:dev` / `docs:public:build` | public site: preview / build |
 
-All but the two `dev` previews run inside the done gate, `pnpm verify`. CI
-(`.github/workflows/docs.yml`) runs gen behind the drift gate, check,
-portability, and both site builds, all blocking, plus an advisory
+All but `docs:list` and the two `dev` previews run inside the done gate,
+`pnpm verify`. CI (`.github/workflows/docs.yml`) runs gen behind the drift
+gate, check, portability, and both site builds, all blocking, plus an advisory
 spec-discipline nudge on PRs.
 
 ## Adding a custom generator
 
 A reader in `scripts/docs/readers.mts` parses a source of truth (a directory,
 a source file, a schema) and a generator in `scripts/docs/generators.mts`
-renders it between automd markers. The automd index and the VitePress sidebar
+renders it between automd markers. An automd region and the VitePress sidebar
 consume the same reader, so they cannot drift. `decisionsIndex` is the worked
 example: it reads the decision files' H1 and Status bullets.
 
 Register a new generator in `automd.config.ts` and add the marker pair to the
 target page. automd also ships the built-ins `file` (inline a file),
 `dir-tree`, and `fetch`.
+
+A region is opt-in, and the template's own index pages carry none. A list
+committed into a page conflicts whenever two branches each add an entry, so
+the decisions and specs lists are read from the files instead, by the sidebar
+and `pnpm docs:list`. A page may keep the `decisionsIndex` or `specIndex`
+region, and `pnpm docs:check` still holds it current. A merge conflict inside
+a region is fixed with `pnpm docs:gen`, which rewrites the whole region; never
+merge one by hand.
 
 ## Recipes
 
@@ -77,7 +86,7 @@ public site ships no `robots.txt`, so AI crawlers are allowed by default.
 `generateLLMsFullTxt` stays off: a concatenated corpus is in no version of the
 standard, which is a search-the-map-then-follow-links model. The internal site
 emits nothing for machines on purpose, and there is no committed repo-wide map
-either: coding agents work from `AGENTS.md` and the generated indexes.
+either: coding agents work from `AGENTS.md` and `pnpm docs:list`.
 
 To opt out, list `.github/workflows/pages.yml` under `exclude` in
 `.template-sync.json` and delete the file. The internal handbook is never

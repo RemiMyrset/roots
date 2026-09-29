@@ -1,12 +1,15 @@
-# NNNN. Decision title as one declarative sentence
+# Decision title as one declarative sentence
 
 - **Status:** proposed
 - **Date:** YYYY-MM-DD
 
-<!-- Status vocabulary: proposed | accepted | rejected | deprecated | superseded by [NNNN](./NNNN-slug.md)
+<!-- Save as YYYYMMDD-kebab-title.md, named by today's date; the H1 is the title alone.
+     Status vocabulary: proposed | accepted | rejected | deprecated | superseded by [ID](./file.md)
+     ID is the linked record's filename without .md (20260929-use-postgres), or the
+     number of a legacy numbered record (0007).
      Optional extra bullets when relevant:
-     - **Supersedes:** [NNNN](./NNNN-slug.md)
-     - **Amends:** [NNNN](./NNNN-slug.md)
+     - **Supersedes:** [ID](./file.md)
+     - **Amends:** [ID](./file.md)
      Link both ways: the old record's Status line gains "superseded by ...";
      nothing else in it changes. This is MADR 4 minimal; add the full-MADR
      sections (Decision Drivers, Pros and Cons, Confirmation) only when a

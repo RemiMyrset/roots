@@ -1,6 +1,6 @@
 ---
 name: new-spec
-description: Create a new specification (capability or entity spec) in the right area with correct format and regenerated index. Use when the user says "new spec", "spec this endpoint/entity/behavior", or new externally observable behavior is being designed. Also use unprompted when a change adds or alters externally observable behavior (a route, command, flag, exit code, or invariant) that no existing spec covers.
+description: Create a new specification (capability or entity spec) in the right area with the correct format. Use when the user says "new spec", "spec this endpoint/entity/behavior", or new externally observable behavior is being designed. Also use unprompted when a change adds or alters externally observable behavior (a route, command, flag, exit code, or invariant) that no existing spec covers.
 ---
 
 # New specification
@@ -10,7 +10,7 @@ Create a spec under `docs/internal/specs/<area>/`.
 1. Decide the kind, capability or entity, per "Spec kinds" in
    `docs/template/spec-discipline.md`.
 2. Pick or create the `<area>` folder (for example `api/`, `cli/`, `domain/`).
-   The index and sidebar discover new areas automatically.
+   The handbook sidebar and `pnpm docs:list` discover new areas automatically.
 3. Copy `docs/internal/specs/_template.md` to `<area>/<name>.md` and fill it:
    Source and Tests bullets as backticked repo-relative paths (`(pending)` is
    legal spec-first), `- **Last reviewed:**` today. Purpose, Non-goals, Contract

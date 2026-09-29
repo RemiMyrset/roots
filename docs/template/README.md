@@ -67,5 +67,9 @@ One word per concept, used the same way in every page, skill, and script.
   under `test/`.
 - A **decision** is a record of why, under `docs/internal/decisions/`. A
   **spec** is a contract of what, under `docs/internal/specs/`.
+- A **dated** record is a decision named `YYYYMMDD-kebab-title.md`, and its
+  **ID** is that name without `.md`. A **legacy** record is a numbered
+  `NNNN-kebab-title.md` from before, and its ID is the number. A dated ID is
+  never called a number.
 - The **handbook** is the internal VitePress site (`docs/internal/`). The
   **public site** is `docs/public/`, the surface for the open web.

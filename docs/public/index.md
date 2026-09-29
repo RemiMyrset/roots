@@ -12,8 +12,8 @@ agents can work in safely from day one.
   pre-tool guards that stop the common agent mistakes in all three.
 - One done gate, `pnpm verify`, every CI check in CI order, on Linux, macOS,
   and Windows; CI runs it on Ubuntu and Windows.
-- Decisions and specs with generated indexes that cannot drift, in portable
-  markdown, rendered as an internal handbook and this public site.
+- Decisions and specs in portable markdown, listed from the files so no list
+  drifts or conflicts, rendered as an internal handbook and this public site.
 - `pnpm sync:template`, which pulls the shared mechanics into a child, pins a
   branch or tag, and reports what changed.
 

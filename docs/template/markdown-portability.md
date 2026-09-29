@@ -36,8 +36,8 @@ frontmatter.
    checker keys on the GitHub slug, so two headings that differ only in case or
    punctuation are duplicates. Backticks, emoji, and non-ASCII characters in a
    heading are a warning, not an error: slug algorithms diverge on them. Keep
-   punctuation minimal; the decision-record H1 format `NNNN. Title` is the
-   sanctioned exception.
+   punctuation minimal; the legacy decision-record H1 format `NNNN. Title` is
+   the sanctioned exception, and a dated record's H1 is the title alone.
 6. **Index files** are `index.md` inside the two site directories,
    `docs/internal` and `docs/public` (VitePress convention, no rewrites), and
    `README.md` everywhere else: the repo root, `docs/README.md`, and

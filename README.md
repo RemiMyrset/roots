@@ -32,9 +32,10 @@ Not for anyone who wants an unopinionated starter.
   the recurring procedures.
 - One done gate, `pnpm verify`: every CI check in CI order, stopping at the
   first failure, the same on Ubuntu and Windows ([Commands](#commands)).
-- A docs system: decisions (why) and specs (what) with generated indexes, in
-  portable markdown, built into an internal handbook and a public site that a
-  shipped workflow publishes to GitHub Pages with `llms.txt`. Start at
+- A docs system: decisions (why) and specs (what) in portable markdown, listed
+  from the files so branches that each add one merge without a conflict, and
+  built into an internal handbook and a public site that a shipped workflow
+  publishes to GitHub Pages with `llms.txt`. Start at
   [docs/README.md](./docs/README.md); the mechanics are in
   [docs-toolchain](./docs/template/docs-toolchain.md).
 - Template sync, `pnpm sync:template`, which pulls the shared mechanics into
@@ -170,8 +171,9 @@ pnpm install
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm test:docs` | Docs checker fixtures (a clean tree and a broken one, node only) |
 | `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps; ESLint rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version |
-| `pnpm docs:gen` | Regenerate the decisions and specs indexes and the `.agents/skills` mirror |
+| `pnpm docs:gen` | Regenerate the `.agents/skills` mirror and any automd region a page keeps |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
+| `pnpm docs:list` | Print the decisions table and the spec list, read from the files (`decisions` or `specs` prints one) |
 | `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |
 | `pnpm docs:internal:dev` | Internal handbook (VitePress, team-only) |
 | `pnpm docs:public:dev` | Public docs site |

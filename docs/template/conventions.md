@@ -37,10 +37,20 @@ portability requirement. The choices, each with its why:
   a child, so a fix lands once. `docs/internal/` and `docs/public/` are the
   child's own and start clean; the decisions and specs folders hold only their
   index and template files.
-- Decisions are MADR 4 minimal, the maintained published standard, in
-  `docs/internal/decisions/NNNN-kebab-title.md`, append-only. Metadata is
-  visible bold bullets because YAML frontmatter is invisible in VitePress and
-  noisy on GitHub.
+- Decisions are MADR 4 minimal, the maintained published standard, and
+  append-only. Metadata is visible bold bullets because YAML frontmatter is
+  invisible in VitePress and noisy on GitHub.
+- A decision is named `docs/internal/decisions/YYYYMMDD-kebab-title.md` after
+  the day it was created, with the title alone as its H1, and its ID is that
+  name without `.md`. MADR's `NNNN-` numbers need one party to hand them out,
+  and parallel branches have none, so two branches that each took the next
+  number collided. A date needs no counter; log4brains names records the same
+  way, and Rails migrations use a timestamp. The pull request number was
+  rejected because it is unknown while the record is written, a direct push
+  has none, and one pull request can hold two records. Numbering at merge was rejected because it
+  depends on someone remembering a step before every merge, and two merges
+  still race. Numbered records from before stay valid, are never renamed, and
+  list first.
 - Specs cover externally observable behavior under `docs/internal/specs/`, in
   the two kinds and under the three-place sync defined in
   [spec-discipline](./spec-discipline.md). A spec that lags its code misleads
@@ -48,17 +58,23 @@ portability requirement. The choices, each with its why:
 - Every doc renders in GitHub, VitePress, and Obsidian, and
   `pnpm docs:portability` blocks on a violation. Docs that rendered in one tool
   and broke in the others were a survey finding.
-- automd plus repo generators produce the decisions and specs indexes, and the
-  drift gate refuses generated output that differs from a fresh run.
-  Hand-maintained indexes went stale in every surveyed repo.
+- No committed file lists the decisions or specs. The handbook sidebar,
+  `pnpm docs:list`, and the folder view on GitHub and in Obsidian read the
+  lists from the files, so a list cannot drift, and two branches that each add
+  a record touch different files and merge without a conflict.
+  Hand-maintained indexes went stale in every surveyed repo, and the generated
+  index that replaced them conflicted on every pair of pull requests that each
+  added a record. automd stays for a region a page opts into, and the drift
+  gate still refuses generated output that differs from a fresh run.
 - A synced GitHub Pages workflow publishes `docs/public/` and deploys only where
   Pages is enabled, so a repository without a public site pays nothing; the
   build emits `llms.txt` (the [llms.txt](https://llmstxt.org/) standard, "SEO
   for AI") plus a markdown copy of every page but the index. No `llms-full.txt`
   and no committed repo-wide map: a corpus file is in no version of the
-  standard, and coding agents inside a checkout have the rulebook, the indexes,
-  and file search. The recipe is in [docs-toolchain](./docs-toolchain.md); the
-  template's own public site is the live demo.
+  standard, and coding agents inside a checkout have the rulebook,
+  `pnpm docs:list`, and file search. The recipe is in
+  [docs-toolchain](./docs-toolchain.md); the template's own public site is the
+  live demo.
 - The stack is a TypeScript-first pnpm + Turborepo monorepo, node 24 minimum,
   with no JavaScript files: erasable-syntax TypeScript runs natively. No `class`
   or `enum`, functions and plain objects/union types only, enforced by ESLint
@@ -113,7 +129,11 @@ public site is discoverable by AI crawlers and agents out of the box, with
 nothing to maintain by hand.
 
 Against that, the docs toolchain requires node 24 and pnpm even in repos whose
-product stack is something else. Sequential decision numbering can collide
-across parallel branches; solo/small-team use accepts this. Template changes
-never apply automatically: the follow-ups report is advisory, and a child that
-never syncs keeps drifting.
+product stack is something else. Template changes never apply automatically:
+the follow-ups report is advisory, and a child that never syncs keeps drifting.
+
+A dated decision has no short number to cite, and tools built for MADR's
+`NNNN-` names skip or flag it: madrlint's MADR41 and MADR44 rules, the
+Backstage ADR plugin's default filter, and Structurizr's MADR importer. With no
+committed table, a record's status shows on GitHub and in Obsidian only inside
+the record; the handbook sidebar and `pnpm docs:list` show it beside the title.
