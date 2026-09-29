@@ -24,7 +24,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, delimiter, dirname, join, matchesGlob, relative } from 'node:path'
+import { basename, delimiter, dirname, join, matchesGlob, relative, resolve } from 'node:path'
 import process from 'node:process'
 
 const root = join(import.meta.dirname, '..')
@@ -299,6 +299,10 @@ if (typeof lintStaged === 'object' && lintStaged !== null) {
 // none), so one that lists directories, such as `"include": ["src", "test"]`, leaves a bin/
 // script or a root config unchecked. Each package that turbo typechecks is parsed by
 // TypeScript itself, its directory listing swapped for a temp tree of paths a package grows.
+// In build mode (`tsc -b`, the way Vite's scaffolds run a solution config of `"files": []`
+// plus `references`) every project the config references is checked too, transitively, so its
+// files count; `tsc -p` checks the named project alone. A solution-style package of the
+// probe's own is read first, both ways, so the probe is known to read that layout.
 const TSCONFIG_PROBES = ['src/index.ts', 'src/legacy.cts', 'test/index.test.ts', 'bin/cli.ts', 'scripts/seed.mts', 'drizzle.config.ts', 'vitest.config.ts']
 const probeTree = join(tmp, 'tsconfig-probes')
 for (const file of TSCONFIG_PROBES) {
@@ -307,30 +311,85 @@ for (const file of TSCONFIG_PROBES) {
 }
 const typecheckPlan = parseJson<{ tasks?: { task?: string, directory?: string, command?: string }[] }>(runTool('turbo/bin/turbo', ['run', 'typecheck', '--dry=json']).stdout)
 const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typecheck' && t.directory && t.command && t.command !== '<NONEXISTENT>')
-if (typechecked.length > 0) {
+{
   const ts = (await import('typescript')).default
   const slash = (p: string): string => p.replaceAll('\\', '/')
+  const configPath = (base: string, project: string): string => {
+    const at = resolve(base, project)
+    return at.endsWith('.json') ? at : join(at, 'tsconfig.json')
+  }
+  // The configs a typecheck command run in `dir` reads, the probe files they take in, and why
+  // any could not be read.
+  const coverage = (dir: string, command: string): { configs: string[], covered: Set<string>, errors: string[] } => {
+    const build = /(?:^|\s)(?:-b|--build)(?=\s|$)/.exec(command)
+    const projects: string[] = []
+    if (build) {
+      for (const word of command.slice(build.index + build[0].length).trim().split(/\s+/)) {
+        if (/^(?:&&|\|\||;|\|)$/.test(word))
+          break
+        if (word && !word.startsWith('-'))
+          projects.push(word)
+      }
+    }
+    else {
+      projects.push(/(?:^|\s)(?:-p|--project)\s+(\S+)/.exec(command)?.[1] ?? 'tsconfig.json')
+    }
+    const configs: string[] = []
+    const covered = new Set<string>()
+    const errors: string[] = []
+    const read = (config: string): void => {
+      if (configs.includes(config))
+        return
+      configs.push(config)
+      const parsed = ts.getParsedCommandLineOfConfigFile(config, undefined, {
+        useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
+        fileExists: ts.sys.fileExists,
+        readFile: ts.sys.readFile,
+        getCurrentDirectory: () => dir,
+        readDirectory: (at, extensions, excludes, includes, depth) => ts.sys.readDirectory(probeTree, extensions, excludes, includes, depth).map(f => join(at, relative(probeTree, f))),
+        onUnRecoverableConfigFileDiagnostic: d => errors.push(`${slash(relative(root, config))}: ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`),
+      })
+      if (!parsed) {
+        errors.push(`${slash(relative(root, config))}: not readable`)
+        return
+      }
+      for (const file of parsed.fileNames)
+        covered.add(slash(relative(dir, file)))
+      if (build) {
+        for (const reference of parsed.projectReferences ?? [])
+          read(ts.resolveProjectReferencePath(reference))
+      }
+    }
+    for (const project of projects.length > 0 ? projects : ['tsconfig.json'])
+      read(configPath(dir, project))
+    return { configs, covered, errors }
+  }
+
+  const solution = join(tmp, 'tsconfig-solution')
+  mkdirSync(solution)
+  const writeConfig = (name: string, config: unknown): void => writeFileSync(join(solution, name), `${JSON.stringify(config)}\n`)
+  writeConfig('tsconfig.json', { files: [], references: [{ path: './tsconfig.app.json' }, { path: './tsconfig.node.json' }] })
+  writeConfig('tsconfig.app.json', { compilerOptions: { composite: true }, include: ['src'] })
+  writeConfig('tsconfig.node.json', { compilerOptions: { composite: true }, exclude: ['src', 'node_modules', 'dist'] })
+  const built = coverage(solution, 'tsc -b')
+  const project = coverage(solution, 'tsc --noEmit')
+  if (built.errors.length > 0 || TSCONFIG_PROBES.some(p => !built.covered.has(p)) || project.covered.size > 0)
+    failures.push(`the tsconfig probe misreads a solution-style package: under tsc -b it took in [${[...built.covered].join(', ')}] (${built.errors.join('; ')}), want every probe file; under tsc --noEmit [${[...project.covered].join(', ')}], want none`)
+
   for (const task of typechecked) {
     const dir = join(root, task.directory!)
-    const project = /(?:^|\s)(?:-p|--project)\s+(\S+)/.exec(task.command!)?.[1] ?? 'tsconfig.json'
-    const config = join(dir, project.endsWith('.json') ? project : join(project, 'tsconfig.json'))
-    const errors: string[] = []
-    const parsed = ts.getParsedCommandLineOfConfigFile(config, undefined, {
-      useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
-      fileExists: ts.sys.fileExists,
-      readFile: ts.sys.readFile,
-      getCurrentDirectory: () => dir,
-      readDirectory: (at, extensions, excludes, includes, depth) => ts.sys.readDirectory(probeTree, extensions, excludes, includes, depth).map(f => join(at, relative(probeTree, f))),
-      onUnRecoverableConfigFileDiagnostic: d => errors.push(ts.flattenDiagnosticMessageText(d.messageText, ' ')),
-    })
-    const where = slash(relative(root, config))
-    if (!parsed || errors.length > 0) {
+    const { configs, covered, errors } = coverage(dir, task.command!)
+    const where = configs.map(c => slash(relative(root, c))).join(', ')
+    if (errors.length > 0) {
       failures.push(`${where} could not be read: ${errors.join('; ')}`)
       continue
     }
-    const covered = new Set(parsed.fileNames.map(f => slash(relative(dir, f))))
     const missed = TSCONFIG_PROBES.filter(p => !covered.has(p))
-    if (missed.length > 0)
+    if (missed.length === 0)
+      continue
+    if (configs.length > 1)
+      failures.push(`${where} leave ${missed.join(', ')} out of the typecheck; make one of the projects \`${task.command}\` builds take in each, excluding only what must not be checked, such as \`"exclude": ["src", "node_modules", "dist"]\` in the one for tooling files`)
+    else
       failures.push(`${where} leaves ${missed.join(', ')} out of the typecheck; take in every file and exclude only what must not be checked: \`"exclude": ["node_modules", "dist"]\` in place of \`include\``)
   }
 }
