@@ -6,7 +6,9 @@
  * this directory against it in this one process: each guard exports a `verdict(cmd, ctx)` that
  * returns the deny reason or null, and the first reason denies the call (exit 2). Guards are
  * discovered by filename, so adding one needs no registration edit; a guard that exports no
- * verdict or throws denies too. One process rather than one per guard: node's startup plus
+ * verdict or throws denies too. A failure to start this file (node missing or unable to run
+ * .mts, a file that fails to load) never reaches that logic; each registration maps it to exit 2
+ * (docs/template/agent-surfaces.md). One process rather than one per guard: node's startup plus
  * type stripping cost about 0.15 s per spawn, and six spawns made every shell call wait a
  * second. Node builtins only (node 24 runs .mts natively), so the guards work before
  * `pnpm install` and in any repo they are synced into. A harness that opens stdin and never
