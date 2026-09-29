@@ -5,17 +5,22 @@
  * generator (gen-skills.mts). Copies a fixture tree (scripts/docs/fixtures/clean, /broken)
  * to a temp dir, runs each script with that cwd, and asserts the exit code and the messages.
  * Also pins the rulebook budget, the CI-annotation gating, a missing docs dir, the
- * three-step repo-root fallback, the stale-region comparison (with a CRLF checkout), and
- * the skills mirror clean, drifted, generated, and absent. The skill trees are planted in
- * the copy at test time: a fixture under `.claude/skills` would be listed as a live skill.
- * Runs in CI on Ubuntu and Windows via `pnpm test:docs`. Node builtins only.
+ * three-step repo-root fallback, the stale-region comparison (with a CRLF checkout), the
+ * skills mirror clean, drifted, generated, and absent, and the region writer: byte for byte
+ * what automd writes, and the repair for a region holding merge conflict lines. The skill
+ * trees are planted in the copy at test time: a fixture under `.claude/skills` would be
+ * listed as a live skill. Runs in CI on Ubuntu and Windows via `pnpm test:docs`. Node
+ * builtins only; the automd comparison runs the installed automd in a child process and is
+ * skipped, with a note, where automd is not installed.
  */
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
-import { decisionsSidebar, escapeCell, readDecisions, readSpecs, specsSidebar } from './docs/readers.mts'
+import { pathToFileURL } from 'node:url'
+import { decisionsSidebar, escapeCell, INDEX_RENDERERS, readDecisions, readSpecs, regenerateIndexRegions, specsSidebar } from './docs/readers.mts'
+import { automdRegions, markdownFiles, writeRegion } from './docs/root.mts'
 import { SKILLS_SOURCE, SKILLS_TARGET } from './docs/skills.mts'
 
 const FIXTURES = join(import.meta.dirname, 'docs', 'fixtures')
@@ -69,6 +74,30 @@ const CI_KEY = 'GITHUB_ACTIONS' // a const key: tsc refuses dot access on proces
 const withoutCi = { ...process.env }
 delete withoutCi[CI_KEY]
 
+// The installed automd, run the way `pnpm docs:gen` runs it but against a fixture copy: the
+// fixtures' own automd.config.ts is an empty root marker, so the input glob and the two
+// generators are passed in. Undefined where automd is not installed; its checks then skip.
+let automdUrl: string | undefined
+try {
+  automdUrl = import.meta.resolve('automd')
+}
+catch {}
+const GENERATORS_URL = pathToFileURL(join(import.meta.dirname, 'docs', 'generators.mts')).href
+function runAutomd(cwd: string): Run {
+  const code = [
+    `const { automd } = await import(${JSON.stringify(automdUrl)})`,
+    `const { decisionsIndex, specIndex } = await import(${JSON.stringify(GENERATORS_URL)})`,
+    `await automd({ dir: process.cwd(), input: ['docs/**/*.md'], generators: { decisionsIndex, specIndex } })`,
+  ].join('\n')
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd, env: withoutCi, encoding: 'utf8' })
+  return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` }
+}
+
+/** Every markdown page under a copy's docs/, keyed by its path inside the copy, for byte comparisons. */
+function docsBytes(dir: string): Map<string, string> {
+  return new Map(markdownFiles(join(dir, 'docs')).map(f => [f.slice(dir.length), readFileSync(f, 'utf8')]))
+}
+
 // 1. The clean tree passes both checkers with nothing on stderr; the mirror is current.
 {
   const dir = fixture('clean')
@@ -107,6 +136,9 @@ delete withoutCi[CI_KEY]
     'docs/internal/decisions/0004-no-h1.md: H1 must be "# 0004. Title"',
     'docs/internal/decisions/0005-no-status.md: missing "- **Status:** ..." bullet',
     'duplicate decision number 0002',
+    'duplicate decision number 0002 (also 0002-duplicate.md) — the record already on the default branch keeps it',
+    'docs/internal/conflicted.md: <!-- automd:specIndex --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`',
+    'docs/internal/conflicted.md: unresolved merge conflict marker (line 3)',
     'automd generator failed and wrote a warning comment',
     'docs/internal/stale.md: <!-- automd:decisionsIndex --> region is stale — run `pnpm docs:gen`',
     'docs/internal/unclosed.md: missing <!-- /automd --> after <!-- automd:custom --> (line 3)',
@@ -130,6 +162,7 @@ delete withoutCi[CI_KEY]
     '.agents/skills/z/SKILL.md: has no source under .claude/skills — run `pnpm docs:gen` to remove it',
   ])
   check('a "(pending)" inside a comment is not a pending bullet', !c.out.includes('template-copy.md: Source is (pending)') && !c.out.includes('template-copy.md: Tests is (pending)'), c.out)
+  check('a conflicted region is reported once, not also as stale or per marker', !c.out.includes('conflicted.md: <!-- automd:specIndex --> region is stale') && !c.out.includes('conflicted.md: unresolved merge conflict marker (line 11)'), c.out)
 }
 
 // 3. The broken tree: every portability rule fires with file:line.
@@ -330,6 +363,78 @@ delete withoutCi[CI_KEY]
   check('stale mirror removed', !existsSync(join(none, SKILLS_TARGET)))
   const n = run('docs:check', none, withoutCi)
   check('no skills dirs: docs:check exits 0', n.status === 0, n.out)
+}
+
+// 12. The region writer frames a region exactly as automd does, so `pnpm docs:gen` after it
+// changes nothing, and regenerating a region is how a merge conflict inside one is resolved.
+{
+  // Rewriting each generated region with its own body is a no-op on every page automd last
+  // wrote: the repository's own index pages and the clean fixture's.
+  const repo = join(import.meta.dirname, '..')
+  for (const [base, page] of [[repo, 'docs/internal/decisions/index.md'], [repo, 'docs/internal/specs/index.md'], [FIXTURES, 'clean/docs/internal/decisions/index.md'], [FIXTURES, 'clean/docs/internal/specs/index.md']] as const) {
+    const file = join(base, page)
+    if (!existsSync(file))
+      continue
+    const text = readFileSync(file, 'utf8')
+    const regions = automdRegions(text).filter(r => INDEX_RENDERERS[r.name])
+    check(`${page} has a generated region`, regions.length > 0)
+    for (const r of regions)
+      check(`writeRegion keeps ${page} byte for byte`, writeRegion(text, r.name, text.slice(r.bodyStart, r.bodyEnd)) === text)
+  }
+
+  // A stale copy, LF and CRLF: the writer and automd produce the same bytes.
+  const stale = (crlf: boolean): string => {
+    const dir = fixture('clean')
+    const record = join(dir, 'docs/internal/decisions/0002-second.md')
+    writeFileSync(record, readFileSync(record, 'utf8').replace('- **Status:** accepted', '- **Status:** proposed'))
+    const hello = join(dir, 'docs/internal/specs/cli/hello.md')
+    writeFileSync(join(dir, 'docs/internal/specs/cli/world.md'), readFileSync(hello, 'utf8').replace('# Hello', '# World'))
+    if (crlf) {
+      for (const page of ['docs/internal/decisions/index.md', 'docs/internal/specs/index.md']) {
+        const file = join(dir, page)
+        writeFileSync(file, readFileSync(file, 'utf8').replace(/\n/g, '\r\n'))
+      }
+    }
+    return dir
+  }
+  for (const crlf of [false, true]) {
+    const label = crlf ? 'CRLF' : 'LF'
+    const ours = stale(crlf)
+    const changed = regenerateIndexRegions(ours).map(f => f.slice(ours.length).replace(/\\/g, '/'))
+    check(`${label}: regenerateIndexRegions rewrites both index pages`, same(changed, ['/docs/internal/decisions/index.md', '/docs/internal/specs/index.md']), JSON.stringify(changed))
+    check(`${label}: a second regeneration changes nothing`, regenerateIndexRegions(ours).length === 0)
+    const c = run('docs:check', ours, withoutCi)
+    check(`${label}: regenerated regions pass docs:check`, c.status === 0, c.out)
+    if (automdUrl) {
+      const theirs = stale(crlf)
+      const a = runAutomd(theirs)
+      check(`${label}: automd runs on the fixture`, a.status === 0, a.out)
+      check(`${label}: regenerateIndexRegions writes what automd writes, byte for byte`, same([...docsBytes(ours)], [...docsBytes(theirs)]))
+      const again = runAutomd(ours)
+      const before = docsBytes(ours)
+      check(`${label}: automd after regenerateIndexRegions changes nothing`, again.status === 0 && same([...before], [...docsBytes(ours)]), again.out)
+    }
+  }
+  if (!automdUrl)
+    console.log('  (automd not installed: the byte comparison with automd is skipped)')
+
+  // Conflict lines inside a generated region: named as such, then repaired byte for byte.
+  const conflicted = fixture('clean')
+  const index = join(conflicted, 'docs/internal/decisions/index.md')
+  const clean = readFileSync(index, 'utf8')
+  writeFileSync(index, clean.replace('| [0002](./0002-second.md) | Second | accepted |', '<<<<<<< HEAD\n| [0002](./0002-second.md) | Second | accepted |\n=======\n| [0002](./0002-other.md) | Other | accepted |\n>>>>>>> main'))
+  const c = run('docs:check', conflicted, withoutCi)
+  check('conflicted region exits 1', c.status === 1, c.out)
+  check('conflicted region named with its remedy', c.out.includes('docs/internal/decisions/index.md: <!-- automd:decisionsIndex --> region holds merge conflict lines — regenerate it with `pnpm docs:gen`; never hand-merge a generated region'), c.out)
+  check('conflicted region not also reported stale', !c.out.includes('region is stale'), c.out)
+  regenerateIndexRegions(conflicted)
+  check('regenerating a conflicted region restores it byte for byte', readFileSync(index, 'utf8') === clean)
+
+  // A setext `=======` underline and a fenced example are not conflicts.
+  const prose = fixture('clean')
+  writeFileSync(join(prose, 'docs/internal/setext.md'), 'Setext title\n=======\n\n```text\n<<<<<<< HEAD\n```\n')
+  const p = run('docs:check', prose, withoutCi)
+  check('a setext underline and a fenced marker pass docs:check', p.status === 0, p.out)
 }
 
 if (fails.length > 0) {

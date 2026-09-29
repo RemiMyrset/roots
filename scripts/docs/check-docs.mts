@@ -3,8 +3,9 @@
  * generation cannot: record format, metadata bullets, supersede links and the record
  * they point at, spec Source/Tests paths resolving on disk, review-date freshness, index
  * pages carrying their automd markers, every automd region under docs/ closed, free of
- * automd's warning comment, and current with the generators, the template-owned contract
- * pages that follow the spec shape, the agent-skills mirror, and the AGENTS.md line budget.
+ * automd's warning comment and of merge conflict lines, and current with the generators, no
+ * page under docs/ left mid-merge, the template-owned contract pages that follow the spec
+ * shape, the agent-skills mirror, and the AGENTS.md line budget.
  *
  * Blocking errors exit 1; warnings print but pass (GitHub annotations in CI). A
  * missing docs, decisions, specs, or template directory is skipped with a note, so the
@@ -13,8 +14,8 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
-import { readDecisions, readSpecs, renderDecisionsIndex, renderSpecIndex } from './readers.mts'
-import { AUTOMD_CLOSE_RE, AUTOMD_OPEN_RE, AUTOMD_WARNING, byCodeUnit, DECISION_FILE_RE, DECISION_H1_RE, DECISIONS_DIR, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
+import { INDEX_RENDERERS } from './readers.mts'
+import { AUTOMD_WARNING, automdRegions, byCodeUnit, CONFLICT_LINE_RE, CONFLICT_OPEN_RE, DECISION_FILE_RE, DECISION_H1_RE, decisionNumber, DECISIONS_DIR, markdownFiles, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
 import { posixRelative, skillDrift, SKILLS_SOURCE, SKILLS_TARGET } from './skills.mts'
 
 const STALE_DAYS = 180
@@ -132,9 +133,9 @@ function checkDecisions(): number {
       errors.push(`${where}: filename must be NNNN-kebab-title.md`)
       continue
     }
-    const num = file.slice(0, 4)
+    const num = decisionNumber(file)
     if (seenNums.has(num))
-      errors.push(`${where}: duplicate decision number ${num} (also ${seenNums.get(num)})`)
+      errors.push(`${where}: duplicate decision number ${num} (also ${seenNums.get(num)}) — the record already on the default branch keeps it; renumber the other on its own branch`)
     seenNums.set(num, file)
 
     // Fences blanked, as the readers do, so a fenced example cannot pose as the H1 or Status.
@@ -218,10 +219,6 @@ function checkSpecs(): void {
 // --- automd regions ------------------------------------------------------------
 // The regions `pnpm docs:gen` writes, rendered on demand from the same readers automd
 // uses. Any other generator name is checked for shape only.
-const RENDERERS: Record<string, () => string> = {
-  decisionsIndex: () => renderDecisionsIndex(readDecisions(root)),
-  specIndex: () => renderSpecIndex(readSpecs(root)),
-}
 const rendered = new Map<string, string>()
 
 /** Region text as compared: trailing whitespace off every line, the blank lines automd pads with dropped. */
@@ -235,35 +232,28 @@ function normalizeRegion(s: string): string {
 }
 
 function renderedRegion(name: string): string | undefined {
-  const render = RENDERERS[name]
+  const render = INDEX_RENDERERS[name]
   if (!render)
     return undefined
   let out = rendered.get(name)
   if (out === undefined) {
-    out = normalizeRegion(render())
+    out = normalizeRegion(render(root))
     rendered.set(name, out)
   }
   return out
 }
 
-function markdownFiles(dir: string): string[] {
-  const out: string[] = []
-  for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => byCodeUnit(a.name, b.name))) {
-    if (e.isDirectory() && !SKIP_DIRS.has(e.name))
-      out.push(...markdownFiles(join(dir, e.name)))
-    else if (e.isFile() && e.name.endsWith('.md'))
-      out.push(join(dir, e.name))
-  }
-  return out
-}
+const NON_NEWLINE_RE = /[^\n]/g
 
 /**
- * Every automd region under docs/: closed, free of automd's warning comment, and for the
- * two index generators equal to what the generator renders now. The stale comparison is
- * the only check that sees a hand-edited or forgotten region outside the git drift gate:
- * automd rewrites a warning comment byte-identically, and a marker outside automd's
- * `input` is never rewritten at all. Line endings are normalized first, so a CRLF checkout
- * compares equal.
+ * Every automd region under docs/: closed, free of automd's warning comment and of merge
+ * conflict lines, and for the two index generators equal to what the generator renders now.
+ * The stale comparison is the only check that sees a hand-edited or forgotten region outside
+ * the git drift gate: automd rewrites a warning comment byte-identically, and a marker
+ * outside automd's `input` is never rewritten at all. A conflicted region is named as such,
+ * since the fix is to regenerate it, not to merge it by hand. Outside the regions, and outside
+ * fences, a `<<<<<<<` line is a conflict left unresolved. Line endings are normalized first,
+ * so a CRLF checkout compares equal.
  */
 function checkAutomdMarkers(): void {
   const docsDir = join(root, 'docs')
@@ -274,32 +264,36 @@ function checkAutomdMarkers(): void {
   for (const file of markdownFiles(docsDir)) {
     const where = posixRelative(root, file)
     const text = readFileSync(file, 'utf8').replace(CRLF_RE, '\n')
-    const close = new RegExp(AUTOMD_CLOSE_RE.source, AUTOMD_CLOSE_RE.flags)
-    let pos = 0
-    for (const open of text.matchAll(AUTOMD_OPEN_RE)) {
-      // An opener inside an earlier region's body belongs to that region, as automd reads it.
-      if (open.index < pos)
-        continue
-      const marker = `<!-- automd:${open[1]} -->`
-      const from = open.index + open[0].length
-      close.lastIndex = from
-      const closed = close.exec(text)
+    const regions = automdRegions(text)
+    for (const region of regions) {
+      const marker = `<!-- automd:${region.name} -->`
       // Without a close the region runs to end-of-file: over-scanning is the safe direction
       // for the sentinel, and the region is already malformed.
-      const body = text.slice(from, closed?.index)
-      pos = closed ? closed.index + closed[0].length : text.length
-      if (!closed)
-        errors.push(`${where}: missing <!-- /automd --> after ${marker} (line ${text.slice(0, open.index).split('\n').length})`)
+      const body = text.slice(region.bodyStart, region.bodyEnd)
+      if (!region.closed)
+        errors.push(`${where}: missing <!-- /automd --> after ${marker} (line ${text.slice(0, region.start).split('\n').length})`)
       if (body.includes(AUTOMD_WARNING)) {
         errors.push(`${where}: automd generator failed and wrote a warning comment into the ${marker} region. Fix the generator, re-run \`pnpm docs:gen\`, and never commit the warning — once committed it regenerates identically and the drift gate goes green.`)
         continue
       }
-      if (!closed)
+      if (body.split('\n').some(line => CONFLICT_LINE_RE.test(line))) {
+        errors.push(`${where}: ${marker} region holds merge conflict lines — regenerate it with \`pnpm docs:gen\`; never hand-merge a generated region`)
         continue
-      const want = renderedRegion(open[1]!)
+      }
+      if (!region.closed)
+        continue
+      const want = renderedRegion(region.name)
       if (want !== undefined && normalizeRegion(body) !== want)
         errors.push(`${where}: ${marker} region is stale — run \`pnpm docs:gen\``)
     }
+    // Region bodies blanked, line count kept, so a conflict inside one is reported once, above.
+    let outside = text
+    for (const region of regions.toReversed())
+      outside = outside.slice(0, region.bodyStart) + outside.slice(region.bodyStart, region.bodyEnd).replace(NON_NEWLINE_RE, '') + outside.slice(region.bodyEnd)
+    stripFences(outside).split('\n').forEach((line, i) => {
+      if (CONFLICT_OPEN_RE.test(line))
+        errors.push(`${where}: unresolved merge conflict marker (line ${i + 1}) — resolve the conflict and delete the markers`)
+    })
   }
 }
 

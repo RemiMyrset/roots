@@ -1,14 +1,15 @@
 /**
  * Readers and renderers for the decisions/specs system. The index tables automd writes,
- * the region currency check in check-docs.mts, and the VitePress sidebars all go through
- * these functions, so they cannot drift. ZERO npm imports: check-docs.mts runs in a repo
+ * the region currency check in check-docs.mts, the regions rewritten without automd
+ * (regenerateIndexRegions), and the VitePress sidebars all go through these functions, so
+ * they cannot drift. ZERO npm imports: check-docs.mts runs in a repo
  * that synced scripts/docs without installing the docs toolchain. An absent directory
  * reads as empty, so a repo without decisions or specs still generates, checks, and
  * builds; an index page that links a page which is gone fails in VitePress, by design.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { byCodeUnit, DECISION_FILE_RE, DECISION_H1_RE, DECISIONS_DIR, H1_RE, repoRoot, SPECS_DIR, STATUS_BULLET_RE, stripFences } from './root.mts'
+import { automdRegions, byCodeUnit, DECISION_FILE_RE, DECISION_H1_RE, decisionNumber, DECISIONS_DIR, H1_RE, markdownFiles, repoRoot, SPECS_DIR, STATUS_BULLET_RE, stripFences, writeRegion } from './root.mts'
 
 /** One decision record as read from its file: number, title, and the Status bullet. */
 export interface DecisionEntry {
@@ -58,7 +59,7 @@ export function readDecisions(root = repoRoot()): DecisionEntry[] {
       const text = stripFences(readFileSync(join(dir, file), 'utf8'))
       const title = text.match(DECISION_H1_RE)?.[2]?.trim() ?? file
       const status = text.match(STATUS_BULLET_RE)?.[1]?.trim() ?? 'unknown'
-      return { file, num: file.slice(0, 4), title, status }
+      return { file, num: decisionNumber(file), title, status }
     })
 }
 
@@ -112,6 +113,52 @@ export function renderSpecIndex(specs: SpecEntry[]): string {
     lines.push(`- [${s.title}](./${s.area}/${s.file})`)
   }
   return lines.join('\n')
+}
+
+/**
+ * What each generated index region holds, keyed by its automd generator name and rendered
+ * for a given root. The checker compares regions against these, and regenerateIndexRegions
+ * writes them; automd reaches the same renderers through generators.mts. A region named
+ * anything else is not generated here.
+ */
+export const INDEX_RENDERERS: Readonly<Record<string, (root: string) => string>> = {
+  decisionsIndex: root => renderDecisionsIndex(readDecisions(root)),
+  specIndex: root => renderSpecIndex(readSpecs(root)),
+}
+
+/**
+ * Rewrites every closed decisionsIndex and specIndex region in the markdown under
+ * `<root>/docs` from the files on disk, framed as automd frames it, and returns the absolute
+ * paths it changed. A conflicted region is replaced whole, which is how a merge conflict in
+ * one is resolved; `pnpm docs:gen` afterwards finds nothing to change. Default root: the
+ * repository this script runs in.
+ */
+export function regenerateIndexRegions(root = repoRoot()): string[] {
+  const docs = join(root, 'docs')
+  if (!existsSync(docs))
+    return []
+  const rendered = new Map<string, string>()
+  const changed: string[] = []
+  for (const file of markdownFiles(docs)) {
+    const text = readFileSync(file, 'utf8')
+    let out = text
+    for (const name of new Set(automdRegions(text).map(r => r.name))) {
+      const render = INDEX_RENDERERS[name]
+      if (!render)
+        continue
+      let contents = rendered.get(name)
+      if (contents === undefined) {
+        contents = render(root)
+        rendered.set(name, contents)
+      }
+      out = writeRegion(out, name, contents)
+    }
+    if (out !== text) {
+      writeFileSync(file, out)
+      changed.push(file)
+    }
+  }
+  return changed
 }
 
 /** VitePress sidebar entries for the decisions, from the same reader as the index. Default root: the repository this script runs in. */
