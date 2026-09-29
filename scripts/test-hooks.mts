@@ -550,6 +550,17 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'if(npm install) then :; fi' }, //     a reserved word, then a subshell
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{(npm install)}' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=(a # it\'s b\n); npm install' }, //  an array's `#` is a comment
+  // A redirect operator ends a word: `]]>log` closes the conditional, so a later subshell runs.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n x ]]>/dev/null && (npm install)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n x ]]&>/dev/null; (npm install)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n x ]]<&0 && (npm install)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -f .nvmrc ]]>/dev/null\n(npm install)' },
+  { guard: P, expect: D, cmd: '[[ -n x ]]>>log; (git push origin main)' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: '[[ -n x ]]>/dev/null; (cat .env)' },
+  { guard: B, expect: D, cmd: '[[ -n x ]]>/dev/null; (git commit --no-verify -m x)' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: '[[ -n x ]]>/dev/null; (pnpm approve-builds)' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{ cat <<\'EOF\'\nnpm install\nEOF\n}</dev/null | bash' }, // `}<in` closes the group
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{</dev/null cat <<\'EOF\'\nnpm install\nEOF\n} | bash' }, // `{<in` opens one
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo [[ # ; npm install' }, //         `[[` as an argument opens nothing
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: '[[ $l =~ ^(npm|yarn) ]] && echo legacy' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: '[[ $f == @(*.ts|*.mts) ]] && pnpm exec eslint "$f"' },
@@ -775,6 +786,7 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: '\'C:\\nodejs\\NPM.EXE\' i', head: 'npm' }, //         either separator, any case
   { cmd: 'corepack yarn@1 add x', head: 'yarn' }, //           version suffix stripped
   { cmd: 'busybox sh -s', head: 'sh' }, //                     busybox runs its applet
+  { cmd: '(npm install)', head: 'npm' }, //                     a `(` left on a word is a misread
 ]
 
 // The session-start hook prints the writing rules as SessionStart context for Codex and

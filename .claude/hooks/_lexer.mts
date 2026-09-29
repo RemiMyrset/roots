@@ -73,10 +73,11 @@ export function unquote(t: string): string {
  * The command name a word runs, as the guards compare it: quotes and directories (either
  * separator) dropped, lowercased, and a Windows launcher suffix (`.exe`, `.cmd`, `.bat`,
  * `.ps1`) and an `@version` suffix (`corepack yarn@1`) stripped, so `NPM`, `npm.cmd`, and
- * `C:\nodejs\npm.exe` all name npm.
+ * `C:\nodejs\npm.exe` all name npm. A leading `(` is dropped too: the lexer opens a subshell
+ * there, so a word that still starts with one is a misread, and it names what it runs.
  */
 export function base(t: string): string {
-  const name = (unquote(t).split(/[/\\]/).pop() ?? '').toLowerCase()
+  const name = (unquote(t).replace(/^\(+/, '').split(/[/\\]/).pop() ?? '').toLowerCase()
   return name.replace(/\.(?:exe|cmd|bat|ps1)$/, '').replace(/(?<=.)@[^@]*$/, '')
 }
 
@@ -409,6 +410,10 @@ function lex(s: string, body: boolean): string[] {
       n = e - 1
       continue
     }
+    // A redirect operator ends the word before it, so `]]>log` closes a `[[` and `{<in` opens a
+    // group. The `&` of `>&2` belongs to the operator already open.
+    if (c === '<' || c === '>' || (c === '&' && s[n + 1] === '>' && !afterOp))
+      endWord()
     if (c === '<' && s[n + 1] === '<' && s[n + 2] === '<') { f.cur += '<<<'; n += 2; ws = false; continue }
     // A heredoc operator (`<<`, `<<-`) and its delimiter word; `<<` in arithmetic is a shift.
     if (c === '<' && s[n + 1] === '<' && !f.arith) {
