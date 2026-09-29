@@ -134,6 +134,19 @@ const CASES: Case[] = [
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm --filter x approve-builds' },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'sudo pnpm approve-builds' },
   { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm install' },
+  // A flag on a dlx line, the settings behind the flags, and an exported pnpm_config variable.
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm dlx --allow-build=esbuild create-vite' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm dlx --allow-build esbuild create-vite@latest my-app' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm --allow-build=esbuild dlx create-vite' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm config set --location project allowBuilds \'{"esbuild":true}\' --json' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm config set onlyBuiltDependencies esbuild' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'export pnpm_config_dangerously_allow_all_builds=true; pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'export CI=1 PNPM_CONFIG_ALLOW_BUILDS=esbuild' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'declare -x pnpm_config_dangerously_allow_all_builds=true' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm dlx create-vite my-app --template vanilla-ts' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm config set store-dir ~/.pnpm-store' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'export CI=1; pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'grep -n allowBuilds pnpm-workspace.yaml' },
 
   // --- deny-secret-reads: keystores, netrc, npmrc join the secret set --------------
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat cert.p12' },
@@ -452,6 +465,11 @@ const CASES: Case[] = [
   { guard: B, expect: D, cmd: 'env SKIP_SIMPLE_GIT_HOOKS=1 git commit -m x' },
   { guard: B, expect: D, cmd: 'HUSKY=0 git push origin feat/x' },
   { guard: B, expect: D, cmd: 'export SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' },
+  { guard: B, expect: D, cmd: 'export CI=1 SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' },
+  { guard: B, expect: D, cmd: 'declare -x SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' },
+  { guard: B, expect: D, cmd: 'typeset -gx HUSKY=0; git push origin feat/x' },
+  { guard: B, expect: A, cmd: 'declare SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' }, // not exported: git never sees it
+  { guard: B, expect: A, cmd: 'export CI=1; git commit -m x' },
   { guard: B, expect: D, cmd: 'pnpm build && git commit --no-verify -m x' },
   { guard: B, expect: A, cmd: 'git commit -m x' },
   { guard: B, expect: A, cmd: 'git commit -am "fix: no --no-verify here"' }, // quoted mention

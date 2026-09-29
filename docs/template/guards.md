@@ -273,6 +273,18 @@ binding); the admin bypass above still lets a human release:
 }
 ```
 
+## Build scripts
+
+`deny-build-scripts` keeps dependency build scripts off, as the AGENTS.md rule
+on `allowBuilds` requires. Wherever pnpm is a command word, `pnpm dlx` and
+`pnpm exec` lines included, it denies `approve-builds`, `--allow-build`, and a
+`pnpm config set` of `allowBuilds` or `onlyBuiltDependencies`. It also denies a
+`pnpm_config_*` variable that allows builds, inline or exported (`export`,
+`declare -x`).
+
+Out of scope, beyond the shared list: an edit to `pnpm-workspace.yaml` through
+a file tool, which runs no shell command. Review catches it.
+
 ## Hook bypass
 
 The git hooks are installed by `scripts/prepare.mts` at `pnpm install` through
@@ -284,8 +296,8 @@ CI rather than in editor mode; commit-msg runs commitlint. `deny-hook-bypass` ke
 `git merge`; `-n` on `git commit` (its `--no-verify` alias; `git push -n` is
 dry-run and passes); a `core.hooksPath` override through `git -c` or
 `--config-env`; and the `SKIP_SIMPLE_GIT_HOOKS`, `HUSKY=0`, and
-`HUSKY_SKIP_HOOKS` environment prefixes, whether inline, via `env`, or as an
-`export` statement.
+`HUSKY_SKIP_HOOKS` environment prefixes, whether inline, via `env`, or
+exported (`export`, `declare -x`).
 
 Quoted mentions (`-m "no --no-verify here"`) pass. A quote the heuristic cannot
 balance (closed mid-token, or never) makes the whole command fail closed; every
