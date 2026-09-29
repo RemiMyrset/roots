@@ -9,10 +9,11 @@ on:
     branches: [main]
   pull_request:
 
-# A newer push to a pull request replaces its older run; a push to main is never cancelled,
-# so every commit on main gets a verdict.
+# A newer push to a pull request replaces its older run. Every other run gets a group of its
+# own commit: GitHub keeps one run pending per group and cancels the pending one before it, so
+# a shared group would leave a commit merged right behind another with no verdict.
 concurrency:
-  group: docs-${{ github.ref }}
+  group: docs-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

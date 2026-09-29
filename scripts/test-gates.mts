@@ -8,9 +8,12 @@
  * diverging from the synced files); the frozen-lockfile install is a gate like any other.
  * Every `pnpm <script>` on a step line counts, so `pnpm a && pnpm b` records both.
  * Four workflow rules ride along. A workflow that runs a gate also runs on `pull_request`, so
- * a break in it (a bumped action, an edited step) shows before merge, not first on main; and
- * when it also runs on `push`, it never sets `cancel-in-progress: true`, which lets the next
- * push to main cancel the run of the one before and leave that commit with no verdict. Every
+ * a break in it (a bumped action, an edited step) shows before merge, not first on main; and a
+ * gate run on `push` is run there by at least one workflow that keeps every push run, one
+ * with no concurrency group or a group of its own commit (`github.sha` or `github.run_id` in
+ * it). GitHub keeps one run pending per group and cancels the pending one before it, whatever
+ * `cancel-in-progress` says, so in a shared group a commit merged right behind another gets no
+ * verdict; a deploy workflow such as pages.yml may share one, since ci.yml runs its gates. Every
  * action is pinned by its full commit SHA with its exact version in a trailing comment
  * (`@<sha> # v1.2.3`), the form the update-deps skill refreshes and GitHub's required SHA
  * pinning accepts. And while the shared VitePress config sets `lastUpdated`, a workflow that
@@ -33,6 +36,32 @@ const gates = new Set([...verifySource.matchAll(/\bpnpm\('([^']+)'/g)].map(m => 
 
 const sharedConfig = join(root, 'docs/.shared/config.ts')
 const lastUpdated = existsSync(sharedConfig) && /\blastUpdated:\s*true\b/.test(readFileSync(sharedConfig, 'utf8'))
+
+/**
+ * The concurrency groups a workflow sets, at the workflow or the job level, each with its
+ * 1-based line: the inline form `concurrency: <group>` and the `group:` key of a block.
+ */
+function concurrencyGroups(lines: string[]): { line: number, group: string }[] {
+  const found: { line: number, group: string }[] = []
+  const value = (text: string): string => text.replace(/\s+#.*$/, '').trim()
+  lines.forEach((line, i) => {
+    const m = /^(\s*)concurrency:(.*)$/.exec(line)
+    if (!m)
+      return
+    if (value(m[2]!)) {
+      found.push({ line: i + 1, group: value(m[2]!) })
+      return
+    }
+    for (let j = i + 1; j < lines.length && (lines[j]!.trim() === '' || lines[j]!.search(/\S/) > m[1]!.length); j++) {
+      const group = /^\s*group:(.*)$/.exec(lines[j]!)
+      if (group) {
+        found.push({ line: j + 1, group: value(group[1]!) })
+        break
+      }
+    }
+  })
+  return found
+}
 
 /** Whether the workflow's top-level `on:` triggers include `event` (map key, list, or inline). */
 function runsOn(lines: string[], event: 'pull_request' | 'push'): boolean {
@@ -84,12 +113,16 @@ const problems: string[] = []
 // Every `pnpm <script>` step in a workflow, with its file:line.
 interface Step { where: string, script: string }
 const steps: Step[] = []
+// Each gate a workflow runs on push, with the workflows that run it there and whether each
+// keeps every push run; `where` names the shared group when it does not.
+const onPush = new Map<string, { where: string, kept: boolean }[]>()
 const workflowsDir = join(root, '.github/workflows')
 for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f)).sort()) {
   const where = `.github/workflows/${file}`
   const lines = readFileSync(join(workflowsDir, file), 'utf8').split('\n')
   let gateSteps = 0
   let buildsSite = false
+  const own: string[] = []
   lines.forEach((line, i) => {
     const m = /^\s*(?:- )?(?:run: )?(pnpm .*)$/.exec(line)
     if (!m)
@@ -101,16 +134,19 @@ for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f)).sor
       return
     for (const call of code.matchAll(/\bpnpm (?:run )?([a-z][\w:-]*)/g)) {
       steps.push({ where: `${where}:${i + 1}`, script: call[1]! })
+      own.push(call[1]!)
       gateSteps++
     }
   })
   if (gateSteps > 0 && !runsOn(lines, 'pull_request'))
     problems.push(`${where} runs verify gates but not on pull_request, so a break in it first shows on main`)
   if (gateSteps > 0 && runsOn(lines, 'push')) {
-    lines.forEach((line, i) => {
-      if (/^\s*cancel-in-progress:\s*["']?true["']?\s*(?:#.*)?$/.test(line))
-        problems.push(`${where}:${i + 1} cancels in-progress runs on push too, so a push to main can leave the commit before it with no verdict; use \`cancel-in-progress: \${{ github.event_name == 'pull_request' }}\``)
-    })
+    const shared = concurrencyGroups(lines).find(g => !/\bgithub\.(?:sha|run_id)\b/.test(g.group))
+    for (const script of new Set(own)) {
+      const runs = onPush.get(script) ?? []
+      runs.push({ where: shared ? `${where}:${shared.line}` : where, kept: !shared })
+      onPush.set(script, runs)
+    }
   }
   lines.forEach((line, i) => {
     const m = USES_RE.exec(line)
@@ -126,6 +162,17 @@ for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f)).sor
       problems.push(`${where}:${at} builds a docs site from a shallow checkout; lastUpdated needs \`fetch-depth: 0\``)
   }
 }
+
+// Gates whose every push run can be dropped, grouped by the workflows that run them.
+const dropped = new Map<string, string[]>()
+for (const [script, runs] of onPush) {
+  if (!runs.some(r => r.kept)) {
+    const where = runs.map(r => r.where).join(', ')
+    dropped.set(where, [...dropped.get(where) ?? [], `\`pnpm ${script}\``])
+  }
+}
+for (const [where, scripts] of dropped)
+  problems.push(`${scripts.join(', ')} run on push only in a concurrency group shared across pushes (${where}): GitHub keeps one run pending per group and cancels the pending one before it, so a commit merged right behind another gets no verdict; give push runs a group of their own commit in one of those workflows: \`group: <name>-\${{ github.event_name == 'pull_request' && github.ref || github.sha }}\``)
 
 for (const step of steps) {
   if (!gates.has(step.script))
