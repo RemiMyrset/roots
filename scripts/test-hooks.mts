@@ -477,6 +477,13 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${#x}; npm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $#; npm install' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo hi # ; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo hi\t# ; npm install' }, //  a tab is a blank too
+  // Only a space or a tab ends a word; bash reads a `#` after any other space-like byte as text.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\u00A0#x; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\u2003#x; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\r#x; npm install' },
+  { guard: P, expect: D, cmd: 'echo a\f#x; git push origin main' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'echo a\v#x; cat .env' },
   { guard: P, expect: A, cmd: 'git push origin feat/x # dont push main' },
   // A `(` inside `[[ … ]]` or glued to a word (an extglob) groups text, so a `#` after it is text.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'while read -r p; do [[ $p =~ ^(#|$) ]] && continue; npm install "$p"; done < deps.txt' },

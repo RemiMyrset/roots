@@ -404,7 +404,9 @@ function lex(s: string, body: boolean): string[] {
         f.test = true
     }
     f.cur += c
-    ws = /\s/.test(c)
+    // Bash separates words only at a space, a tab, or a newline (handled above): a `#` after a
+    // no-break space, CR, form feed, or vertical tab is part of the word, not a comment.
+    ws = c === ' ' || c === '\t'
     op = c === '<' || c === '>'
   }
   for (const [k, frame] of stack.entries()) {
