@@ -147,6 +147,21 @@ const CASES: Case[] = [
   { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm config set store-dir ~/.pnpm-store' },
   { guard: 'deny-build-scripts.mts', expect: A, cmd: 'export CI=1; pnpm install' },
   { guard: 'deny-build-scripts.mts', expect: A, cmd: 'grep -n allowBuilds pnpm-workspace.yaml' },
+  // A setting counts where it is set: a flag, or after `config set` or its `set` shorthand.
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm set allowBuilds \'{"esbuild":true}\' --json' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm c set allow-builds esbuild' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm install --config.dangerously-allow-all-builds=true' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm install --dangerously-allow-all-builds' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm config get allowBuilds' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm config delete onlyBuiltDependencies' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm exec grep -n allowBuilds pnpm-workspace.yaml' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm exec tsx scripts/check-only-built-dependencies.mts' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'pnpm vitest run test/allow-builds.test.ts' },
+  // A variable assigned first counts once it is exported, later or through `set -a`.
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm_config_dangerously_allow_all_builds=true; export pnpm_config_dangerously_allow_all_builds; pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'set -a; pnpm_config_dangerously_allow_all_builds=true; pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'npm_config_allow_builds=esbuild pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'env -u pnpm_config_dangerously_allow_all_builds pnpm install' },
 
   // --- deny-secret-reads: keystores, netrc, npmrc join the secret set --------------
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat cert.p12' },

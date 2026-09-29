@@ -865,16 +865,16 @@ export function resolveHead(toks: string[]): Head {
 }
 
 /**
- * The NAME=VALUE words a segment exports to every later command of the session, unquoted:
- * each assignment after `export`, or after `declare`, `typeset`, or `local` given `-x`
- * (`declare -gx`). Any other segment exports none; an inline prefix (`X=1 cmd`) reaches only
- * its own command and is read from the tokens directly.
+ * The words a segment exports to every later command of the session, unquoted: each NAME=VALUE
+ * assignment or bare NAME (a variable assigned earlier) after `export`, or after `declare`,
+ * `typeset`, or `local` given `-x` (`declare -gx`). Any other segment exports none; an inline
+ * prefix (`X=1 cmd`) reaches only its own command and is read from the tokens directly.
  */
-export function exportedAssignments(toks: string[]): string[] {
+export function exportedWords(toks: string[]): string[] {
   const { i, head } = resolveHead(toks)
   const words = toks.slice(i + 1).map(unquote)
   const exports = head === 'export' || (/^(?:declare|typeset|local)$/.test(head) && words.some(w => /^-[A-Za-z]*x/.test(w)))
-  return exports ? words.filter(w => /^[A-Za-z_]\w*=/.test(w)) : []
+  return exports ? words.filter(w => /^[A-Za-z_]\w*(?:=|$)/.test(w)) : []
 }
 
 // `git` global options that take a SEPARATE value token (the `--opt=value` spelling is one token).

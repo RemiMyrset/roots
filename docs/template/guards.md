@@ -284,10 +284,13 @@ binding); the admin bypass above still lets a human release:
 
 `deny-build-scripts` keeps dependency build scripts off, as the AGENTS.md rule
 on `allowBuilds` requires. Wherever pnpm is a command word, `pnpm dlx` and
-`pnpm exec` lines included, it denies `approve-builds`, `--allow-build`, and a
-`pnpm config set` of `allowBuilds` or `onlyBuiltDependencies`. It also denies a
-`pnpm_config_*` variable that allows builds, inline or exported (`export`,
-`declare -x`).
+`pnpm exec` lines included, it denies `approve-builds` and `--allow-build`. It
+also denies a setting that allows builds (`allowBuilds`,
+`onlyBuiltDependencies`, `dangerouslyAllowAllBuilds`) where it is set: as a
+flag (`--config.allowBuilds=…`) or after `pnpm config set` or `pnpm set`.
+Reading one passes (`pnpm config get allowBuilds`, `pnpm exec grep allowBuilds`).
+A `pnpm_config_*` variable that allows builds is denied when it is assigned,
+inline or on its own line, and when it is exported (`export`, `declare -x`).
 
 Out of scope, beyond the shared list: an edit to `pnpm-workspace.yaml` through
 a file tool, which runs no shell command. Review catches it.

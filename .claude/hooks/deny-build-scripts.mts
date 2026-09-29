@@ -1,27 +1,52 @@
 /**
  * deny-build-scripts guard (imported by dispatch.mts). Blocks pnpm invocations that enable
- * dependency build/postinstall scripts (`approve-builds`, `--allow-build`, a config set of
- * `allowBuilds` or `onlyBuiltDependencies`) and an exported `pnpm_config_*` variable that does
- * the same. Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md.
+ * dependency build/postinstall scripts (`approve-builds`, `--allow-build`, a flag or a
+ * `pnpm config set` that sets `allowBuilds`, `onlyBuiltDependencies`, or
+ * `dangerouslyAllowAllBuilds`) and a `pnpm_config_*` variable that does the same, assigned or
+ * exported. Reading a setting (`pnpm config get allowBuilds`) passes. Shared lexing in
+ * ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md.
  */
 import type { Verdict } from './_lexer.mts'
-import { base, exportedAssignments, leadIndex, resolveHead, segments, tokenize } from './_lexer.mts'
+import { base, exportedWords, leadIndex, segments, tokenize, unquote } from './_lexer.mts'
 
-// The subcommand, the flags, the settings (`allowBuilds`, `onlyBuiltDependencies`), and the
-// `pnpm_config_*` variables that let a dependency's build scripts run.
-const BUILD = /approve-builds|--allow-build|allow[-_]?builds|only[-_]?built[-_]?dependencies|dangerously[-_]?allow[-_]?all[-_]?builds/i
+// The subcommand and the flag that approve a dependency's build scripts, anywhere on a pnpm line.
+const APPROVE = /approve-builds|--allow-build/i
+// The settings that let a dependency's build scripts run, in each spelling pnpm reads: a config
+// key (`allowBuilds`, `only-built-dependencies`), a flag, or a `pnpm_config_*` variable.
+const SETTING = /allow[-_]?builds|only[-_]?built[-_]?dependencies|dangerously[-_]?allow[-_]?all[-_]?builds/i
+
+// Whether the pnpm command at `lead` enables builds: it approves them, sets a setting through a
+// flag (`--config.allowBuilds=…`, `--dangerously-allow-all-builds`), or names one after
+// `pnpm config set` or its `pnpm set` shorthand. A setting named anywhere else is read, not set.
+function pnpmEnables(toks: string[], lead: number): boolean {
+  if (base(toks[lead] ?? '') !== 'pnpm')
+    return false
+  const words = toks.slice(lead + 1).map(unquote)
+  const set = words.indexOf('set')
+  return words.some((w, k) => APPROVE.test(w) || (SETTING.test(w) && (w.startsWith('-') || (set >= 0 && k > set))))
+}
+
+// Whether the segment assigns or exports a `pnpm_config_*` variable that allows builds: a prefix
+// (`X=1 pnpm i`), a plain assignment that a later `export X` or an earlier `set -a` exports, or
+// an `export` or `declare -x` of it.
+function assignsBuilds(toks: string[], lead: number): boolean {
+  const assigned = toks.slice(0, lead).map(unquote).filter(w => w.includes('='))
+  return [...assigned, ...exportedWords(toks)].some((w) => {
+    const name = w.split('=')[0]!
+    return /^p?npm_config_/i.test(name) && SETTING.test(name)
+  })
+}
 
 /**
- * Denies a segment where pnpm is a command word (before or after `exec`/`dlx` unwrapping) and
- * a build-script approval appears, and an `export` or `declare -x` of a `pnpm_config_*`
- * variable that allows build scripts.
+ * Denies a segment whose pnpm command (the lead word, before `exec`/`dlx` unwrapping) approves
+ * build scripts or sets a setting that allows them, and one that assigns or exports a
+ * `pnpm_config_*` variable that does.
  */
 export const verdict: Verdict = (cmd) => {
   for (const seg of segments(cmd)) {
     const toks = tokenize(seg)
-    const pnpm = base(toks[leadIndex(toks)] ?? '') === 'pnpm' || resolveHead(toks).head === 'pnpm'
-    const exported = exportedAssignments(toks).some(a => /^p?npm_config_/i.test(a) && BUILD.test(a.split('=')[0]!))
-    if ((pnpm && BUILD.test(toks.join(' '))) || exported)
+    const lead = leadIndex(toks)
+    if (pnpmEnables(toks, lead) || assignsBuilds(toks, lead))
       return 'enabling dependency build scripts (approve-builds / allow-build flags / allowBuilds) is a supply-chain code-exec vector. Human-only: run it yourself in a terminal.'
   }
   return null
