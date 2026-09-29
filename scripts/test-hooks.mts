@@ -727,10 +727,10 @@ function sessionProblems(c: SessionCase, status: number | null, stdout: string, 
 // understands, and its Read deny rules reach the home directory only through `~/` (a `**/` rule
 // anchors at the working directory); and a Claude allow rule's trailing `:*` is a
 // space-wildcard, so `Bash(pnpm test:*)` never matches a `test:hooks` script — colon scripts are
-// listed one by one, and a wildcard before the last word matches nothing at all. The done gate,
-// each gate in it, and the read-only `pnpm docs:list` the docs send agents to run without a
-// prompt in Claude Code. Gemini's `context.fileName` names its global file too, or each
-// developer's ~/.gemini/GEMINI.md stops loading in this repository.
+// listed one by one, and a wildcard before the last word matches nothing at all. `pnpm verify`
+// and the read-only `pnpm docs:list`, the two commands the docs send agents to most, run without
+// a prompt in Claude Code; any other allow rule is the repository's own choice. Gemini's
+// `context.fileName` names GEMINI.md too, or each developer's ~/.gemini/GEMINI.md stops loading.
 const REPO = join(HOOKS, '..', '..')
 interface Registration { matcher?: string, hooks?: { command?: string }[] }
 interface Hooks { SessionStart?: Registration[], BeforeTool?: Registration[], PreToolUse?: Registration[] }
@@ -796,8 +796,7 @@ for (const rule of claude.permissions?.allow ?? []) {
   if (colon && scriptNames.some(n => n.startsWith(`${colon[1]}:`)))
     structural.push(`.claude/settings.json: allow rule ${rule} never matches the ${colon[1]}:* scripts (":*" is a space-wildcard); list each script`)
 }
-const gateScripts = [...readFileSync(join(REPO, 'scripts', 'verify.mts'), 'utf8').matchAll(/\bpnpm\('([^']+)'/g)].map(m => m[1]!)
-for (const cmd of ['verify', ...gateScripts, 'docs:list', 'docs:list decisions'].map(c => `pnpm ${c}`)) {
+for (const cmd of ['pnpm verify', 'pnpm docs:list', 'pnpm docs:list decisions']) {
   const allowed = (claude.permissions?.allow ?? []).some((rule) => {
     const body = /^Bash\((.*)\)$/.exec(rule)?.[1] ?? ''
     return body === cmd || (body.endsWith(':*') && `${cmd} `.startsWith(`${body.slice(0, -2)} `))
