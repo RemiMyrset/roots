@@ -21,7 +21,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { basename, delimiter, join, matchesGlob } from 'node:path'
 import process from 'node:process'
 
 const root = join(import.meta.dirname, '..')
@@ -148,10 +148,11 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 
 // The second half holds the gates to what AGENTS.md says they enforce: ESLint must reject each
 // probe below, linted from stdin under a path that is never written; turbo's cache key must
-// cover the node version; and the install hook must set up the git hooks in a checkout and
-// leave a linked worktree alone. It runs the installed eslint, turbo, and simple-git-hooks, so
-// it needs the install that verify and CI run first. The probes that need files write them to
-// a temp directory only.
+// cover the node version; the pre-commit hook must run ESLint on every file type a repo rule
+// covers; and the install hook must set up the git hooks in a checkout and leave a linked
+// worktree alone. It runs the installed eslint, turbo, and simple-git-hooks, so it needs the
+// install that verify and CI run first. The probes that need files write them to a temp
+// directory only.
 const failures: string[] = []
 const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
@@ -229,6 +230,24 @@ for (const probe of probes) {
   }
 }
 
+// The pre-commit hook lints what CI lints, or a rule fails only in CI: the pnpm catalog and key
+// order rules on package.json and pnpm-workspace.yaml, the TypeScript-only rule on a .js/.mjs
+// file, and the TypeScript rules on .cts. lint-staged matches a pattern without a `/` against
+// the basename. Skipped when the repository keeps no lint-staged config in package.json.
+const LINT_STAGED_PROBES = ['package.json', 'pnpm-workspace.yaml', 'tsconfig.json', 'src/index.ts', 'src/view.tsx', 'scripts/task.mts', 'scripts/task.cts', 'scripts/task.mjs', 'scripts/task.js']
+const lintStaged = (parseJson<{ 'lint-staged'?: unknown }>(readFileSync(join(root, 'package.json'), 'utf8')) ?? {})['lint-staged']
+let lintStagedChecked = 0
+if (typeof lintStaged === 'object' && lintStaged !== null) {
+  const eslintGlobs = Object.entries(lintStaged)
+    .filter(([, command]) => [command].flat().some(c => typeof c === 'string' && /\beslint\b/.test(c)))
+    .map(([glob]) => glob)
+  for (const file of LINT_STAGED_PROBES) {
+    lintStagedChecked++
+    if (!eslintGlobs.some(glob => matchesGlob(glob.includes('/') ? file : basename(file), glob)))
+      failures.push(`package.json lint-staged runs ESLint on no pattern matching ${file}, so the rules on it fail only in CI; add its extension to an ESLint pattern`)
+  }
+}
+
 // The install hook, run the way `pnpm install` runs it (the installed binaries on PATH): in a
 // checkout it installs the git hooks; in a linked worktree, whose .git is a file, it leaves them
 // to the main checkout instead of letting simple-git-hooks fail on `.git/hooks`.
@@ -271,4 +290,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; prepare installs the git hooks and skips a linked worktree`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; lint-staged lints ${lintStagedChecked} probe files; prepare installs the git hooks and skips a linked worktree`)
