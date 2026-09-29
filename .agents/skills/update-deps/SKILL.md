@@ -6,8 +6,8 @@ description: Refresh the dependencies and the pinned GitHub Actions on request. 
 # Update dependencies
 
 Nothing updates dependencies on a schedule; this skill is the procedure, run
-when the user asks. pnpm refuses any version published in the last 48 hours
-(`minimumReleaseAge` in `pnpm-workspace.yaml`), so a release that young waits
+when the user asks. pnpm refuses any version younger than the cooldown,
+`minimumReleaseAge` in `pnpm-workspace.yaml`, so a release that young waits
 for the next run unless a `minimumReleaseAgeExclude` entry names it (step 3).
 Why there is no update bot is in `docs/template/conventions.md`.
 
