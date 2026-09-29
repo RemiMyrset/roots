@@ -2,7 +2,7 @@
 # request, so the labels the label list defines are actually used. Runs on pull_request,
 # never pull_request_target, so a fork's PR gets no write token; such a PR is skipped.
 # Action pinning: every action by full commit SHA with its version in a trailing comment;
-# Renovate (renovate.json) moves the SHA and the comment together.
+# the update-deps skill moves the SHA and the comment together.
 name: labeler
 
 on:

@@ -51,14 +51,20 @@ discard the rest with `git restore --staged --worktree <path>`. Apply each
 and the printed follow-ups, then run the done gate and commit
 `.template-sync.json` with the rest.
 
+The template also ships files it never syncs: `package.json`,
+`.claude/settings.json`, `AGENTS.md`, `README.md`, `CONTRIBUTING.md`,
+`.devcontainer/devcontainer.json`, `.gitignore`, `eslint.config.ts`,
+`turbo.json`, and every other path outside the synced list. The sync never
+copies them, so a template commit that changes one carries a `BREAKING CHANGE`
+footer naming the edit, marked optional when a child may skip it.
+
 The synced paths, grouped: the CI, docs, labels, labeler, and Pages workflows
-with the label list and the path-label map, the agent-task issue template, the
-PR template, and the Renovate config; the docs
-generators and checkers, the verify gate, the git-hook installer, the four test
-suites, and the sync script itself; the guards, rules, skills, and writing
-rules under `.claude/`, the Codex and Gemini registrations, and the generated
-`.agents/` mirror; and `docs/template/`. The exact list is `MECHANICS` in the
-script.
+with the label list and the path-label map, the agent-task issue template, and
+the PR template; the docs generators and checkers, the verify gate, the
+git-hook installer, the four test suites, and the sync script itself; the
+guards, rules, skills, and writing rules under `.claude/`, the Codex and Gemini
+registrations, and the generated `.agents/` mirror; and `docs/template/`. The
+exact list is `MECHANICS` in the script.
 
 The synced scripts are `.mts` on purpose. `.mts` runs as ESM whatever the
 repository's `package.json` `"type"` says, whereas a `.ts` file is read as

@@ -47,7 +47,7 @@ affect passes clean after your last edit. When unsure which apply, run
   order; stops at the first failure; `pnpm verify <gate>` resumes there,
   `pnpm verify --only <gate>` runs one)
 - Build: `pnpm build` (turbo; packages that define `build`)
-- Test: `pnpm test` (turbo; single package: `pnpm --filter @repo/example-package test`)
+- Test: `pnpm test` (turbo; single package: `pnpm --filter <package> test`)
 - Test hooks: `pnpm test:hooks` (agent guard allow/deny fixtures)
 - Test sync: `pnpm test:sync` (template-sync fixtures)
 - Test docs: `pnpm test:docs` (docs checker fixtures)
