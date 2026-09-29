@@ -826,18 +826,25 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 // template, as a first sync, instead of reverting the fork's customizations from upstream. A
 // clone with another origin, or a history squashed into one commit, is not a copy.
 {
+  const upstream = join(tmp, 'fork-upstream')
+  mkdirSync(upstream)
+  git(upstream, 'init', '-q', '-b', 'main')
+  write(upstream, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(upstream, '.claude/skills/x/SKILL.md', '# x\n')
+  commit(upstream, 'chore: t1', T1_AT)
+  const UPSTREAM = pathToFileURL(upstream).href
   const acme = join(tmp, 'acme')
-  git(tmp, 'clone', '-q', URL, acme)
+  git(tmp, 'clone', '-q', UPSTREAM, acme)
   const ACME_URL = pathToFileURL(acme).href
   git(acme, 'remote', 'set-url', 'origin', ACME_URL)
   write(acme, '.claude/skills/x/SKILL.md', '# x, the acme way\n')
   commit(acme, 'feat: acme skill')
-  const synced = run(acme, URL)
+  const synced = run(acme, UPSTREAM)
   check('fork syncs from upstream', synced.status === 0, synced.detail)
   gitSafe(acme, 'restore', '--staged', '--worktree', '--', '.claude/skills/x/SKILL.md')
   gitSafe(acme, 'commit', '-q', '-m', 'chore: sync mechanics from template')
   const forkState = readState(acme)
-  check('fork records itself as the writer', forkState.url === URL && forkState.repo === ACME_URL, JSON.stringify(forkState))
+  check('fork records itself as the writer', forkState.url === UPSTREAM && forkState.repo === ACME_URL, JSON.stringify(forkState))
   const acmeHead = git(acme, 'rev-parse', 'HEAD').trim()
 
   const app = join(tmp, 'acme-app')
@@ -878,13 +885,13 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 
   const legacy = join(tmp, 'acme-legacy')
   copyTree(acme, legacy)
-  write(legacy, STATE, json({ url: URL, commit: forkState.commit, exclude: ['.gemini/settings.json'] }))
+  write(legacy, STATE, json({ url: UPSTREAM, commit: forkState.commit, exclude: ['.gemini/settings.json'] }))
   git(legacy, 'init', '-q', '-b', 'main')
   commit(legacy, 'Initial commit')
   const old = run(legacy)
   check('copy of an unnamed writer exits 0', old.status === 0, old.detail)
   check('copy of an unnamed writer says to pass the template', old.stderr.includes('came with this repository\'s first commit') && old.stderr.includes('pass its URL'), old.stderr)
-  check('copy of an unnamed writer runs a first sync from the recorded url', old.stdout.startsWith(`Template: ${URL}\n`) && old.stdout.includes('first sync'), old.stdout)
+  check('copy of an unnamed writer runs a first sync from the recorded url', old.stdout.startsWith(`Template: ${UPSTREAM}\n`) && old.stdout.includes('first sync'), old.stdout)
   check('copy of an unnamed writer keeps the lists', JSON.stringify(readState(legacy).exclude) === '[".gemini/settings.json"]', JSON.stringify(readState(legacy)))
   gitSafe(legacy, 'restore', '--staged', '--worktree', '--', '.claude/skills/x/SKILL.md')
   const rerun = run(legacy)
