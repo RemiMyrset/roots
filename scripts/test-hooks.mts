@@ -381,6 +381,24 @@ const CASES: Case[] = [
   { guard: P, expect: A, cmd: 'git push -u origin HEAD', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin HEAD:feat/y', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin --tags', cwd: ON_MAIN }, // tags only: no branch target to resolve
+  // `@` is HEAD, `heads/main` is main, and git takes a unique prefix of a long option.
+  { guard: P, expect: D, cmd: 'git push origin @', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push -u origin @', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin @:main', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin heads/main', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin feat/x:heads/main', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin HEAD:heads/main', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --al origin', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --mirr origin', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --m origin', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --branch origin', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --del origin main', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push origin @', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push -u origin @', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push origin heads/feat/x', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push --force-w origin feat/x', cwd: ON_FEAT }, //   --force-with-lease
+  { guard: P, expect: A, cmd: 'git push --del origin feat/x', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push --ta origin', cwd: ON_MAIN }, //                 --tags
   // A wildcard refspec can match a protected branch; the guard cannot evaluate it, so deny.
   { guard: P, expect: D, cmd: 'git push origin \'refs/heads/*:refs/heads/*\'', cwd: ON_FEAT },
   { guard: P, expect: D, cmd: 'git push origin \'refs/heads/*\'', cwd: ON_FEAT },

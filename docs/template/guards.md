@@ -179,14 +179,15 @@ block of `.claude/settings.json`) or, when unset, from that file itself, so
 Codex and Gemini honour the same list with nothing to configure per tool.
 
 A `git push` is denied when any target is protected (the remote side of each
-refspec, or the current branch when no refspec is given or the target is `HEAD`
-or a lone substitution such as `"$(git branch --show-current)"`) and when a
-target cannot be resolved (detached HEAD, not a checkout, a substitution inside
-a longer name). Also denied on any
-branch: bare `--force` / `-f` / a `+refspec`, `--all` / `--branches` /
-`--mirror`, and any wildcard refspec (`refs/heads/*`), which the guard cannot
-evaluate against the remote. `--force-with-lease`, `--delete`, and tag pushes
-pass on unprotected targets.
+refspec, `heads/main` and `refs/heads/main` counting as `main`, or the current
+branch when no refspec is given or the target is `HEAD`, `@`, or a lone
+substitution such as `"$(git branch --show-current)"`) and when a target cannot
+be resolved (detached HEAD, not a checkout, a substitution inside a longer
+name). Also denied on any branch: bare `--force` / `-f` / a `+refspec`,
+`--all` / `--branches` / `--mirror` and the unique prefixes git accepts for
+them (`--al`, `--mirr`), and any wildcard refspec (`refs/heads/*`), which the
+guard cannot evaluate against the remote. `--force-with-lease`, `--delete`, and
+tag pushes pass on unprotected targets.
 
 `pnpm release` and `changelogen --push` are denied outright: their push happens
 inside changelogen where a `git push` rule cannot see it.
