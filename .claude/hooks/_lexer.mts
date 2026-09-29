@@ -324,14 +324,15 @@ function lex(s: string, body: boolean): string[] {
       f.closed.push(f.braces.pop()!)
     f.cmd &&= BEFORE_COMMAND.has(w)
   }
-  // Whether the `(` at n is glued to the word before it, and not to a reserved word (none is
-  // longer than six characters, so only the last seven are read).
+  // Whether the `(` at n is glued to the word before it, and not to a reserved word standing
+  // where a command starts (none is longer than six characters, so only the last seven are
+  // read). As an argument, `!(…)` is an extglob, not a negated subshell.
   const glued = (n: number): boolean => {
     if (/[\s;&|<>()`=]/.test(s[n - 1] ?? ' '))
       return false
     const tail = f.cur.slice(-7)
     const word = tail.slice(tail.search(/\S*$/))
-    return word.length === 7 || !BEFORE_COMMAND.has(word)
+    return word.length === 7 || !(f.cmd && BEFORE_COMMAND.has(word))
   }
   // A frame closes: its last segment goes out, its pipelines end, and as a group it flows into
   // the segments of its parent's pipeline that follow the one holding it.

@@ -549,6 +549,10 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n <(npm install) ]]' }, //         a process substitution still runs
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'if(npm install) then :; fi' }, //     a reserved word, then a subshell
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{(npm install)}' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '!(npm install)' }, //                    `!` where a command starts negates a subshell
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'if !(npm install); then :; fi' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'shopt -s extglob\nls !(#x) ; npm install' }, // as an argument, an extglob
+  { guard: P, expect: D, cmd: 'shopt -s extglob\nls -d !(#*) ; git push origin main' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=(a # it\'s b\n); npm install' }, //  an array's `#` is a comment
   // A redirect operator ends a word: `]]>log` closes the conditional, so a later subshell runs.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '[[ -n x ]]>/dev/null && (npm install)' },
