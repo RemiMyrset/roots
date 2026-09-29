@@ -8,7 +8,8 @@ description: Pull the roots template's shared mechanics into this repository. Bo
 `pnpm sync:template` stages the template's version of the synced paths, records
 the sync point in `.template-sync.json`, and prints the follow-ups a file copy
 cannot carry: the template commits since the last sync (breaking ones marked
-`!`), the `package.json` scripts that differ, and the `.claude/settings.json`
+`!`), the `package.json` and pnpm catalog entries that differ, the files the
+template added outside the synced paths, and the `.claude/settings.json`
 entries the template has and this repo lacks. The synced paths, the recipe,
 and the contract are in `docs/template/sync-template.md`.
 
@@ -52,17 +53,23 @@ and the contract are in `docs/template/sync-template.md`.
    `Kept` block lists files that stayed but may be the template's: each is
    yours or one the template retired; `git rm` the template's. A `Skipped`
    block means a checkout failed; fix the path and re-run.
-6. Apply the follow-ups. `scripts.*` lines are `package.json` edits:
-   "missing here" and "changed on the template" entries are edits to make;
-   "differs" (first sync) needs judgment; "customized locally" is
-   informational, leave those alone. `Settings` lines are
+6. Apply the follow-ups. `scripts.*`, `devDependencies.*`,
+   `simple-git-hooks.*`, and `lint-staged.*` lines are `package.json` edits,
+   and `catalog.*` lines are `pnpm-workspace.yaml` edits: "missing here" and
+   "changed on the template" entries are edits to make; "differs" (first sync)
+   needs judgment; "customized locally" is informational, leave those alone.
+   A `devDependencies` entry of `catalog:` needs its `catalog.*` entry too.
+   `Files` lines are template files outside the synced paths: run the printed
+   `git restore` for each one this repo needs, such as a config a synced gate
+   reads, and skip the rest. `Settings` lines are
    `.claude/settings.json` edits: add each rule, output style, and hook
    registration marked "missing here", beside your own hooks. For a hook that
    "differs", the `yours:` lines are registrations the template replaced:
    remove them and add the `template:` one, unless you changed that matcher
    on purpose. Never remove a hook no `yours:` line names. Edit by hand;
    never copy the template's settings file over yours.
-7. Done gate. `pnpm install` if `package.json` changed, then `pnpm verify`; it
+7. Done gate. `pnpm install` if `package.json` or `pnpm-workspace.yaml`
+   changed, then `pnpm verify`; it
    stops at the first failure and names it. Fix at the source; never loosen a
    synced checker.
 8. Hand off: summarize what came in, what was discarded and why, which

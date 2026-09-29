@@ -891,6 +891,71 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('copy with no origin, rerun before commit, reads its own sync point', rerun.status === 0 && rerun.stderr === '' && rerun.stdout.includes('unchanged since last sync'), rerun.detail)
 }
 
+// 26. What a synced gate needs beyond the synced paths is reported three-way like the scripts:
+// the devDependencies, lint-staged, and simple-git-hooks blocks of package.json, the catalog in
+// pnpm-workspace.yaml, and a file the template added outside the synced paths. The template's
+// own records, samples, and synced files are never listed, nor is the repository's own entry.
+{
+  const depsTemplate = join(tmp, 'deps-template')
+  mkdirSync(depsTemplate)
+  git(depsTemplate, 'init', '-q', '-b', 'main')
+  const manifest = (devDependencies: Record<string, string>, preCommit: string, lintStaged: Record<string, unknown>): string =>
+    json({ 'name': 'fixture', 'scripts': { lint: 'eslint .' }, devDependencies, 'simple-git-hooks': { 'pre-commit': preCommit }, 'lint-staged': lintStaged })
+  const workspace = (catalog: Record<string, string>): string =>
+    `packages:\n  - packages/*\n\n# Catalog-first: every version lives here once.\ncatalog:\n${Object.entries(catalog).map(([name, range]) => `  ${name.startsWith('@') ? `'${name}'` : name}: ${range}\n`).join('')}`
+  write(depsTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'vitepress': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }))
+  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.0.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'vitepress': '^1.6.0' }))
+  write(depsTemplate, '.claude/rules/tpl.md', '# tpl rule\n')
+  commit(depsTemplate, 'chore: t1', T1_AT)
+  const depsUrl = pathToFileURL(depsTemplate).href
+  const kid = join(tmp, 'deps-child')
+  copyTree(depsTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  commit(kid, 'Initial commit', COPY_AT)
+  write(kid, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'zod': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }))
+  write(kid, 'pnpm-workspace.yaml', `${workspace({ '@types/node': '^24.0.0', 'eslint': '^9.1.0', 'lint-staged': '^16.0.0' })}  zod: ^3.0.0 # own\n`)
+  commit(kid, 'chore: own dependencies')
+  write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'secretlint': 'catalog:', 'vitepress': 'catalog:' }, 'CI=1 pnpm lint-staged', { '*.ts': 'eslint --fix', '*': ['secretlint --no-glob'] }))
+  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.5.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'secretlint': '^13.0.0', 'vitepress': '^1.6.0' }))
+  write(depsTemplate, '.secretlintrc.json', '{ "rules": [] }\n')
+  write(depsTemplate, '.claude/rules/secrets.md', '# secrets rule\n')
+  write(depsTemplate, 'docs/internal/decisions/20260102-secretlint.md', '# Scan for secrets\n')
+  write(depsTemplate, 'packages/example/src/secret.ts', 'export const s = 1\n')
+  const added = commit(depsTemplate, 'feat(lint): scan for secrets', T2_AT)
+  const r = run(kid, depsUrl)
+  check('gate needs exit 0', r.status === 0, r.detail)
+  check('gate needs have a root-tree baseline', r.stdout.includes('(root tree)'), r.stdout)
+  check('devDependency the template added is missing here', r.stdout.includes('  devDependencies.secretlint  missing here\n    template: catalog:\n'), r.stdout)
+  check('lint-staged entry the template added is missing here', r.stdout.includes('  lint-staged.*  missing here\n    template: ["secretlint --no-glob"]\n'), r.stdout)
+  check('git hook the template changed is listed with both values', r.stdout.includes('  simple-git-hooks.pre-commit  changed on the template since the baseline\n    template: CI=1 pnpm lint-staged\n    yours:    pnpm lint-staged\n'), r.stdout)
+  check('devDependency removed here is customized', r.stdout.includes('devDependencies.vitepress (absent here)'), r.stdout)
+  check('catalog entry the template added is missing here', r.stdout.includes('  catalog.secretlint  missing here\n    template: ^13.0.0\n'), r.stdout)
+  check('catalog range the template changed is listed with both values', r.stdout.includes('  catalog.@types/node  changed on the template since the baseline\n    template: ^24.5.0\n    yours:    ^24.0.0\n'), r.stdout)
+  check('catalog ranges changed or removed here are customized', r.stdout.includes('catalog.eslint, catalog.vitepress (absent here)'), r.stdout)
+  check('entries of the repository\'s own never mentioned', !r.stdout.includes('zod'), r.stdout)
+  check('file the template added outside the synced paths is listed', r.stdout.includes(`  .secretlintrc.json  missing here\n    git restore --source=${added.slice(0, 7)} -- .secretlintrc.json\n`), r.stdout)
+  for (const never of ['docs/internal/decisions/20260102-secretlint.md', 'packages/example/src/secret.ts', '.claude/rules/secrets.md'])
+    check(`added file never listed: ${never}`, !r.stdout.includes(`  ${never}  missing here`), r.stdout)
+  gitSafe(kid, 'restore', `--source=${added.slice(0, 7)}`, '--', '.secretlintrc.json')
+  check('the printed command fetches the file', readFileSync(join(kid, '.secretlintrc.json'), 'utf8') === '{ "rules": [] }\n')
+  gitSafe(kid, 'add', '-A')
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  const again = run(kid)
+  check('gate needs rerun lists no file', again.status === 0 && again.stdout.includes('Files: none new.'), again.stdout)
+  const bare = join(tmp, 'deps-bare')
+  mkdirSync(bare)
+  git(bare, 'init', '-q', '-b', 'main')
+  write(bare, 'package.json', manifest({}, 'true', {}))
+  commit(bare, 'chore: init')
+  write(bare, 'scripts/sync-template.mts', REAL_SCRIPT)
+  const none = run(bare, depsUrl)
+  check('no baseline exits 0', none.status === 0, none.detail)
+  check('no baseline lists every template devDependency two-way', none.stdout.includes('  devDependencies.secretlint  missing here\n') && none.stdout.includes('  devDependencies.eslint  missing here\n'), none.stdout)
+  check('no pnpm-workspace.yaml skips the catalog', none.stdout.includes('Catalog: skipped — no pnpm-workspace.yaml here.'), none.stdout)
+  check('no baseline skips the files', none.stdout.includes('Files: skipped — '), none.stdout)
+}
+
 if (fails.length > 0) {
   console.error(`\n✖ sync fixtures — ${fails.length} of ${checks} checks failed:\n`)
   for (const f of fails)

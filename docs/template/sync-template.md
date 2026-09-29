@@ -4,7 +4,7 @@
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
 - **Last reviewed:** 2026-09-29
 
-The contract for `pnpm sync:template`. The tests pin behaviors 1 to 25; the
+The contract for `pnpm sync:template`. The tests pin behaviors 1 to 26; the
 per-file-error branch of behavior 23 is untested. The user-facing recipe is the
 [Recipe](#recipe) section below.
 
@@ -15,14 +15,19 @@ enough for an agent to run it unattended. The repository may come from **Use
 this template** (no shared git history), a fork or clone (shared history), or
 predate the template. Safe means: stage rather than commit, refuse to clobber,
 work out where the repository branched off, record where it is now, and say
-what a file copy cannot carry (template commits since, the `package.json`
-scripts that now differ, and the `.claude/settings.json` rules, hooks, and
-output style the template has and this repository lacks).
+what a file copy cannot carry: template commits since; the `package.json`
+entries and `pnpm-workspace.yaml` catalog entries the synced gates rely on
+that now differ; the files the template added outside the synced paths; and
+the `.claude/settings.json` rules, hooks, and output style the template has
+and this repository lacks.
 
 ## Non-goals
 
-- Never edits `package.json`, `.claude/settings.json`, `docs/internal/`,
-  `docs/public/`, `src/`, `packages/`, or `apps/`. Drift there is reported.
+- Never edits a path outside the synced ones, such as `package.json`,
+  `pnpm-workspace.yaml`, `.claude/settings.json`, `docs/internal/`,
+  `docs/public/`, `src/`, `packages/`, or `apps/`. The follow-ups report what
+  the synced paths need from the first three and the files the template adds
+  outside its content; the rest is the repository's own.
 - Takes the template's version of each synced path wholesale;
   review-and-discard is the merge.
 - No push-based or scheduled sync, no tokens, no bots.
@@ -247,10 +252,19 @@ stdout, in order:
    when a file that may be the template's stays, a `Kept` header with one line
    per such file (behavior 24).
 5. `Follow-ups: none new.`, `Follow-ups: skipped` with a reason, or a
-   `Follow-ups` header followed by one block per script (the key, its label,
-   `template:`, `yours:`, and an optional `note:` line), then an optional
-   `Customized locally` line. Labels say "since the baseline" on a first sync
-   and "since last sync" afterwards. Then `Settings: none new.`,
+   `Follow-ups` header followed by one block per `package.json` entry (the
+   `<block>.<key>`, its label, `template:`, `yours:`, and an optional `note:`
+   line), then an optional `Customized locally` line. The blocks are
+   `scripts`, `devDependencies`, `simple-git-hooks`, and `lint-staged`, in
+   that order; a value that is not a string prints as its JSON text. Labels
+   say "since the baseline" on a first sync and "since last sync" afterwards.
+   Then the same for the `pnpm-workspace.yaml` catalog under `Catalog`, each
+   key `catalog.<name>`. Then `Files: none new.`, `Files: skipped` with a
+   reason, or a `Files` header followed by one `<path>  missing here` line per
+   file the template added since the sync point outside the synced paths and
+   `docs/internal/`, `docs/public/`, `src/`, `packages/`, and `apps/`, each
+   with a `git restore --source=<sha> -- <path>` line that fetches it. Then
+   `Settings: none new.`,
    `Settings: skipped` with a reason, or a `Settings` header followed by one
    `<rule>  missing here` line per `permissions.allow` or `permissions.deny`
    entry the template has and this repository lacks, an
@@ -351,15 +365,16 @@ stderr.
     otherwise never listed, even beside the template's under the same matcher
     or running the same command; a hook of its own registered ahead of the
     template's is no difference, the file is never edited, and a missing or
-    unreadable file skips the block with a reason. Script follow-ups compare only the
-    template's `scripts` keys, in template order. A
+    unreadable file skips the block with a reason. `package.json` follow-ups
+    compare only the template's keys of each block (behavior 26), in template
+    order. A
     key absent here is "missing here", unless the template at the baseline
     already had it, in which case it is listed as customized, "absent here"; a
     key whose local value differs from the template's is "changed on the
     template since ..." when the value also changed on the template, "differs"
     when no baseline is known, and "customized locally" when the template value
     is unchanged since the baseline. A local value that mentions a file this
-    run deleted carries a "which this sync deletes" note, including a script
+    run deleted carries a "which this sync deletes" note, including an entry
     the template does not have.
 15. Given a repository that shares history with the template (a fork or clone)
     and no state file, when run, then stdout prints
@@ -421,6 +436,19 @@ stderr.
     into one commit whose `repo` is its own `origin`. `repo` is written once
     and kept; a file without it gets it on the next run, from `origin` with
     the user and token of an `http(s)` URL dropped.
+26. Given a template that changed what a synced gate relies on outside the
+    synced paths, when run, then the `devDependencies`, `simple-git-hooks`, and
+    `lint-staged` blocks of `package.json` are compared like its `scripts`
+    (behavior 14), and so is the top-level `catalog:` map of
+    `pnpm-workspace.yaml` under `Catalog`, skipped with a reason when there is
+    no `pnpm-workspace.yaml` here, the template has no catalog, or this one
+    has no block-style `catalog:` map. A file the template added since the
+    sync point outside the synced paths (every `MECHANICS` and `include`
+    entry, excluded ones too) and `docs/internal/`, `docs/public/`, `src/`,
+    `packages/`, and `apps/` that this repository lacks is listed under
+    `Files` with the command that fetches it; `Files` is skipped when the sync
+    point is not on the template head's history (no baseline, a lost or newer
+    recorded commit).
 
 ## Edge cases and gotchas
 
@@ -430,6 +458,12 @@ stderr.
   the file is shared through git, the remote is not. An inherited file is the
   exception (behavior 25): it is shared from the repository this one was made
   from.
+- The catalog is read line by line, since node has no YAML parser: the entries
+  of a block-style top-level `catalog:` map at its first entry's indent, with
+  quotes and comments dropped. A flow-style map or named `catalogs:` alone
+  skips the `Catalog` block.
+- `Files` reports an added file once: the next sync's sync point is past it,
+  so a file you chose not to take is not listed again.
 - `root time` is a heuristic: a template commit made long before it was pushed
   can predate a copy taken from an older head. The `Baseline:` note says so,
   and the staged diff does not depend on it.

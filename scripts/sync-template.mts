@@ -13,15 +13,17 @@
  * touched — only the paths in `MECHANICS` below, minus `exclude` plus `include` from
  * .template-sync.json.
  *
- * After staging it prints what a file copy cannot carry: the template commits since
- * the last sync (breaking ones marked `!` with their BREAKING CHANGE paragraph), the
- * package.json `scripts` that differ from the template's, and the .claude/settings.json
- * allow and deny rules, hook registrations, and output style the template has and this
- * repo lacks, as follow-ups to apply by hand. A first sync infers where this repo branched off the template — shared
- * history, the root commit's tree, or the root commit's time — so the list starts
- * there. The sync point (template URL, ref, commit) is recorded in .template-sync.json
- * with this repo's own URL and staged with the rest, so the next run knows where to start,
- * and a repo made from this one knows the file is not its own.
+ * After staging it prints what a file copy cannot carry, as follow-ups to apply by hand: the
+ * template commits since the last sync (breaking ones marked `!` with their BREAKING CHANGE
+ * paragraph); the package.json scripts, devDependencies, simple-git-hooks, and lint-staged
+ * entries and the pnpm-workspace.yaml catalog entries that differ from the template's; the
+ * files the template added outside the synced paths; and the .claude/settings.json allow and
+ * deny rules, hook registrations, and output style the template has and this repo lacks. A
+ * first sync infers where this repo branched off the template — shared history, the root
+ * commit's tree, or the root commit's time — so the list starts there. The sync point
+ * (template URL, ref, commit) is recorded in .template-sync.json with this repo's own URL and
+ * staged with the rest, so the next run knows where to start, and a repo made from this one
+ * knows the file is not its own.
  *
  * Contract and behavior branches: docs/template/sync-template.md. Regression suite:
  * scripts/test-sync.mts (`pnpm test:sync`). Node builtins only. This file is itself
@@ -461,22 +463,68 @@ function isBreaking(c: Commit): boolean {
   return c.breaking.length > 0 || BREAKING_SUBJECT_RE.test(c.subject)
 }
 
-type Scripts = Record<string, string>
+/** One flat block of a config file, key to value; a value that is not a string is its JSON text. */
+type Entries = Record<string, string>
 
-/** The `scripts` block of a package.json text; `{}` when absent; undefined when the text is not JSON. */
-function scriptsOf(json: string | null): Scripts | undefined {
+// The package.json blocks a synced gate relies on, compared key by key: the scripts the done
+// gate and the workflows run, the devDependencies behind them, and the commit-time checks.
+const MANIFEST_BLOCKS = ['scripts', 'devDependencies', 'simple-git-hooks', 'lint-staged'] as const
+const WORKSPACE = 'pnpm-workspace.yaml'
+
+/** The entries of `v` when it is a JSON object, else `{}`. */
+function entriesOf(v: unknown): Entries {
+  return Object.fromEntries(Object.entries(asObject<Record<string, unknown>>(v) ?? {}).map(([k, x]) => [k, typeof x === 'string' ? x : JSON.stringify(x)]))
+}
+
+/** Each of MANIFEST_BLOCKS in a package.json text, `{}` when absent; undefined when the text is absent or not JSON. */
+function manifestOf(json: string | null): Record<string, Entries> | undefined {
   if (json === null)
     return undefined
   try {
-    const parsed = parseJson(json) as { scripts?: unknown }
-    const s = parsed.scripts
-    if (typeof s !== 'object' || s === null)
-      return {}
-    return Object.fromEntries(Object.entries(s).filter((e): e is [string, string] => typeof e[1] === 'string'))
+    const root = asObject<Record<string, unknown>>(parseJson(json)) ?? {}
+    return Object.fromEntries(MANIFEST_BLOCKS.map(block => [block, entriesOf(root[block])]))
   }
   catch {
     return undefined
   }
+}
+
+const CATALOG_KEY_RE = /^catalog:\s*(?:#.*)?$/
+const YAML_SKIP_RE = /^\s*(?:#.*)?$/
+// An entry of the catalog map, its indent trimmed: a quoted or plain name, a colon, and the
+// range, if any.
+const CATALOG_ENTRY_RE = /^(?:'([^']*)'\s*|"([^"]*)"\s*|([^\s'"#:][^:#]*)):(?:\s(.*))?$/
+const QUOTED_RE = /^(['"])(.*?)\1/
+
+/**
+ * The top-level `catalog:` map of a pnpm-workspace.yaml text, name to range. Node has no YAML
+ * parser, so it reads the block style pnpm writes, line by line: the entries at the first
+ * entry's indent, names and ranges unquoted, comments dropped. Undefined when the text is
+ * absent or has no such block (a flow-style map, or only named `catalogs:`).
+ */
+function catalogOf(yaml: string | null): Entries | undefined {
+  if (yaml === null)
+    return undefined
+  const lines = yaml.replace(/^\uFEFF/, '').split(/\r?\n/)
+  const start = lines.findIndex(l => CATALOG_KEY_RE.test(l))
+  if (start < 0)
+    return undefined
+  const entries: Entries = {}
+  let indent: number | undefined
+  for (const line of lines.slice(start + 1)) {
+    if (YAML_SKIP_RE.test(line))
+      continue
+    const at = line.search(/\S/)
+    if (at === 0)
+      break
+    indent ??= at
+    const m = at === indent ? CATALOG_ENTRY_RE.exec(line.trim()) : null
+    const raw = m?.[4]?.trim()
+    if (!m || !raw)
+      continue
+    entries[m[1] ?? m[2] ?? m[3]!.trimEnd()] = QUOTED_RE.exec(raw)?.[2] ?? raw.replace(/\s+#.*$/, '')
+  }
+  return entries
 }
 
 interface FollowUp {
@@ -494,15 +542,47 @@ interface FollowUps {
 }
 
 /**
- * Three-way compare of package.json scripts: the template now, the template at the
- * baseline (`base`, absent when no baseline is known), and this repo. Only template keys
- * are compared, in template order, so a child's own scripts are never mentioned — except
- * to flag one that references a file this sync deletes.
+ * Three-way compare of one block of entries, into `out`: the template now, the template at the
+ * baseline (`base`, absent when no baseline is known), and this repo. Only template keys are
+ * compared, in template order, so a child's own entries are never mentioned — except to flag
+ * one that references a file this sync deletes. Keys are reported as `<block>.<key>`.
  */
-function scriptFollowUps(
-  template: Scripts | undefined,
-  base: Scripts | undefined,
-  local: Scripts | undefined,
+function compareEntries(block: string, template: Entries, base: Entries | undefined, local: Entries, deleted: string[], out: FollowUps): void {
+  const refersToDeleted = (value: string): string | undefined => deleted.find(d => value.includes(d))
+  for (const [name, t] of Object.entries(template)) {
+    const key = `${block}.${name}`
+    const l = local[name]
+    if (l === t)
+      continue
+    if (l === undefined) {
+      if (base && base[name] !== undefined)
+        out.customized.push(`${key} (absent here)`)
+      else
+        out.items.push({ key, kind: 'missing', template: t })
+      continue
+    }
+    if (base && base[name] === t) {
+      out.customized.push(key)
+      continue
+    }
+    const item: FollowUp = { key, kind: 'changed', template: t, yours: l }
+    const ref = refersToDeleted(l)
+    if (ref)
+      item.note = `yours references ${ref}, which this sync deletes`
+    out.items.push(item)
+  }
+  for (const [name, l] of Object.entries(local)) {
+    const ref = name in template ? undefined : refersToDeleted(l)
+    if (ref)
+      out.items.push({ key: `${block}.${name}`, kind: 'changed', template: '(not on the template)', yours: l, note: `yours references ${ref}, which this sync deletes` })
+  }
+}
+
+/** Three-way compare of every one of MANIFEST_BLOCKS in package.json (compareEntries), or why it is skipped. */
+function manifestFollowUps(
+  template: Record<string, Entries> | undefined,
+  base: Record<string, Entries> | undefined,
+  local: Record<string, Entries> | undefined,
   localMissing: boolean,
   deleted: string[],
 ): FollowUps {
@@ -512,36 +592,38 @@ function scriptFollowUps(
     return { items: [], customized: [], skipped: 'the template has no readable package.json' }
   if (!local)
     return { items: [], customized: [], skipped: 'package.json here is not valid JSON' }
-  const items: FollowUp[] = []
-  const customized: string[] = []
-  const refersToDeleted = (value: string): string | undefined => deleted.find(d => value.includes(d))
-  for (const [key, t] of Object.entries(template)) {
-    const l = local[key]
-    if (l === t)
-      continue
-    if (l === undefined) {
-      if (base && base[key] !== undefined)
-        customized.push(`${key} (absent here)`)
-      else
-        items.push({ key, kind: 'missing', template: t })
-      continue
-    }
-    if (base && base[key] === t) {
-      customized.push(key)
-      continue
-    }
-    const item: FollowUp = { key, kind: 'changed', template: t, yours: l }
-    const ref = refersToDeleted(l)
-    if (ref)
-      item.note = `yours references ${ref}, which this sync deletes`
-    items.push(item)
-  }
-  for (const [key, l] of Object.entries(local)) {
-    const ref = key in template ? undefined : refersToDeleted(l)
-    if (ref)
-      items.push({ key, kind: 'changed', template: '(not on the template)', yours: l, note: `yours references ${ref}, which this sync deletes` })
-  }
-  return { items, customized }
+  const out: FollowUps = { items: [], customized: [] }
+  for (const block of MANIFEST_BLOCKS)
+    compareEntries(block, template[block] ?? {}, base?.[block], local[block] ?? {}, deleted, out)
+  return out
+}
+
+/** Three-way compare of the pnpm-workspace.yaml catalog (compareEntries), or why it is skipped. */
+function catalogFollowUps(template: Entries | undefined, base: Entries | undefined, local: Entries | undefined, localMissing: boolean): FollowUps {
+  if (localMissing)
+    return { items: [], customized: [], skipped: `no ${WORKSPACE} here` }
+  if (!template)
+    return { items: [], customized: [], skipped: `the template has no catalog in ${WORKSPACE}` }
+  if (!local)
+    return { items: [], customized: [], skipped: `${WORKSPACE} here has no block-style catalog: map` }
+  const out: FollowUps = { items: [], customized: [] }
+  compareEntries('catalog', template, base, local, [], out)
+  return out
+}
+
+// A template file under one of these is the repository's own content, never shared configuration:
+// the template's records and pages, and its sample code.
+const OWN_CONTENT = ['docs/internal', 'docs/public', 'src', 'packages', 'apps']
+
+/**
+ * Files the template added from `base` to `head` that this repository lacks, outside the synced
+ * paths (`synced`, every MECHANICS and include entry, excluded ones too) and OWN_CONTENT: a
+ * config file a synced gate reads, such as the secretlint config its lint:secrets step needs.
+ */
+function addedFiles(base: string, head: string, synced: string[]): string[] {
+  const outside = [...synced, ...OWN_CONTENT]
+  return zList(tryGit(['diff', '--name-only', '--no-renames', '--diff-filter=A', '-z', base, head]))
+    .filter(file => !outside.some(p => file === p || file.startsWith(`${p}/`)) && !existsSync(file))
 }
 
 /** One hook registration: the event, the matcher (empty when absent, which matches everything), and the command. */
@@ -828,13 +910,23 @@ for (const [file, { path, blob }] of unplaced) {
 if (pulled === 0)
   fail(`Could not check out any synced path:\n\n${skipped.join('\n')}`)
 
-const followUps = scriptFollowUps(
-  scriptsOf(tryGit(['show', `${head}:package.json`])),
-  base !== undefined && baseInHistory ? scriptsOf(tryGit(['show', `${base}:package.json`])) : undefined,
-  existsSync('package.json') ? scriptsOf(readFileSync('package.json', 'utf8')) : undefined,
+// The package.json blocks and the catalog are compared three-way when the sync point is on the
+// template's history, else two-way; the added files need that sync point.
+const threeWay = base !== undefined && baseInHistory
+const followUps = manifestFollowUps(
+  manifestOf(tryGit(['show', `${head}:package.json`])),
+  threeWay ? manifestOf(tryGit(['show', `${base}:package.json`])) : undefined,
+  existsSync('package.json') ? manifestOf(readFileSync('package.json', 'utf8')) : undefined,
   !existsSync('package.json'),
   deleted,
 )
+const catalog = catalogFollowUps(
+  catalogOf(tryGit(['show', `${head}:${WORKSPACE}`])),
+  threeWay ? catalogOf(tryGit(['show', `${base}:${WORKSPACE}`])) : undefined,
+  existsSync(WORKSPACE) ? catalogOf(readFileSync(WORKSPACE, 'utf8')) : undefined,
+  !existsSync(WORKSPACE),
+)
+const added = threeWay ? addedFiles(base, head, [...MECHANICS, ...(state?.include ?? [])]) : undefined
 
 // Every hook registration the template shipped, from every version of its settings file in
 // its history and the sync point's: a registration here that lags the sync point is still the
@@ -956,27 +1048,46 @@ if (kept.length > 0) {
     out.push(`  ${k}`)
 }
 
-out.push('')
-if (followUps.skipped) {
-  out.push(`Follow-ups: skipped — ${followUps.skipped}.`)
+function listFollowUps(title: string, file: string, f: FollowUps): void {
+  out.push('')
+  if (f.skipped) {
+    out.push(`${title}: skipped — ${f.skipped}.`)
+  }
+  else if (f.items.length === 0) {
+    out.push(`${title}: none new.`)
+  }
+  else {
+    out.push(`${title} — ${file} is yours, sync never edits it. Apply by hand where they apply:`)
+    for (const item of f.items) {
+      const tag = item.kind === 'missing' ? 'missing here' : baseInHistory ? `changed on the template since ${since}` : 'differs'
+      out.push(`  ${item.key}  ${tag}`)
+      out.push(`    template: ${item.template}`)
+      if (item.yours !== undefined)
+        out.push(`    yours:    ${item.yours}`)
+      if (item.note)
+        out.push(`    note: ${item.note}`)
+    }
+  }
+  if (f.customized.length > 0)
+    out.push(`  Customized locally (unchanged on the template since ${since}): ${f.customized.join(', ')}`)
 }
-else if (followUps.items.length === 0) {
-  out.push('Follow-ups: none new.')
+listFollowUps('Follow-ups', 'package.json', followUps)
+listFollowUps('Catalog', WORKSPACE, catalog)
+
+out.push('')
+if (added === undefined) {
+  out.push('Files: skipped — no sync point on the template\'s history to tell a file it added from one this repository removed.')
+}
+else if (added.length === 0) {
+  out.push('Files: none new.')
 }
 else {
-  out.push('Follow-ups — package.json is yours, sync never edits it. Apply by hand where they apply:')
-  for (const f of followUps.items) {
-    const tag = f.kind === 'missing' ? 'missing here' : baseInHistory ? `changed on the template since ${since}` : 'differs'
-    out.push(`  scripts.${f.key}  ${tag}`)
-    out.push(`    template: ${f.template}`)
-    if (f.yours !== undefined)
-      out.push(`    yours:    ${f.yours}`)
-    if (f.note)
-      out.push(`    note: ${f.note}`)
+  out.push(`Files — the template added these since ${since} outside the synced paths, and sync never copies them. Take each that applies:`)
+  for (const file of added) {
+    out.push(`  ${file}  missing here`)
+    out.push(`    git restore --source=${short(head)} -- ${file}`)
   }
 }
-if (followUps.customized.length > 0)
-  out.push(`  Customized locally (unchanged on the template since ${since}): ${followUps.customized.map(k => `scripts.${k}`).join(', ')}`)
 
 out.push('')
 if (settings.skipped) {
