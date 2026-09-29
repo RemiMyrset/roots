@@ -13,14 +13,18 @@
  * touched — only the paths in `MECHANICS` below, minus `exclude` plus `include` from
  * .template-sync.json.
  *
- * After staging it prints what a file copy cannot carry: the template commits since
- * the last sync (breaking ones marked `!` with their BREAKING CHANGE paragraph), the
- * package.json `scripts` that differ from the template's, and the .claude/settings.json
- * allow and deny rules, hook registrations, and output style the template has and this
- * repo lacks, as follow-ups to apply by hand. A first sync infers where this repo branched off the template — shared
- * history, the root commit's tree, or the root commit's time — so the list starts
- * there. The sync point (template URL, ref, commit) is recorded in .template-sync.json
- * and staged with the rest, so the next run knows where to start.
+ * After staging it prints what a file copy cannot carry, as follow-ups to apply by hand: the
+ * template commits since the last sync (breaking ones marked `!` with their BREAKING CHANGE
+ * paragraph); the package.json entries and the pnpm-workspace.yaml settings the synced gates
+ * rely on that differ from the template's (packageManager, scripts, devDependencies, the
+ * commit checks, engines; catalog, allowBuilds, trustPolicyExclude, and the rest); the
+ * files the template added outside the synced paths; and the .claude/settings.json allow and
+ * deny rules, hook registrations, and output style the template has and this repo lacks. A
+ * first sync infers where this repo branched off the template — shared history, the root
+ * commit's tree, or the root commit's time — so the list starts there. The sync point
+ * (template URL, ref, commit) is recorded in .template-sync.json with this repo's own URL and
+ * staged with the rest, so the next run knows where to start, and a repo made from this one
+ * knows the file is not its own.
  *
  * Contract and behavior branches: docs/template/sync-template.md. Regression suite:
  * scripts/test-sync.mts (`pnpm test:sync`). Node builtins only. This file is itself
@@ -58,7 +62,6 @@ const MECHANICS = [
   '.github/labeler.yml',
   '.github/ISSUE_TEMPLATE/agent-task.md',
   '.github/PULL_REQUEST_TEMPLATE.md',
-  'renovate.json',
   'docs/template',
   'scripts/docs',
   'scripts/prepare.mts',
@@ -84,6 +87,7 @@ interface RawState {
   url?: unknown
   ref?: unknown
   commit?: unknown
+  repo?: unknown
   exclude?: unknown
   include?: unknown
 }
@@ -93,19 +97,22 @@ interface StateFile {
   url: string
   ref?: string
   commit: string
+  repo?: string
   exclude?: string[]
   include?: string[]
 }
 
 /**
  * The committed sync point: where the mechanics came from, which ref is tracked, and which
- * template commit they match. Only `commit` is written by the sync alone; a file without it
- * is a configuration written before the first sync.
+ * template commit they match, with the URL of the repository that wrote it (`repo`). Only
+ * `commit` and `repo` are written by the sync alone; a file without `commit` is a
+ * configuration written before the first sync.
  */
 interface SyncState {
   url?: string
   ref?: string
   commit?: string
+  repo?: string
   exclude?: string[]
   include?: string[]
 }
@@ -271,10 +278,13 @@ function readState(): { state?: SyncState, warnings: string[] } {
   const o = raw as RawState
   const state: SyncState = {}
   const warnings: string[] = []
-  if (o.url !== undefined) {
-    if (typeof o.url !== 'string' || !URL_RE.test(o.url))
-      invalidState(`"url" must be a git URL or path matching ${String(URL_RE)}`)
-    state.url = o.url
+  for (const key of ['url', 'repo'] as const) {
+    const v = o[key]
+    if (v === undefined)
+      continue
+    if (typeof v !== 'string' || !URL_RE.test(v))
+      invalidState(`"${key}" must be a git URL or path matching ${String(URL_RE)}`)
+    state[key] = v
   }
   if (o.ref !== undefined) {
     if (typeof o.ref !== 'string' || !isRef(o.ref))
@@ -308,12 +318,13 @@ function readState(): { state?: SyncState, warnings: string[] } {
 }
 
 function writeState(state: SyncState & { url: string, commit: string }): void {
-  // Field order in the file: url, ref, commit, exclude, include.
+  // Field order in the file: url, ref, commit, repo, exclude, include.
   const out: StateFile = {
-    $comment: 'Written by scripts/sync-template.mts: the template URL, the branch or tag it tracks ("ref", absent means main), and the last template commit synced into this repo. Commit it together with the sync. "exclude" (synced paths to skip) and "include" (extra paths to pull) are yours to edit.',
+    $comment: 'Written by scripts/sync-template.mts: the template URL, the branch or tag it tracks ("ref", absent means main), the last template commit synced into this repo, and this repo\'s own URL ("repo"), which tells a repo made from this one that the file came with it. Commit it together with the sync. "exclude" (synced paths to skip) and "include" (extra paths to pull) are yours to edit.',
     url: state.url,
     ...(state.ref !== undefined ? { ref: state.ref } : {}),
     commit: state.commit,
+    ...(state.repo !== undefined ? { repo: state.repo } : {}),
     ...(state.exclude ? { exclude: state.exclude } : {}),
     ...(state.include ? { include: state.include } : {}),
   }
@@ -323,6 +334,36 @@ function writeState(state: SyncState & { url: string, commit: string }): void {
 /** The host and path of a git URL (https, ssh, scp-form) or a local path, for comparing remotes. */
 function hostPath(url: string): string {
   return url.trim().replace(/^[a-z+]+:\/\//i, '').replace(/^[^@/]+@/, '').replace(/^([^/:]+):/, '$1/').replace(/\.git$/, '').replace(/\/+$/, '').toLowerCase()
+}
+
+/** This repository's URL to record as `repo`: the origin, an http(s) user and token dropped; undefined without an origin or when it fails URL_RE. */
+function ownUrl(origin: string | undefined): string | undefined {
+  const url = origin?.replace(/^(https?:\/\/)[^/@]*@/i, '$1')
+  return url !== undefined && URL_RE.test(url) ? url : undefined
+}
+
+/**
+ * Whether the state file is another repository's that came with this one: "Use this template"
+ * on a repository that syncs, such as an organization's fork of roots, copies its state file
+ * into the new repository's first commit. That is the case when the file records a sync point,
+ * only a root commit wrote it, it has no change here, and the writer it names (`repo`) is not
+ * this repository's origin, or it names none. A clone or fork of this repository carries the
+ * commits that wrote the file, and a history squashed into one commit names its own origin. A
+ * shallow clone never counts: its oldest commits have their parents cut off, so the one that
+ * wrote the file there can look like a root commit without being one.
+ */
+function inherited(state: SyncState, origin: string | undefined): boolean {
+  if (state.commit === undefined)
+    return false
+  if (state.repo !== undefined && origin !== undefined && hostPath(state.repo) === hostPath(origin))
+    return false
+  if (tryGit(['status', '--porcelain', '--', STATE_FILE]) !== '')
+    return false
+  if (tryGit(['rev-parse', '--is-shallow-repository'])?.trim() === 'true')
+    return false
+  // Two at most: a second writer settles it, so a long history is not walked to its root.
+  const writers = lines(tryGit(['rev-list', '--max-count=2', 'HEAD', '--', STATE_FILE]))
+  return writers.length === 1 && tryGit(['rev-parse', '-q', '--verify', `${writers[0]}^`]) === null
 }
 
 interface Fetched {
@@ -426,22 +467,104 @@ function isBreaking(c: Commit): boolean {
   return c.breaking.length > 0 || BREAKING_SUBJECT_RE.test(c.subject)
 }
 
-type Scripts = Record<string, string>
+/** One flat block of a config file, key to value; a value that is not a string is its JSON text. */
+type Entries = Record<string, string>
 
-/** The `scripts` block of a package.json text; `{}` when absent; undefined when the text is not JSON. */
-function scriptsOf(json: string | null): Scripts | undefined {
+// The package.json blocks a synced gate relies on, compared key by key: the scripts the done
+// gate and the workflows run, the devDependencies behind them, the commit-time checks and the
+// commit message rules, and the node range. `packageManager`, the pnpm the workflows install,
+// is compared as a top-level field (block '').
+const MANIFEST_BLOCKS = ['scripts', 'devDependencies', 'simple-git-hooks', 'lint-staged', 'commitlint', 'engines'] as const
+const MANIFEST_FIELDS = ['packageManager'] as const
+const WORKSPACE = 'pnpm-workspace.yaml'
+
+/** The entries of `v` when it is a JSON object, else `{}`. */
+function entriesOf(v: unknown): Entries {
+  return Object.fromEntries(Object.entries(asObject<Record<string, unknown>>(v) ?? {}).map(([k, x]) => [k, typeof x === 'string' ? x : JSON.stringify(x)]))
+}
+
+/** MANIFEST_FIELDS (block '') and each of MANIFEST_BLOCKS in a package.json text, `{}` when absent; undefined when the text is absent or not JSON. */
+function manifestOf(json: string | null): Record<string, Entries> | undefined {
   if (json === null)
     return undefined
   try {
-    const parsed = parseJson(json) as { scripts?: unknown }
-    const s = parsed.scripts
-    if (typeof s !== 'object' || s === null)
-      return {}
-    return Object.fromEntries(Object.entries(s).filter((e): e is [string, string] => typeof e[1] === 'string'))
+    const root = asObject<Record<string, unknown>>(parseJson(json)) ?? {}
+    const fields = entriesOf(Object.fromEntries(MANIFEST_FIELDS.filter(f => root[f] !== undefined).map(f => [f, root[f]])))
+    return { '': fields, ...Object.fromEntries(MANIFEST_BLOCKS.map(block => [block, entriesOf(root[block])])) }
   }
   catch {
     return undefined
   }
+}
+
+const YAML_SKIP_RE = /^\s*(?:#.*)?$/
+// A top-level key of pnpm-workspace.yaml and its value on the same line, if any.
+const YAML_TOP_RE = /^([A-Z_][\w-]*):(?:\s(.*))?$/i
+// An entry of a nested map, its indent trimmed: a quoted or plain name, a colon, and the value,
+// if any.
+const YAML_ENTRY_RE = /^(?:'([^']*)'\s*|"([^"]*)"\s*|([^\s'"#:-][^:#]*)):(?:\s(.*))?$/
+// An item of a nested list, its indent trimmed.
+const YAML_ITEM_RE = /^-\s(.*)$/
+const QUOTED_RE = /^(['"])(.*?)\1/
+// The workspace's own package globs, never the template's to report.
+const WORKSPACE_OWN = new Set(['packages'])
+
+/** A YAML scalar as written: quotes dropped, else a trailing comment; empty when only a comment follows the colon. */
+function yamlScalar(raw: string): string {
+  const text = raw.trim()
+  if (text.startsWith('#'))
+    return ''
+  return QUOTED_RE.exec(text)?.[2] ?? text.replace(/\s+#.*$/, '')
+}
+
+/**
+ * The top-level settings of a pnpm-workspace.yaml text as flat entries, in file order: a scalar
+ * under its key (`minimumReleaseAge`), each entry of a map as `<key>.<name>` (`catalog.vite`,
+ * `allowBuilds.esbuild`), and each item of a list as `<key>.<item>` with the value `- <item>`
+ * (`trustPolicyExclude.vite@5.4.21`). Node has no YAML parser, so it reads the block style pnpm
+ * writes, line by line: the entries at the first entry's indent, quotes and comments dropped;
+ * a flow-style value (`[...]`, `{...}`) and a deeper level (named `catalogs:`) are skipped, as
+ * are the `packages` globs. Undefined when the text is absent.
+ */
+function workspaceOf(yaml: string | null): Entries | undefined {
+  if (yaml === null)
+    return undefined
+  const entries: Entries = {}
+  let block: { key: string, indent?: number } | undefined
+  for (const line of yaml.replace(/^\uFEFF/, '').split(/\r?\n/)) {
+    if (YAML_SKIP_RE.test(line))
+      continue
+    const at = line.search(/\S/)
+    if (at === 0) {
+      const top = YAML_TOP_RE.exec(line)
+      block = undefined
+      if (!top || WORKSPACE_OWN.has(top[1]!))
+        continue
+      const value = top[2] === undefined ? '' : yamlScalar(top[2])
+      if (value === '')
+        block = { key: top[1]! }
+      else if (!/^[[{]/.test(value))
+        entries[top[1]!] = value
+      continue
+    }
+    if (!block)
+      continue
+    block.indent ??= at
+    if (at !== block.indent)
+      continue
+    const item = YAML_ITEM_RE.exec(line.trim())
+    if (item) {
+      const value = yamlScalar(item[1]!)
+      if (value)
+        entries[`${block.key}.${value}`] = `- ${value}`
+      continue
+    }
+    const m = YAML_ENTRY_RE.exec(line.trim())
+    const raw = m?.[4] === undefined ? '' : yamlScalar(m[4])
+    if (m && raw && !/^[[{]/.test(raw))
+      entries[`${block.key}.${m[1] ?? m[2] ?? m[3]!.trimEnd()}`] = raw
+  }
+  return entries
 }
 
 interface FollowUp {
@@ -459,15 +582,48 @@ interface FollowUps {
 }
 
 /**
- * Three-way compare of package.json scripts: the template now, the template at the
- * baseline (`base`, absent when no baseline is known), and this repo. Only template keys
- * are compared, in template order, so a child's own scripts are never mentioned — except
- * to flag one that references a file this sync deletes.
+ * Three-way compare of one block of entries, into `out`: the template now, the template at the
+ * baseline (`base`, absent when no baseline is known), and this repo. Only template keys are
+ * compared, in template order, so a child's own entries are never mentioned — except to flag
+ * one that references a file this sync deletes. Keys are reported as `<block>.<key>`.
  */
-function scriptFollowUps(
-  template: Scripts | undefined,
-  base: Scripts | undefined,
-  local: Scripts | undefined,
+function compareEntries(block: string, template: Entries, base: Entries | undefined, local: Entries, deleted: string[], out: FollowUps): void {
+  const refersToDeleted = (value: string): string | undefined => deleted.find(d => value.includes(d))
+  const keyOf = (name: string): string => block ? `${block}.${name}` : name
+  for (const [name, t] of Object.entries(template)) {
+    const key = keyOf(name)
+    const l = local[name]
+    if (l === t)
+      continue
+    if (l === undefined) {
+      if (base && base[name] !== undefined)
+        out.customized.push(`${key} (absent here)`)
+      else
+        out.items.push({ key, kind: 'missing', template: t })
+      continue
+    }
+    if (base && base[name] === t) {
+      out.customized.push(key)
+      continue
+    }
+    const item: FollowUp = { key, kind: 'changed', template: t, yours: l }
+    const ref = refersToDeleted(l)
+    if (ref)
+      item.note = `yours references ${ref}, which this sync deletes`
+    out.items.push(item)
+  }
+  for (const [name, l] of Object.entries(local)) {
+    const ref = name in template ? undefined : refersToDeleted(l)
+    if (ref)
+      out.items.push({ key: keyOf(name), kind: 'changed', template: '(not on the template)', yours: l, note: `yours references ${ref}, which this sync deletes` })
+  }
+}
+
+/** Three-way compare of every one of MANIFEST_BLOCKS in package.json (compareEntries), or why it is skipped. */
+function manifestFollowUps(
+  template: Record<string, Entries> | undefined,
+  base: Record<string, Entries> | undefined,
+  local: Record<string, Entries> | undefined,
   localMissing: boolean,
   deleted: string[],
 ): FollowUps {
@@ -477,36 +633,36 @@ function scriptFollowUps(
     return { items: [], customized: [], skipped: 'the template has no readable package.json' }
   if (!local)
     return { items: [], customized: [], skipped: 'package.json here is not valid JSON' }
-  const items: FollowUp[] = []
-  const customized: string[] = []
-  const refersToDeleted = (value: string): string | undefined => deleted.find(d => value.includes(d))
-  for (const [key, t] of Object.entries(template)) {
-    const l = local[key]
-    if (l === t)
-      continue
-    if (l === undefined) {
-      if (base && base[key] !== undefined)
-        customized.push(`${key} (absent here)`)
-      else
-        items.push({ key, kind: 'missing', template: t })
-      continue
-    }
-    if (base && base[key] === t) {
-      customized.push(key)
-      continue
-    }
-    const item: FollowUp = { key, kind: 'changed', template: t, yours: l }
-    const ref = refersToDeleted(l)
-    if (ref)
-      item.note = `yours references ${ref}, which this sync deletes`
-    items.push(item)
-  }
-  for (const [key, l] of Object.entries(local)) {
-    const ref = key in template ? undefined : refersToDeleted(l)
-    if (ref)
-      items.push({ key, kind: 'changed', template: '(not on the template)', yours: l, note: `yours references ${ref}, which this sync deletes` })
-  }
-  return { items, customized }
+  const out: FollowUps = { items: [], customized: [] }
+  for (const block of ['', ...MANIFEST_BLOCKS])
+    compareEntries(block, template[block] ?? {}, base?.[block], local[block] ?? {}, deleted, out)
+  return out
+}
+
+/** Three-way compare of the pnpm-workspace.yaml settings (workspaceOf, compareEntries), or why it is skipped. */
+function workspaceFollowUps(template: Entries | undefined, base: Entries | undefined, local: Entries | undefined): FollowUps {
+  if (!local)
+    return { items: [], customized: [], skipped: `no ${WORKSPACE} here` }
+  if (!template)
+    return { items: [], customized: [], skipped: `the template has no ${WORKSPACE}` }
+  const out: FollowUps = { items: [], customized: [] }
+  compareEntries('', template, base, local, [], out)
+  return out
+}
+
+// A template file under one of these is the repository's own content, never shared configuration:
+// the template's records and pages, and its sample code.
+const OWN_CONTENT = ['docs/internal', 'docs/public', 'src', 'packages', 'apps']
+
+/**
+ * Files the template added from `base` to `head` that this repository lacks, outside the synced
+ * paths (`synced`, every MECHANICS and include entry, excluded ones too) and OWN_CONTENT: a
+ * config file a synced gate reads, such as the secretlint config its lint:secrets step needs.
+ */
+function addedFiles(base: string, head: string, synced: string[]): string[] {
+  const outside = [...synced, ...OWN_CONTENT]
+  return zList(tryGit(['diff', '--name-only', '--no-renames', '--diff-filter=A', '-z', base, head]))
+    .filter(file => !outside.some(p => file === p || file.startsWith(`${p}/`)) && !existsSync(file))
 }
 
 /** One hook registration: the event, the matcher (empty when absent, which matches everything), and the command. */
@@ -637,19 +793,38 @@ if (toplevel === null)
   fail('Not a git repository — run this from inside your project.')
 process.chdir(toplevel.trim())
 
-const { state, warnings } = readState()
+const { state: stateFile, warnings } = readState()
 for (const w of warnings)
   console.error(`Warning: ${w}`)
 
 const args = parseArgs(process.argv.slice(2))
+const origin = tryGit(['remote', 'get-url', 'origin'])?.trim()
+
+// A state file that came with this repository is the sync point of the repository it was made
+// from. Its sync point is never this one's, so the run is a first sync. When it names its
+// writer, that repository is the template, and the writer's own ref and lists go with it;
+// otherwise all the file can say is its url, ref, and lists.
+let state = stateFile
+if (stateFile && inherited(stateFile, origin)) {
+  const came = `${STATE_FILE} came with this repository's first commit, so it holds the sync point of the repository this one was made from`
+  if (stateFile.repo === undefined) {
+    const { commit: _commit, ...configuration } = stateFile
+    state = configuration
+    console.error(`Warning: ${came}, not this one's: running a first sync, keeping its url, ref, exclude, and include. If that repository is your template (a fork of roots), pass its URL.`)
+  }
+  else {
+    state = { url: stateFile.repo }
+    console.error(`Warning: ${came} (${stateFile.repo}), not this one's: running a first sync${args.url === undefined ? ` from ${stateFile.repo}` : ''}, without its ref, exclude, or include. Pass a URL to sync from another template.`)
+  }
+}
+
 const existingRemote = tryGit(['remote', 'get-url', REMOTE])?.trim()
 const url = args.url ?? state?.url ?? existingRemote ?? TEMPLATE_URL
 const ref = args.ref ?? state?.ref ?? DEFAULT_REF
 
 // The template must never sync from itself: it would stage a state file and report a
 // clean no-op that is easy to commit by mistake.
-const origin = tryGit(['remote', 'get-url', 'origin'])
-if (origin !== null && hostPath(origin) === hostPath(url))
+if (origin !== undefined && hostPath(origin) === hostPath(url))
   fail(`This checkout is the template itself (origin is ${url}) — run the sync in a repository made from it.`)
 
 const exclude = new Set(state?.exclude ?? [])
@@ -774,13 +949,22 @@ for (const [file, { path, blob }] of unplaced) {
 if (pulled === 0)
   fail(`Could not check out any synced path:\n\n${skipped.join('\n')}`)
 
-const followUps = scriptFollowUps(
-  scriptsOf(tryGit(['show', `${head}:package.json`])),
-  base !== undefined && baseInHistory ? scriptsOf(tryGit(['show', `${base}:package.json`])) : undefined,
-  existsSync('package.json') ? scriptsOf(readFileSync('package.json', 'utf8')) : undefined,
+// The package.json blocks and the workspace settings are compared three-way when the sync point
+// is on the template's history, else two-way; the added files need that sync point.
+const threeWay = base !== undefined && baseInHistory
+const followUps = manifestFollowUps(
+  manifestOf(tryGit(['show', `${head}:package.json`])),
+  threeWay ? manifestOf(tryGit(['show', `${base}:package.json`])) : undefined,
+  existsSync('package.json') ? manifestOf(readFileSync('package.json', 'utf8')) : undefined,
   !existsSync('package.json'),
   deleted,
 )
+const workspace = workspaceFollowUps(
+  workspaceOf(tryGit(['show', `${head}:${WORKSPACE}`])),
+  threeWay ? workspaceOf(tryGit(['show', `${base}:${WORKSPACE}`])) : undefined,
+  existsSync(WORKSPACE) ? workspaceOf(readFileSync(WORKSPACE, 'utf8')) : undefined,
+)
+const added = threeWay ? addedFiles(base, head, [...MECHANICS, ...(state?.include ?? [])]) : undefined
 
 // Every hook registration the template shipped, from every version of its settings file in
 // its history and the sync point's: a registration here that lags the sync point is still the
@@ -794,14 +978,19 @@ const settings = settingsFollowUps(
   !existsSync(SETTINGS),
 )
 
+// `repo` is written once, from this repository's origin, and kept after that: a contributor
+// whose origin is a fork of this repository must not rename it.
 const next: SyncState & { url: string, commit: string } = { url, commit: head }
 if (ref !== DEFAULT_REF)
   next.ref = ref
+const repo = state?.repo ?? ownUrl(origin)
+if (repo !== undefined)
+  next.repo = repo
 if (state?.exclude)
   next.exclude = state.exclude
 if (state?.include)
   next.include = state.include
-if (!state || state.url !== url || state.commit !== head || (state.ref ?? DEFAULT_REF) !== ref) {
+if (!state || state.url !== url || state.commit !== head || (state.ref ?? DEFAULT_REF) !== ref || state.repo !== next.repo) {
   writeState(next)
   git(['add', '--', STATE_FILE])
 }
@@ -886,6 +1075,10 @@ else {
     out.push(`  ${status}  ${file}${note}`)
   }
 }
+// The first `repo` comes from whoever runs the sync first, and their origin may be a fork of
+// this repository: said out loud, so a wrong one is corrected before it is committed.
+if (state?.repo === undefined && next.repo !== undefined)
+  out.push(`Recorded this repository as ${next.repo} ("repo" in ${STATE_FILE}): a repository made from this one with "Use this template" syncs from it. If that is a personal fork or a mirror, set "repo" to the canonical URL before you commit.`)
 if (skipped.length > 0) {
   out.push('Skipped (git checkout failed — fix and re-run):')
   for (const s of skipped)
@@ -897,27 +1090,46 @@ if (kept.length > 0) {
     out.push(`  ${k}`)
 }
 
-out.push('')
-if (followUps.skipped) {
-  out.push(`Follow-ups: skipped — ${followUps.skipped}.`)
+function listFollowUps(title: string, file: string, f: FollowUps): void {
+  out.push('')
+  if (f.skipped) {
+    out.push(`${title}: skipped — ${f.skipped}.`)
+  }
+  else if (f.items.length === 0) {
+    out.push(`${title}: none new.`)
+  }
+  else {
+    out.push(`${title} — ${file} is yours, sync never edits it. Apply by hand where they apply:`)
+    for (const item of f.items) {
+      const tag = item.kind === 'missing' ? 'missing here' : baseInHistory ? `changed on the template since ${since}` : 'differs'
+      out.push(`  ${item.key}  ${tag}`)
+      out.push(`    template: ${item.template}`)
+      if (item.yours !== undefined)
+        out.push(`    yours:    ${item.yours}`)
+      if (item.note)
+        out.push(`    note: ${item.note}`)
+    }
+  }
+  if (f.customized.length > 0)
+    out.push(`  Customized locally (unchanged on the template since ${since}): ${f.customized.join(', ')}`)
 }
-else if (followUps.items.length === 0) {
-  out.push('Follow-ups: none new.')
+listFollowUps('Follow-ups', 'package.json', followUps)
+listFollowUps('Workspace', WORKSPACE, workspace)
+
+out.push('')
+if (added === undefined) {
+  out.push('Files: skipped — no sync point on the template\'s history to tell a file it added from one this repository removed.')
+}
+else if (added.length === 0) {
+  out.push('Files: none new.')
 }
 else {
-  out.push('Follow-ups — package.json is yours, sync never edits it. Apply by hand where they apply:')
-  for (const f of followUps.items) {
-    const tag = f.kind === 'missing' ? 'missing here' : baseInHistory ? `changed on the template since ${since}` : 'differs'
-    out.push(`  scripts.${f.key}  ${tag}`)
-    out.push(`    template: ${f.template}`)
-    if (f.yours !== undefined)
-      out.push(`    yours:    ${f.yours}`)
-    if (f.note)
-      out.push(`    note: ${f.note}`)
+  out.push(`Files — the template added these since ${since} outside the synced paths, and sync never copies them. Take each that applies:`)
+  for (const file of added) {
+    out.push(`  ${file}  missing here`)
+    out.push(`    git restore --source=${short(head)} -- ${file}`)
   }
 }
-if (followUps.customized.length > 0)
-  out.push(`  Customized locally (unchanged on the template since ${since}): ${followUps.customized.map(k => `scripts.${k}`).join(', ')}`)
 
 out.push('')
 if (settings.skipped) {

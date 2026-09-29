@@ -1,7 +1,7 @@
 # Syncs .github/labels.yml to the repo's labels. Templates don't copy labels;
 # this workflow recreates them in every child on first run.
 # Action pinning: every action by full commit SHA with its version in a trailing comment;
-# Renovate (renovate.json) moves the SHA and the comment together.
+# the update-deps skill moves the SHA and the comment together.
 name: labels
 
 on:
@@ -29,7 +29,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: EndBug/label-sync@52074158190acb45f3077f9099fea818aa43f97a # v2
+      - uses: EndBug/label-sync@52074158190acb45f3077f9099fea818aa43f97a # v2.3.3
         with:
           config-file: .github/labels.yml
           delete-other-labels: false

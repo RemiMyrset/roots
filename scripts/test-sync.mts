@@ -81,7 +81,7 @@ function staged(cwd: string): string[] {
   return lines
 }
 
-interface State { url?: string, ref?: string, commit?: string, exclude?: unknown, include?: unknown }
+interface State { url?: string, ref?: string, commit?: string, repo?: string, exclude?: unknown, include?: unknown }
 function readState(cwd: string): State {
   try {
     return JSON.parse(readFileSync(join(cwd, STATE), 'utf8')) as State
@@ -128,6 +128,8 @@ write(template, '.claude/output-styles/writing.md', '---\nname: writing\n---\nru
 write(template, 'docs/template/x.md', '# x v1\n')
 write(template, 'docs/template/x[1].md', '# retired at T2; as a glob it also matches x1.md\n')
 write(template, 'src/index.ts', 'export const v = 1\n')
+// Once a synced path; the template stopped shipping it and dropped it from MECHANICS.
+write(template, 'renovate.json', '{}\n')
 const T1 = commit(template, 'chore: t1', T1_AT)
 git(template, 'tag', 'v9.9.9')
 
@@ -155,6 +157,7 @@ commit(copy, 'Initial commit', COPY_AT)
 // the agent-skills copy and the CI workflow change too.
 rmSync(join(template, 'scripts/docs/gen-llms.mts'))
 rmSync(join(template, 'docs/template/x[1].md'))
+rmSync(join(template, 'renovate.json'))
 const T2_SCRIPTS = { ...T1_SCRIPTS, 'docs:gen': 'automd', 'test:sync': 'node scripts/test-sync.mts' }
 write(template, 'package.json', pkg(T2_SCRIPTS))
 write(template, 'scripts/test-sync.mts', '// test\n')
@@ -198,6 +201,9 @@ commit(fork, 'feat: own work')
     check(`first sync stages ${want}`, s.includes(want), s.join(', '))
   for (const never of ['src/index.ts', 'package.json', '.claude/skills/own/SKILL.md', 'docs/template/x1.md'])
     check(`first sync leaves ${never} alone`, !s.some(l => l.endsWith(never)) && existsSync(join(child, never)), s.join(', '))
+  // A copy byte-identical to the one the template shipped would be retired if the path were
+  // still synced; out of MECHANICS it is the child's own, never staged and never mentioned.
+  check('a path dropped from MECHANICS stays', !s.some(l => l.endsWith('renovate.json')) && existsSync(join(child, 'renovate.json')) && !r.stdout.includes('renovate.json'), r.stdout)
   check('agent skills copy is a plain file', existsSync(join(child, '.agents/skills/x/SKILL.md')) && gitSafe(child, 'ls-files', '-s', '--', '.agents/skills/x/SKILL.md').startsWith('100644'))
   check('self-update is annotated', r.stdout.includes('new version runs next time'))
   const st = readState(child)
@@ -818,6 +824,193 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   const back = run(kid)
   check('dropped exclusion exits 0', back.status === 0, back.detail)
   check('dropped exclusion retires the rule the template retired meanwhile', staged(kid).includes('D .claude/rules/extra.md'), staged(kid).join(', '))
+}
+
+// 25. A fork used as a template: its state file records its own sync from upstream, and "Use
+// this template" copies that file into each repository made from it. There it came with the
+// first commit and names another repository as its writer, so the sync takes the fork as the
+// template, as a first sync, instead of reverting the fork's customizations from upstream. A
+// clone with another origin, or a history squashed into one commit, is not a copy.
+{
+  const upstream = join(tmp, 'fork-upstream')
+  mkdirSync(upstream)
+  git(upstream, 'init', '-q', '-b', 'main')
+  write(upstream, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(upstream, '.claude/skills/x/SKILL.md', '# x\n')
+  commit(upstream, 'chore: t1', T1_AT)
+  const UPSTREAM = pathToFileURL(upstream).href
+  const acme = join(tmp, 'acme')
+  git(tmp, 'clone', '-q', UPSTREAM, acme)
+  const ACME_URL = pathToFileURL(acme).href
+  git(acme, 'remote', 'set-url', 'origin', ACME_URL)
+  write(acme, '.claude/skills/x/SKILL.md', '# x, the acme way\n')
+  commit(acme, 'feat: acme skill')
+  const synced = run(acme, UPSTREAM)
+  check('fork syncs from upstream', synced.status === 0, synced.detail)
+  gitSafe(acme, 'restore', '--staged', '--worktree', '--', '.claude/skills/x/SKILL.md')
+  gitSafe(acme, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  const forkState = readState(acme)
+  check('fork records itself as the writer', forkState.url === UPSTREAM && forkState.repo === ACME_URL, JSON.stringify(forkState))
+  check('fork says which URL it recorded as itself', synced.stdout.includes(`Recorded this repository as ${ACME_URL} ("repo" in ${STATE})`), synced.stdout)
+  const acmeHead = git(acme, 'rev-parse', 'HEAD').trim()
+
+  const app = join(tmp, 'acme-app')
+  copyTree(acme, app)
+  git(app, 'init', '-q', '-b', 'main')
+  commit(app, 'Initial commit')
+  git(app, 'remote', 'add', 'origin', 'file:///example/acme-app')
+  const r = run(app)
+  check('copy of a fork exits 0', r.status === 0, r.detail)
+  check('copy of a fork says whose state file it holds', r.stderr.includes('came with this repository\'s first commit') && r.stderr.includes(ACME_URL), r.stderr)
+  check('copy of a fork syncs from the fork', r.stdout.startsWith(`Template: ${ACME_URL}\n`), r.stdout)
+  check('copy of a fork runs a first sync', r.stdout.includes('first sync') && r.stdout.includes(`Baseline: ${acmeHead.slice(0, 7)} (root tree)`), r.stdout)
+  check('copy of a fork keeps the fork\'s customization', !staged(app).some(l => l.includes('skills/x/SKILL.md')) && readFileSync(join(app, '.claude/skills/x/SKILL.md'), 'utf8') === '# x, the acme way\n', staged(app).join(', '))
+  const own = readState(app)
+  check('copy of a fork records the fork and itself', own.url === ACME_URL && own.commit === acmeHead && own.repo === 'file:///example/acme-app', JSON.stringify(own))
+  check('copy of a fork says which URL it recorded as itself', r.stdout.includes('Recorded this repository as file:///example/acme-app'), r.stdout)
+  const again = run(app)
+  check('copy of a fork rerun before commit is its own', again.status === 0 && again.stderr === '' && again.stdout.includes('unchanged since last sync'), again.detail)
+  check('a recorded writer is announced once', !again.stdout.includes('Recorded this repository'), again.stdout)
+  gitSafe(app, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+
+  const clone = join(tmp, 'acme-app-clone')
+  git(tmp, 'clone', '-q', pathToFileURL(app).href, clone)
+  const cloned = run(clone)
+  check('clone with another origin keeps the recorded template', cloned.status === 0 && cloned.stderr === '' && cloned.stdout.startsWith(`Template: ${ACME_URL}\n`) && cloned.stdout.includes('unchanged since last sync'), cloned.detail)
+  check('clone with another origin keeps the recorded writer', staged(clone).length === 0 && readState(clone).repo === 'file:///example/acme-app', staged(clone).join(', '))
+  write(clone, STATE, json({ url: ACME_URL, commit: acmeHead }))
+  commit(clone, 'chore: a state file from an older script')
+  git(clone, 'remote', 'set-url', 'origin', 'https://ghp-token@example.com/acme/app.git')
+  const older = run(clone)
+  check('state file with no writer records this origin once, credentials dropped', older.status === 0 && older.stdout.includes('unchanged since last sync') && staged(clone).includes(`M ${STATE}`) && readState(clone).repo === 'https://example.com/acme/app.git', `${older.detail}; ${JSON.stringify(readState(clone))}`)
+  check('the writer taken from a contributor\'s origin is announced for review', older.stdout.includes('Recorded this repository as https://example.com/acme/app.git') && older.stdout.includes('personal fork'), older.stdout)
+
+  const squashed = join(tmp, 'acme-app-squashed')
+  copyTree(app, squashed)
+  git(squashed, 'init', '-q', '-b', 'main')
+  commit(squashed, 'chore: squash history')
+  git(squashed, 'remote', 'add', 'origin', 'file:///example/acme-app')
+  const flat = run(squashed)
+  check('squashed history with its own state file is not a copy', flat.status === 0 && flat.stderr === '' && flat.stdout.includes('unchanged since last sync'), flat.detail)
+
+  const legacy = join(tmp, 'acme-legacy')
+  copyTree(acme, legacy)
+  write(legacy, STATE, json({ url: UPSTREAM, commit: forkState.commit, exclude: ['.gemini/settings.json'] }))
+  git(legacy, 'init', '-q', '-b', 'main')
+  commit(legacy, 'Initial commit')
+  const old = run(legacy)
+  check('copy of an unnamed writer exits 0', old.status === 0, old.detail)
+  check('copy of an unnamed writer says to pass the template', old.stderr.includes('came with this repository\'s first commit') && old.stderr.includes('pass its URL'), old.stderr)
+  check('copy of an unnamed writer runs a first sync from the recorded url', old.stdout.startsWith(`Template: ${UPSTREAM}\n`) && old.stdout.includes('first sync'), old.stdout)
+  check('copy of an unnamed writer keeps the lists', JSON.stringify(readState(legacy).exclude) === '[".gemini/settings.json"]', JSON.stringify(readState(legacy)))
+  gitSafe(legacy, 'restore', '--staged', '--worktree', '--', '.claude/skills/x/SKILL.md')
+  const rerun = run(legacy)
+  check('copy with no origin, rerun before commit, reads its own sync point', rerun.status === 0 && rerun.stderr === '' && rerun.stdout.includes('unchanged since last sync'), rerun.detail)
+}
+
+// 26. What a synced gate needs beyond the synced paths is reported three-way like the scripts:
+// packageManager and the devDependencies, lint-staged, and simple-git-hooks blocks of
+// package.json, the top-level settings of pnpm-workspace.yaml (catalog, allowBuilds,
+// trustPolicyExclude, scalars), and a file the template added outside the synced paths. The
+// template's own records, samples, and synced files are never listed, nor is the repository's
+// own entry, its package globs, or a flow-style value.
+{
+  const depsTemplate = join(tmp, 'deps-template')
+  mkdirSync(depsTemplate)
+  git(depsTemplate, 'init', '-q', '-b', 'main')
+  const manifest = (devDependencies: Record<string, string>, preCommit: string, lintStaged: Record<string, unknown>, packageManager = 'pnpm@11.0.0'): string =>
+    json({ 'name': 'fixture', packageManager, 'engines': { node: '>=24' }, 'scripts': { lint: 'eslint .' }, devDependencies, 'simple-git-hooks': { 'pre-commit': preCommit }, 'lint-staged': lintStaged })
+  const T1_SETTINGS = 'allowBuilds:\n  esbuild: true\n\nminimumReleaseAge: 2880\n\ntrustPolicyExclude:\n  - vite@5.4.21\n'
+  const workspace = (catalog: Record<string, string>, settings = T1_SETTINGS): string =>
+    `${settings}packages:\n  - packages/*\n\n# Catalog-first: every version lives here once.\ncatalog:\n${Object.entries(catalog).map(([name, range]) => `  ${name.startsWith('@') ? `'${name}'` : name}: ${range}\n`).join('')}`
+  write(depsTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'vitepress': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }))
+  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.0.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'vitepress': '^1.6.0' }))
+  write(depsTemplate, '.claude/rules/tpl.md', '# tpl rule\n')
+  commit(depsTemplate, 'chore: t1', T1_AT)
+  const depsUrl = pathToFileURL(depsTemplate).href
+  const kid = join(tmp, 'deps-child')
+  copyTree(depsTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  commit(kid, 'Initial commit', COPY_AT)
+  write(kid, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'zod': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }))
+  write(kid, 'pnpm-workspace.yaml', `${workspace({ '@types/node': '^24.0.0', 'eslint': '^9.1.0', 'lint-staged': '^16.0.0' }, T1_SETTINGS.replace('2880', '1440'))}  zod: ^3.0.0 # own\n`)
+  commit(kid, 'chore: own dependencies')
+  write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'secretlint': 'catalog:', 'vitepress': 'catalog:' }, 'CI=1 pnpm lint-staged', { '*.ts': 'eslint --fix', '*': ['secretlint --no-glob'] }, 'pnpm@11.9.0'))
+  const T2_SETTINGS = 'allowBuilds:\n  \'@parcel/watcher\': false\n  esbuild: true\n\nminimumReleaseAge: 2880\nonlyBuiltDependencies: [esbuild]\nshellEmulator: true # scripts run alike on Windows\n\ntrustPolicyExclude:\n  - vite@5.4.21\n  - vite@5.4.22 # the next one\n'
+  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.5.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'secretlint': '^13.0.0', 'vitepress': '^1.6.0' }, T2_SETTINGS))
+  write(depsTemplate, '.secretlintrc.json', '{ "rules": [] }\n')
+  write(depsTemplate, '.claude/rules/secrets.md', '# secrets rule\n')
+  write(depsTemplate, 'docs/internal/decisions/20260102-secretlint.md', '# Scan for secrets\n')
+  write(depsTemplate, 'packages/example/src/secret.ts', 'export const s = 1\n')
+  const added = commit(depsTemplate, 'feat(lint): scan for secrets', T2_AT)
+  const r = run(kid, depsUrl)
+  check('gate needs exit 0', r.status === 0, r.detail)
+  check('gate needs have a root-tree baseline', r.stdout.includes('(root tree)'), r.stdout)
+  check('devDependency the template added is missing here', r.stdout.includes('  devDependencies.secretlint  missing here\n    template: catalog:\n'), r.stdout)
+  check('lint-staged entry the template added is missing here', r.stdout.includes('  lint-staged.*  missing here\n    template: ["secretlint --no-glob"]\n'), r.stdout)
+  check('git hook the template changed is listed with both values', r.stdout.includes('  simple-git-hooks.pre-commit  changed on the template since the baseline\n    template: CI=1 pnpm lint-staged\n    yours:    pnpm lint-staged\n'), r.stdout)
+  check('devDependency removed here is customized', r.stdout.includes('devDependencies.vitepress (absent here)'), r.stdout)
+  check('catalog entry the template added is missing here', r.stdout.includes('  catalog.secretlint  missing here\n    template: ^13.0.0\n'), r.stdout)
+  check('catalog range the template changed is listed with both values', r.stdout.includes('  catalog.@types/node  changed on the template since the baseline\n    template: ^24.5.0\n    yours:    ^24.0.0\n'), r.stdout)
+  check('catalog ranges changed or removed here are customized', r.stdout.includes('catalog.eslint, catalog.vitepress (absent here)'), r.stdout)
+  check('entries of the repository\'s own never mentioned', !r.stdout.includes('zod'), r.stdout)
+  check('packageManager the template changed is listed with both values', r.stdout.includes('  packageManager  changed on the template since the baseline\n    template: pnpm@11.9.0\n    yours:    pnpm@11.0.0\n'), r.stdout)
+  check('allowBuilds entry the template added is missing here', r.stdout.includes('  allowBuilds.@parcel/watcher  missing here\n    template: false\n'), r.stdout)
+  check('workspace setting the template added is missing here, its comment dropped', r.stdout.includes('  shellEmulator  missing here\n    template: true\n'), r.stdout)
+  check('trustPolicyExclude item the template added is missing here', r.stdout.includes('  trustPolicyExclude.vite@5.4.22  missing here\n    template: - vite@5.4.22\n'), r.stdout)
+  check('workspace setting changed here is customized', r.stdout.includes('Customized locally (unchanged on the template since the baseline): minimumReleaseAge, catalog.eslint'), r.stdout)
+  for (const never of ['packages', 'onlyBuiltDependencies', 'allowBuilds.esbuild', 'trustPolicyExclude.vite@5.4.21', 'engines.node'])
+    check(`setting the same on both sides or not read is never listed: ${never}`, !r.stdout.includes(`  ${never}  `), r.stdout)
+  check('file the template added outside the synced paths is listed', r.stdout.includes(`  .secretlintrc.json  missing here\n    git restore --source=${added.slice(0, 7)} -- .secretlintrc.json\n`), r.stdout)
+  for (const never of ['docs/internal/decisions/20260102-secretlint.md', 'packages/example/src/secret.ts', '.claude/rules/secrets.md'])
+    check(`added file never listed: ${never}`, !r.stdout.includes(`  ${never}  missing here`), r.stdout)
+  gitSafe(kid, 'restore', `--source=${added.slice(0, 7)}`, '--', '.secretlintrc.json')
+  check('the printed command fetches the file', readFileSync(join(kid, '.secretlintrc.json'), 'utf8') === '{ "rules": [] }\n')
+  gitSafe(kid, 'add', '-A')
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  const again = run(kid)
+  check('gate needs rerun lists no file', again.status === 0 && again.stdout.includes('Files: none new.'), again.stdout)
+  const bare = join(tmp, 'deps-bare')
+  mkdirSync(bare)
+  git(bare, 'init', '-q', '-b', 'main')
+  write(bare, 'package.json', manifest({}, 'true', {}))
+  commit(bare, 'chore: init')
+  write(bare, 'scripts/sync-template.mts', REAL_SCRIPT)
+  const none = run(bare, depsUrl)
+  check('no baseline exits 0', none.status === 0, none.detail)
+  check('no baseline lists every template devDependency two-way', none.stdout.includes('  devDependencies.secretlint  missing here\n') && none.stdout.includes('  devDependencies.eslint  missing here\n'), none.stdout)
+  check('no pnpm-workspace.yaml skips the workspace settings', none.stdout.includes('Workspace: skipped — no pnpm-workspace.yaml here.'), none.stdout)
+  check('no baseline skips the files', none.stdout.includes('Files: skipped — '), none.stdout)
+}
+
+// 27. A shallow clone cuts the parents off its oldest commit, so the commit that wrote the state
+// file there looks like a root commit. Its state file, written by the script before behavior 25
+// and so naming no writer, is still this repository's own: the sync starts at the recorded
+// commit and lists the breaking one since.
+{
+  const shallowTemplate = join(tmp, 'shallow-template')
+  mkdirSync(shallowTemplate)
+  git(shallowTemplate, 'init', '-q', '-b', 'main')
+  write(shallowTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(shallowTemplate, '.claude/skills/x/SKILL.md', '# x\n')
+  const recorded = commit(shallowTemplate, 'chore: t1', T1_AT)
+  const shallowUrl = pathToFileURL(shallowTemplate).href
+  const kid = join(tmp, 'shallow-child')
+  copyTree(shallowTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  write(kid, STATE, json({ url: shallowUrl, commit: recorded }))
+  commit(kid, 'Initial commit', COPY_AT)
+  write(kid, 'src/app.ts', 'export const app = true\n')
+  commit(kid, 'feat: own work', COPY_AT)
+  write(shallowTemplate, '.claude/skills/x/SKILL.md', '# x v2\n')
+  commit(shallowTemplate, 'feat!: new required config\n\nBREAKING CHANGE: add foo to package.json by hand.\n', T2_AT)
+  const shallow = join(tmp, 'shallow-clone')
+  git(tmp, 'clone', '-q', '--depth', '1', pathToFileURL(kid).href, shallow)
+  const r = run(shallow)
+  check('shallow clone exits 0', r.status === 0, r.detail)
+  check('shallow clone reads its own state file', r.stderr === '' && !r.stdout.includes('first sync'), r.detail)
+  check('shallow clone lists the breaking commit since the sync point', r.stdout.includes('1 commit since last sync') && r.stdout.includes('BREAKING CHANGE: add foo to package.json by hand.'), r.stdout)
 }
 
 if (fails.length > 0) {

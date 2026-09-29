@@ -2,9 +2,11 @@
  * Structural lint for the decisions/specs system — enforces the couplings that
  * generation cannot: record format (a dated YYYYMMDD- name with a real date from 2000 on,
  * not ahead, and a title-only H1, or a legacy NNNN- name whose H1 and number match; a
- * hyphenated date in a name is rejected), metadata bullets,
- * supersede links naming the target's ID and the record they point at, spec Source/Tests
- * paths resolving on disk, review-date freshness, both index pages present, every automd
+ * hyphenated date in a name is rejected), metadata bullets, a Status keyword matched whole,
+ * supersede links naming the target's ID and the record they point at (never the record
+ * itself), spec Source/Tests values naming at least one path and every path resolving on disk
+ * in the case written (a `:line` or `#L` suffix dropped first), review-date freshness, both
+ * index pages present, every automd
  * region under docs/ closed, free of automd's warning comment and of merge conflict lines,
  * and current with the generators, no page under docs/ left mid-merge, the template-owned
  * contract pages that follow the spec shape, the agent-skills mirror, and the AGENTS.md
@@ -18,14 +20,15 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import { INDEX_RENDERERS } from './readers.mts'
-import { AUTOMD_WARNING, automdRegions, byCodeUnit, CONFLICT_LINE_RE, CONFLICT_OPEN_RE, DECISION_H1_RE, decisionIdentity, DECISIONS_DIR, H1_RE, markdownFiles, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
+import { AUTOMD_WARNING, automdRegions, byCodeUnit, CONFLICT_LINE_RE, CONFLICT_OPEN_RE, DECISION_H1_RE, decisionIdentity, DECISIONS_DIR, H1_RE, markdownFiles, pathCase, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
 import { posixRelative, skillDrift, SKILLS_SOURCE, SKILLS_TARGET } from './skills.mts'
 
 const STALE_DAYS = 180
-// Prefix-anchored on purpose: a "superseded by [ID](./…)" status carries a trailing
-// markdown link, so the vocabulary matches the leading keyword only, not the whole line.
-// Both ID shapes open with four digits, NNNN and YYYYMMDD-slug alike.
-const STATUS_VOCAB = /^(?:proposed|accepted|rejected|deprecated|superseded by \[?\d{4}\]?)/
+// The four plain keywords match the whole value, so "acceptedd" or "accepted, mostly" is
+// refused; a "superseded by [ID](./…)" status carries a trailing markdown link, so that branch
+// matches its leading words only. Both ID shapes open with four digits, NNNN and YYYYMMDD-slug
+// alike. Tested on the value with HTML comments dropped.
+const STATUS_VOCAB = /^(?:(?:proposed|accepted|rejected|deprecated)$|superseded by \[?\d{4}\]?)/
 // Prefix-anchored like STATUS_VOCAB, so trailing text stays accepted; group 1 is the link
 // text, which must be the target's ID, and group 2 the target filename.
 const SUPERSEDED_LINK_RE = /^superseded by \[([^\]\n]+)\]\(\.\/([^)\s]+)\)/
@@ -70,6 +73,9 @@ function isFuture(iso: string): boolean {
 const BACKTICK_PATH_RE = /`([^`]+)`/g
 const PATH_CHARS_RE = /^[\w@./-]+$/
 const EXTENSION_RE = /\.\w+$/
+// A line reference after a cited path, `src/a.ts:42`, `:42-50`, `:42:7`, or `#L42-L50`: dropped
+// before the existence check, so the path itself is still verified.
+const LINE_SUFFIX_RE = /(?::\d+(?:[-:]\d+)?|#L\d+(?:-L?\d+)?)$/
 const REVIEWED_BULLET_RE = /^- \*\*Last reviewed:\*\*\s*(\d{4}-\d{2}-\d{2})/m
 const SOURCE_BULLET_RE = /^- \*\*Source:\*\*/m
 // An HTML comment on a bullet line, closed or running past it: the spec template's guidance
@@ -113,15 +119,25 @@ function checkSpecPage(where: string, raw: string): void {
       warnings.push(`${where}: ${bullet} is (pending) — fill it when the code lands`)
       continue
     }
-    for (const [, p] of value.matchAll(BACKTICK_PATH_RE)) {
+    let paths = 0
+    for (const [, token] of value.matchAll(BACKTICK_PATH_RE)) {
       // A Source/Tests line may cite a test name beside its path, e.g. `src/foo.ts` (`add`).
       // Only a path-shaped token is existence-checked: path characters throughout, and
       // either a `/` or an extension; a bare identifier is a name, not a path.
-      if (!PATH_CHARS_RE.test(p!) || !(p!.includes('/') || EXTENSION_RE.test(p!)))
+      const p = token!.replace(LINE_SUFFIX_RE, '')
+      if (!PATH_CHARS_RE.test(p) || !(p.includes('/') || EXTENSION_RE.test(p)))
         continue
-      if (!existsSync(join(root, p!)))
-        errors.push(`${where}: ${bullet} path \`${p}\` does not exist`)
+      paths++
+      const found = pathCase(root, join(root, p))
+      if (found === 'missing')
+        errors.push(`${where}: ${bullet} path \`${token}\` does not exist`)
+      else if (found !== 'exact')
+        errors.push(`${where}: ${bullet} path \`${token}\` is ${found} on disk; the case must match, or Linux CI fails it`)
     }
+    // A value naming no backticked path is checked against nothing: a bare path, a glob, or
+    // "TBD" would pass forever.
+    if (paths === 0)
+      errors.push(`${where}: ${bullet} names no path to check — write the repo-relative path in backticks (\`src/feature.ts\`), or ${PENDING} before the code exists`)
   }
 
   const reviewed = text.match(REVIEWED_BULLET_RE)?.[1]
@@ -212,7 +228,7 @@ function checkDecisions(): number {
         errors.push(`${where}: H1 must be "# Title", the title alone (a dated record's H1 carries no number or date)`)
     }
 
-    const status = text.match(STATUS_BULLET_RE)?.[1]?.trim()
+    const status = text.match(STATUS_BULLET_RE)?.[1]?.replace(LINE_COMMENT_RE, '').trim()
     if (!status) {
       errors.push(`${where}: missing "- **Status:** ..." bullet`)
     }
@@ -230,6 +246,8 @@ function checkDecisions(): number {
         errors.push(`${where}: superseded status must link the newer record: "superseded by [ID](./file.md)"`)
       else if (link[1] !== target.id)
         errors.push(`${where}: superseded-by link text "${link[1]}" must be ${target.id}, the ID of ./${link[2]}`)
+      else if (link[2] === file)
+        errors.push(`${where}: superseded-by link points at this record itself — link the newer record that replaces it`)
       else if (!existsSync(join(decisionsDir, link[2]!)))
         errors.push(`${where}: superseded-by target ./${link[2]} does not exist`)
     }

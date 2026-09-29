@@ -43,9 +43,10 @@ Not for anyone who wants an unopinionated starter.
   [sync-template](./docs/template/sync-template.md).
 - Supply-chain defaults and a sandbox: dependency build scripts off, a 48-hour
   release cooldown, pinned actions, secrets scanned at commit and in CI
-  ([guards](./docs/template/guards.md#secrets-in-commits)), a Renovate config
-  that keeps dependencies and pins current in one grouped PR a week
-  ([docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current-with-renovate)),
+  ([guards](./docs/template/guards.md#secrets-in-commits)), an `update-deps`
+  skill that refreshes dependencies and pins in one PR when you ask, with no
+  bot to install
+  ([docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current)),
   and a devcontainer for unattended runs
   ([docs-toolchain](./docs/template/docs-toolchain.md#sandbox-agents-in-a-devcontainer)).
 
@@ -79,20 +80,29 @@ flowchart LR
 > through this list once, then delete the section. In Claude Code the
 > `first-run` skill does every step marked **(skill)** and hands you the rest.
 
-1. **Prove the done gate.** `pnpm install && pnpm verify`, green before you
-   touch anything. **(skill)**
-2. **Name it.** **(skill; it asks you for the one-line pitch)**
+1. **Prove the done gate.** With node 24 and pnpm installed as
+   [Setup](#setup) says, `pnpm install && pnpm verify`, green before you touch
+   anything. **(skill)**
+2. **Name it.** **(skill; it asks for the pitch, the licence and its holder,
+   the owners it cannot derive, and the security and conduct contacts)**
    - `package.json`: `name` (your repo slug), `description`, and
      `repository.url`.
    - This file: the H1 and the pitch above; delete "Who it is for, and not
      for", "What is in the box", and the diagram under Layout, which describe
-     the template. Keep the provenance line under "Where things live".
+     the template. Under "Where things live", delete the parenthetical that
+     names the template's own site and keep the provenance line.
    - `docs/public/index.md` and `getting-started.md`: two stubs for your
      product; the shipped pages describe the template and the public site
      publishes what is here.
-   - `LICENSE`: the copyright holder and year (the template ships MIT).
-   - `.github/CODEOWNERS`: `@RemiMyrset` becomes your GitHub user or team, and
-     the comment above it goes.
+   - `LICENSE`: the template ships MIT; set the copyright holder and year.
+     For another licence replace the file; for none delete it and the License
+     section at the end of this file.
+   - `.github/CODEOWNERS`: `@RemiMyrset` becomes your GitHub user, or in an
+     organization a team (`@org/team`) or user handles, since an organization
+     name alone is not a valid owner; the comment above it goes.
+   - `SECURITY.md`, repositories that are not public: a contact address
+     replaces the **Report a vulnerability** button, which GitHub offers on
+     public repositories alone (step 5 turns it on there).
    - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` in both links.
    - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact becomes yours.
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
@@ -118,30 +128,24 @@ flowchart LR
    ```sh
    gh repo edit OWNER/REPO --description "your pitch" --add-topic typescript --add-topic pnpm --add-topic turborepo --add-topic ai-agents --enable-wiki=false --enable-projects=false --delete-branch-on-merge
    gh workflow run labels.yml   # seeds the labels from .github/labels.yml
-   gh api -X PUT repos/OWNER/REPO/vulnerability-alerts                       # Renovate's security PRs need the alerts
+   gh api -X PUT repos/OWNER/REPO/private-vulnerability-reporting   # public repositories: SECURITY.md's reporting button
    gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true
    ```
 
-6. **Renovate.** Install the app on the repository at
-   [github.com/apps/renovate](https://github.com/apps/renovate); `renovate.json`
-   is already in place and the app opens an onboarding PR to confirm it. What
-   the config does, and the self-hosted fallback, are in
-   [docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current-with-renovate).
-   **(skill prints the link)**
-7. **Commit and push.** Delete this section, then
+6. **Commit and push.** Delete this section, then
    `git commit -am "chore: initialize from roots"` and push `main` yourself.
    This is the one direct push, and it is yours: the push guard denies it to
    agents. Everything after lands through a PR. **(skill proposes the commit;
    it never pushes)**
-8. **Branch ruleset.** Run the command under
+7. **Branch ruleset.** Run the command under
    [Push protection](./docs/template/guards.md#push-protection) in guards; it
    says when the ruleset can be created and what it costs.
-9. **Publish the public docs (optional).** Enable GitHub Pages with
-   `gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow`; the `pages`
-   workflow deploys `docs/public/` on each push to `main` that touches its
-   inputs from then on. Then
-   `gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/`.
-   **(skill)**
+8. **Publish the public docs (optional).** After the push, run the three
+   commands under
+   [Publish the public site on GitHub Pages](./docs/template/docs-toolchain.md#publish-the-public-site-on-github-pages):
+   enable Pages, run the first deploy (`gh workflow run pages.yml`), and set
+   the homepage. The recipe also says what Pages costs on a private
+   repository. **(skill prints them)**
 
 ## Setup
 
@@ -163,35 +167,36 @@ pnpm install
 | --- | --- |
 | `pnpm verify` | The done gate: every check CI runs, in CI order, stopping at the first failure (`pnpm verify <gate>` resumes there, `pnpm verify --only <gate>` runs one) |
 | `pnpm build` / `pnpm test` / `pnpm typecheck` | Turbo across packages that define each script; `typecheck` also runs root `tsc` over scripts + configs |
-| `pnpm --filter @repo/example-package test` | One package's tests (`test:watch` for watch mode) |
+| `pnpm --filter <package> test` | One package's tests (`test:watch` for watch mode) |
 | `pnpm --filter @repo/example-app start` | Runs the sample CLI (`node src/main.ts`) against the sample package |
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
 | `pnpm lint:secrets` | secretlint over every tracked file |
 | `pnpm test:hooks` | Agent guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm test:docs` | Docs checker fixtures (a clean tree and a broken one, node only) |
-| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps; ESLint rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version |
+| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps; the workflows pin actions by SHA and never cancel a run on `main`; ESLint rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version; lint-staged lints what CI lints; package tsconfigs take in every file; the install hook skips a linked worktree |
 | `pnpm docs:gen` | Regenerate the `.agents/skills` mirror and any automd region a page keeps |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:list` | Print the decisions table and the spec list, read from the files (`decisions` or `specs` prints one) |
 | `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |
 | `pnpm docs:internal:dev` | Internal handbook (VitePress, team-only) |
 | `pnpm docs:public:dev` | Public docs site |
-| `pnpm sync:template` | Pull the template's mechanics: stages them, records the sync point, prints commits since and the `package.json` and `.claude/settings.json` follow-ups (`--ref` pins a template tag or branch) |
+| `pnpm sync:template` | Pull the template's mechanics: stages them, records the sync point, prints commits since and the follow-ups in `package.json`, `pnpm-workspace.yaml`, `.claude/settings.json`, and new template files (`--ref` pins a template tag or branch) |
 | `pnpm release` | changelogen: version, CHANGELOG, tag, push; human-run (agents are blocked) |
 
 ## Working with AI agents
 
 - The rulebook is [AGENTS.md](./AGENTS.md). How Claude Code, Codex, and Gemini
-  CLI each read it, and the trust prompts the last two show, are in
+  CLI each read it, and the trust prompt each shows, are in
   [agent-surfaces](./docs/template/agent-surfaces.md).
 - Pre-tool guards deny the common mistakes in all three tools; what they catch
   and what they do not is in [guards](./docs/template/guards.md).
 - The writing rules, `.claude/output-styles/writing.md`, load at every session
   start in all three tools; [agent-surfaces](./docs/template/agent-surfaces.md#writing-rules)
   says how.
-- Feature-branch pushes and PR creation run without prompts, and a protected
-  branch is reachable only through a PR a human merges
+- In Claude Code, feature-branch pushes and PR creation run without prompts;
+  Codex and Gemini ask each time. An agent reaches a protected branch only
+  through a PR a human merges
   ([Push protection](./docs/template/guards.md#push-protection)). The `pr`
   skill does the whole thing the house way.
 - `pnpm sync:template` pulls the shared mechanics and the `sync-template` skill

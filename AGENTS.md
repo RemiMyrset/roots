@@ -47,12 +47,12 @@ affect passes clean after your last edit. When unsure which apply, run
   order; stops at the first failure; `pnpm verify <gate>` resumes there,
   `pnpm verify --only <gate>` runs one)
 - Build: `pnpm build` (turbo; packages that define `build`)
-- Test: `pnpm test` (turbo; single package: `pnpm --filter @repo/example-package test`)
+- Test: `pnpm test` (turbo; single package: `pnpm --filter <package> test`)
 - Test hooks: `pnpm test:hooks` (agent guard allow/deny fixtures)
 - Test sync: `pnpm test:sync` (template-sync fixtures)
 - Test docs: `pnpm test:docs` (docs checker fixtures)
-- Test gates: `pnpm test:gates` (verify and the workflows run the same steps; ESLint
-  rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version)
+- Test gates: `pnpm test:gates` (verify and the workflows run the same steps; the rules
+  the gates rely on hold in the workflows, ESLint, lint-staged, turbo, and package tsconfigs)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)

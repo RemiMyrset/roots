@@ -65,7 +65,8 @@
     "commit-msg": "pnpm exec commitlint --edit $1"
   },
   "lint-staged": {
-    "*.{ts,mts,tsx,vue}": "eslint --fix --cache --cache-location node_modules/.cache/eslint/",
+    "*.{ts,mts,cts,tsx,js,mjs,cjs,jsx,vue}": "eslint --fix --no-warn-ignored --cache --cache-location node_modules/.cache/eslint/",
+    "*.{json,jsonc,json5,yaml,yml}": "eslint --no-warn-ignored --cache --cache-location node_modules/.cache/eslint/",
     "*.md": "node scripts/docs/check-portability.mts",
     "*": "secretlint --no-glob"
   },

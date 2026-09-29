@@ -930,11 +930,14 @@ function sessionProblems(c: SessionCase, status: number | null, stdout: string, 
 // understands, and its Read deny rules reach the home directory only through `~/` (a `**/` rule
 // anchors at the working directory); and a Claude allow rule's trailing `:*` is a
 // space-wildcard, so `Bash(pnpm test:*)` never matches a `test:hooks` script — colon scripts are
-// listed one by one, and a wildcard before the last word matches nothing at all.
+// listed one by one, and a wildcard before the last word matches nothing at all. `pnpm verify`
+// and the read-only `pnpm docs:list`, the two commands the docs send agents to most, run without
+// a prompt in Claude Code; any other allow rule is the repository's own choice. Gemini's
+// `context.fileName` names GEMINI.md too, or each developer's ~/.gemini/GEMINI.md stops loading.
 const REPO = join(HOOKS, '..', '..')
 interface Registration { matcher?: string, hooks?: { command?: string }[] }
 interface Hooks { SessionStart?: Registration[], BeforeTool?: Registration[], PreToolUse?: Registration[] }
-const gemini = JSON.parse(readFileSync(join(REPO, '.gemini', 'settings.json'), 'utf8')) as { hooks?: Hooks, tools?: { allowed?: string[] } }
+const gemini = JSON.parse(readFileSync(join(REPO, '.gemini', 'settings.json'), 'utf8')) as { context?: { fileName?: string | string[] }, hooks?: Hooks, tools?: { allowed?: string[] } }
 const codex = JSON.parse(readFileSync(join(REPO, '.codex', 'hooks.json'), 'utf8')) as { hooks?: Hooks }
 const claude = JSON.parse(readFileSync(join(HOOKS, '..', 'settings.json'), 'utf8')) as { permissions?: { allow?: string[], deny?: string[] }, hooks?: Hooks }
 const scriptNames = Object.keys((JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }).scripts ?? {})
@@ -953,6 +956,10 @@ for (const e of gemini.hooks?.BeforeTool ?? []) {
 }
 if (gemini.tools?.allowed !== undefined)
   structural.push('.gemini/settings.json: tools.allowed is deprecated and denies every shell command it does not list, even in YOLO mode; leave it out')
+for (const name of ['AGENTS.md', 'GEMINI.md']) {
+  if (![gemini.context?.fileName ?? []].flat().includes(name))
+    structural.push(`.gemini/settings.json: context.fileName lacks ${name}`)
+}
 for (const e of codex.hooks?.SessionStart ?? []) {
   const sources = (e.matcher ?? '').split('|').filter(Boolean)
   for (const source of sources) {
@@ -991,6 +998,14 @@ for (const rule of claude.permissions?.allow ?? []) {
   const colon = /^pnpm (\S+):\*$/.exec(body)
   if (colon && scriptNames.some(n => n.startsWith(`${colon[1]}:`)))
     structural.push(`.claude/settings.json: allow rule ${rule} never matches the ${colon[1]}:* scripts (":*" is a space-wildcard); list each script`)
+}
+for (const cmd of ['pnpm verify', 'pnpm docs:list', 'pnpm docs:list decisions']) {
+  const allowed = (claude.permissions?.allow ?? []).some((rule) => {
+    const body = /^Bash\((.*)\)$/.exec(rule)?.[1] ?? ''
+    return body === cmd || (body.endsWith(':*') && `${cmd} `.startsWith(`${body.slice(0, -2)} `))
+  })
+  if (!allowed)
+    structural.push(`.claude/settings.json: no allow rule matches ${cmd}, so it prompts`)
 }
 
 const fails: string[] = []

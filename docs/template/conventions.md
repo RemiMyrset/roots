@@ -92,32 +92,28 @@ portability requirement. The choices, each with its why:
 - `secretlint` with the recommended preset runs on staged files at commit, in
   `pnpm verify`, and in CI: npm-native, no binary, no licence. It is the
   write-side counterpart to the secret-read guard.
-- Renovate keeps dependencies and action pins current from one synced
-  `renovate.json`: one grouped pull request a week, a two-day release cooldown
-  (the same one pnpm enforces at install), and automerge for the npm updates
-  the done gate proves; action bumps and majors wait for a human, because the
-  done gate cannot tell a malicious action from a good one and a major needs
-  reading. Nothing refreshed the catalog ranges or the action SHA pins before,
-  and Dependabot was rejected for opening one pull request per dependency.
-  Self-hosting Renovate was weighed and dropped: every child would have to
-  create a GitHub App and two secrets, while the Mend-hosted app is a two-click
-  install per repository, free for public and private ones, and leaves only the
-  config in git. Automerge is Renovate's own rather than GitHub's, since the
-  native one merges the moment the required checks pass and a child without a
-  ruleset requires none. The costs: a child installs the app once, the app
-  holds write access, and automerge trusts the done gate completely. The
-  recipe is in
-  [docs-toolchain](./docs-toolchain.md#keep-dependencies-current-with-renovate).
+- No update bot. The `update-deps` skill refreshes dependencies and action
+  pins when someone asks, through one pull request that passes the done gate,
+  and pnpm's `minimumReleaseAge` keeps every install on releases at least two
+  days old. Renovate shipped first and was dropped: it forces a third-party
+  app, and an account with its vendor, on every repository made from the
+  template, and the app holds write access. Dependabot was rejected for
+  opening one pull request per dependency. The cost: nothing proposes an
+  update until someone asks, and first run does not turn on GitHub's
+  Dependabot alerts, so an advisory surfaces only when someone runs
+  `pnpm audit`. `gh api -X PUT repos/OWNER/REPO/vulnerability-alerts` turns
+  the alerts on, and they open no pull requests. The recipe is in
+  [docs-toolchain](./docs-toolchain.md#keep-dependencies-current).
 - One pre-tool dispatcher runs node-only `deny-*` guards in all three tools, no
   shell shims and no npm dependencies, so they work before `pnpm install`. What
   they block, and what they cannot, is in [guards](./guards.md).
 - Template updates are pull-based and plain git: no bot, no token, nothing to
   install. `pnpm sync:template` stages the template's version of the synced
   paths, records the sync point, and prints the follow-ups a file copy cannot
-  carry, for template copies, forks, and pre-existing repos alike.
-  `package.json` and `.claude/settings.json` are never synced, so a template
-  change that needs a hand-edit ships as a breaking Conventional Commit whose
-  footer states it; recipe and contract are in
+  carry, for template copies, forks, and pre-existing repos alike. Only the
+  synced paths are copied, so a template change to any other file it ships
+  goes out as a breaking Conventional Commit whose footer names the edit; the
+  files, the recipe, and the contract are in
   [sync-template](./sync-template.md).
 
 ## Consequences

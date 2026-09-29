@@ -14,8 +14,17 @@ the skills, and the writing rules. It is template-owned and synced.
 | Path-scoped rules `.claude/rules/` | loaded when a matching path is touched | none; `AGENTS.md` carries the same pointers | none; `AGENTS.md` carries the same pointers |
 | Prompt-free commands | `permissions.allow` in `.claude/settings.json` | none shipped | none shipped |
 
-The guards' threat model is [guards](./guards.md). `.claude/settings.json` is
-never synced; every other file in the table is.
+The guards' threat model is [guards](./guards.md). `AGENTS.md`, `CLAUDE.md`,
+and `.claude/settings.json` are the child's own and never synced; every other
+file in the table is.
+
+Gemini's `context.fileName` lists `GEMINI.md` beside `AGENTS.md`, so each
+developer's own `~/.gemini/GEMINI.md` still loads; a `GEMINI.md` committed to
+the project would load too.
+
+`.claude/settings.json` sets `attribution` to empty strings, which drops
+Claude Code's co-author trailer from commits and its line from pull request
+bodies. Delete the block, or write your own text in it, to have them back.
 
 ## Trust and registration
 
@@ -134,6 +143,10 @@ stash drop prompts. Scripts with a colon in the name are listed one by one
 `Bash(pnpm test:*)` matches `pnpm test --watch` and never `pnpm test:hooks`.
 `pnpm --filter <pkg> <script>` prompts once per repository by design; a
 `--filter` rule wide enough to match would also approve `pnpm --filter x exec`.
+The file is the child's own, yet the synced `pnpm test:hooks` checks it:
+beside the hook registration and the home-directory deny rules, it requires
+allow rules for `pnpm verify` and `pnpm docs:list`, the two commands the docs
+send agents to most. Every other allow rule is the repository's choice.
 
 The template gives Gemini no prompt-free list, so an interactive session asks
 before every shell command outside its own built-in read-only set

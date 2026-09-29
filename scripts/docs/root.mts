@@ -7,7 +7,7 @@
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 
 /** Where decision records live, relative to the repository root. */
@@ -150,31 +150,142 @@ export function automdRegions(text: string): AutomdRegion[] {
   return out
 }
 
-const OPEN_FENCE_RE = /^ {0,3}(`{3,}|~{3,})/
-const CLOSE_FENCE_RE = /^ {0,3}(`{3,}|~{3,})\s*$/
+const FENCE_RUN_RE = /^(`{3,}|~{3,})/
+const CLOSE_RUN_RE = /^(`{3,}|~{3,})\s*$/
+const LEADING_SPACES_RE = /^ */
+// A list item opener after its indent: the marker, then its spaces or the end of the line.
+const LIST_MARKER_RE = /^(?:[-*+]|\d{1,9}[.)])(?= |$)/
+
+/**
+ * What a line-by-line fence scan carries from one line to the next: the open fence, with the
+ * column its container's content starts at, and the content column of each open list item,
+ * innermost last. Start from `{ lists: [] }`.
+ */
+export interface FenceState {
+  /** The open fence: its character, its run length (a close needs at least as many), and its container's content column. */
+  fence?: { char: string, len: number, col: number } | undefined
+  /** The content column of each open list item, innermost last. */
+  lists: number[]
+}
+
+/**
+ * Advances `state` over a line outside a fence and says whether the line opens one. A fence
+ * opens up to three spaces past the content column of the list item holding it (CommonMark),
+ * so a fence nested in a list item at four or more spaces is one; the line's list marker, if
+ * it has one, opens a list item first. A non-blank line indented less than an item's content
+ * ends that item; a lazy continuation line ends it early, so a fence below one is read as if
+ * it stood outside the list.
+ */
+export function fenceOpens(state: FenceState, line: string): boolean {
+  if (line.trim() === '')
+    return false
+  const indent = LEADING_SPACES_RE.exec(line)![0].length
+  state.lists = state.lists.filter(col => col <= indent)
+  let base = state.lists.at(-1) ?? 0
+  if (indent - base > 3)
+    return false
+  let at = indent
+  const marker = LIST_MARKER_RE.exec(line.slice(indent))
+  if (marker) {
+    const after = indent + marker[0].length
+    const spaces = LEADING_SPACES_RE.exec(line.slice(after))![0].length
+    // One to four spaces set the content column; none (an empty item) or five or more (an
+    // indented code block inside the item) put it one space past the marker.
+    base = after + (spaces >= 1 && spaces <= 4 && after + spaces < line.length ? spaces : 1)
+    state.lists.push(base)
+    at = after + spaces
+    if (at - base > 3)
+      return false
+  }
+  const run = FENCE_RUN_RE.exec(line.slice(at))
+  if (!run)
+    return false
+  state.fence = { char: run[1]![0]!, len: run[1]!.length, col: base }
+  return true
+}
+
+/**
+ * Advances `state` over a line inside the open fence and says whether the line belongs to it.
+ * The closing run, of the same character and at least the opener's length, belongs to it and
+ * closes it. A non-blank line indented less than the fence's container ends the list item
+ * holding the fence, and the fence with it: the line does not belong to the fence, so the
+ * caller reads it as an ordinary line (with fenceOpens).
+ */
+export function fenceContinues(state: FenceState, line: string): boolean {
+  const fence = state.fence
+  if (!fence)
+    return false
+  const indent = LEADING_SPACES_RE.exec(line)![0].length
+  if (line.trim() !== '' && indent < fence.col) {
+    state.fence = undefined
+    return false
+  }
+  const close = indent - fence.col <= 3 ? CLOSE_RUN_RE.exec(line.slice(indent)) : null
+  if (close && close[1]![0] === fence.char && close[1]!.length >= fence.len)
+    state.fence = undefined
+  return true
+}
 
 /**
  * The text with every fenced code block blanked, markers included, line count preserved,
- * so a line-anchored regex cannot match an example inside a fence. Only fences indented
- * three spaces or fewer are tracked (no blockquoted or list-nested fences), which is what
- * the decision and spec pages use; a fence of the same character and at least the opener's
- * length closes, as in CommonMark.
+ * so a line-anchored regex cannot match an example inside a fence. Fences at the top level
+ * and inside list items are tracked (fenceOpens), blockquoted ones are not, which is what the
+ * decision and spec pages use; a fence of the same character and at least the opener's length
+ * closes, as in CommonMark.
  */
 export function stripFences(text: string): string {
-  let fence: { char: string, len: number } | undefined
+  const state: FenceState = { lists: [] }
   return text.split('\n').map((line) => {
-    if (!fence) {
-      const open = line.match(OPEN_FENCE_RE)
-      if (!open)
-        return line
-      fence = { char: open[1]![0]!, len: open[1]!.length }
+    if (state.fence && fenceContinues(state, line))
       return ''
-    }
-    const close = line.match(CLOSE_FENCE_RE)
-    if (close && close[1]![0] === fence.char && close[1]!.length >= fence.len)
-      fence = undefined
-    return ''
+    return fenceOpens(state, line) ? '' : line
   }).join('\n')
+}
+
+// Directory listings read for pathCase, by absolute directory.
+const listings = new Map<string, ReadonlySet<string>>()
+
+function listing(dir: string): ReadonlySet<string> {
+  let names = listings.get(dir)
+  if (!names) {
+    try {
+      names = new Set(readdirSync(dir))
+    }
+    catch {
+      names = new Set()
+    }
+    listings.set(dir, names)
+  }
+  return names
+}
+
+/**
+ * Whether `target` exists with the exact case written, checked segment by segment below
+ * `root`: `'exact'`; `'missing'`; or, when only a spelling in another case exists, that
+ * spelling relative to `root` with forward slashes. On a case-insensitive disk (macOS,
+ * Windows) `existsSync` accepts a wrong-case link that Linux CI and GitHub then fail. A
+ * target outside `root` is checked for existence only.
+ */
+export function pathCase(root: string, target: string): 'exact' | 'missing' | string {
+  const rel = relative(resolve(root), resolve(target))
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
+    return existsSync(target) ? 'exact' : 'missing'
+  let dir = resolve(root)
+  const actual: string[] = []
+  let wrongCase = false
+  for (const segment of rel.split(sep)) {
+    const names = listing(dir)
+    let name = names.has(segment) ? segment : undefined
+    if (name === undefined) {
+      name = [...names].find(n => n.toLowerCase() === segment.toLowerCase())
+      if (name === undefined)
+        return 'missing'
+      wrongCase = true
+    }
+    actual.push(name)
+    dir = join(dir, name)
+  }
+  return wrongCase ? actual.join('/') : 'exact'
 }
 
 const SLUG_DROP_RE = /[^\p{L}\p{N}\p{M}\s_-]/gu
