@@ -61,6 +61,8 @@
       "Bash(pnpm docs:gen)",
       "Bash(pnpm docs:check)",
       "Bash(pnpm docs:portability)",
+      "Bash(pnpm docs:list)",
+      "Bash(pnpm docs:list:*)",
       "Bash(pnpm docs:internal:build)",
       "Bash(pnpm docs:public:build)",
       "Bash(pnpm sync:template:*)",

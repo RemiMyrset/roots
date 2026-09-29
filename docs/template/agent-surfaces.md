@@ -17,6 +17,14 @@ the skills, and the writing rules. It is template-owned and synced.
 The guards' threat model is [guards](./guards.md). `.claude/settings.json` is
 never synced; every other file in the table is.
 
+Gemini's `context.fileName` lists `GEMINI.md` beside `AGENTS.md`, so each
+developer's own `~/.gemini/GEMINI.md` still loads; a `GEMINI.md` committed to
+the project would load too.
+
+`.claude/settings.json` sets `attribution` to empty strings, which drops
+Claude Code's co-author trailer from commits and its line from pull request
+bodies. Delete the block, or write your own text in it, to have them back.
+
 ## Trust and registration
 
 Each tool gates project-level config differently, and until its gate is
