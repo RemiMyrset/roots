@@ -64,6 +64,7 @@ const MECHANICS = [
   '.github/PULL_REQUEST_TEMPLATE.md',
   'docs/template',
   'scripts/docs',
+  'scripts/lint-secrets.mts',
   'scripts/prepare.mts',
   'scripts/sync-template.mts',
   'scripts/test-hooks.mts',

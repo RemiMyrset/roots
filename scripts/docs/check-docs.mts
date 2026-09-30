@@ -443,12 +443,15 @@ function checkTemplateContracts(): void {
 }
 
 // --- rulebooks ---------------------------------------------------------------
-// AGENTS.md declares a hard 200-line budget for itself and every nested rulebook.
+// AGENTS.md declares a hard 200-line budget for itself and every nested rulebook. A directory
+// with its own `.git` entry (a linked worktree under .claude/worktrees, a nested clone, a
+// submodule) is another checkout: its rulebook is its own, and another agent's half-finished
+// edit there must not fail this one.
 const RULEBOOK_BUDGET = 200
 function rulebooks(dir: string): string[] {
   const out: string[] = []
   for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.isDirectory() && !SKIP_DIRS.has(e.name))
+    if (e.isDirectory() && !SKIP_DIRS.has(e.name) && !existsSync(join(dir, e.name, '.git')))
       out.push(...rulebooks(join(dir, e.name)))
     else if (e.isFile() && e.name === 'AGENTS.md')
       out.push(join(dir, e.name))

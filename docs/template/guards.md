@@ -149,11 +149,16 @@ threat model above.
 
 `.npmrc` is denied: a filename cannot prove it holds no `_authToken`, and
 `pnpm config list` shows the effective config with tokens masked. `.gitignore`
-covers the repo-shaped subset of the set (env files, keystores, `secrets/`,
-`.git-credentials`, `.pgpass`, the bare SSH key names) except `.npmrc`, which a
-project may legitimately commit with `${VAR}` references (secretlint catches a
-literal token); the other machine-credential files live outside any repository
-and are covered by the guard and the Read list only.
+covers the repo-shaped subset of the set (the lowercase env-file names the
+guard denies, keystores, `secrets/`, `.git-credentials`, `.pgpass`, the bare
+SSH key names) except `.npmrc`, which a project may legitimately commit with
+`${VAR}` references (secretlint catches a literal token); the other
+machine-credential files live outside any repository and are covered by the
+guard and the Read list only.
+
+`.gitignore` lists the lowercase env-file names, and `pnpm test:gates` checks
+them against the guard. The guard also denies case variants such as `.ENV`,
+which a case-sensitive checkout does not ignore.
 
 Beyond the shared out-of-scope list, this guard cannot catch a recursive walker
 with no secret literal (`grep -r .`), a filename routed via xargs or a stdin
@@ -171,13 +176,20 @@ secret with `-exec` is denied whatever program it runs (`-exec ls`), because
 
 The deny rules above stop the agent from reading secret files; `secretlint`
 stops a secret already in the working tree from reaching git.
-`pnpm lint:secrets` scans every tracked file with the recommended preset (cloud
-credentials, private keys, tokens; `.gitignore` is honoured), the pre-commit
-hook runs it on every staged file ([Hook bypass](#hook-bypass) lists the
-hooks), and `pnpm verify` and CI run it after ESLint. A finding is fixed by
-removing the secret and rotating it, never by
-loosening `.secretlintrc.json`; a deliberate false positive in a test fixture
-gets an inline `secretlint-disable` comment with a reason.
+`pnpm lint:secrets` scans, with the recommended preset (cloud credentials,
+private keys, tokens), every tracked file (a force-added gitignored one
+included) and every untracked file `.gitignore` does not exclude, so a
+developer's real untracked `.env` stays unread. `pnpm verify` and CI run it
+after ESLint, and the pre-commit hook runs secretlint on each staged file
+`.gitignore` does not match ([Hook bypass](#hook-bypass) lists the hooks).
+
+secretlint applies the `.gitignore` cascade to every path it is given and
+passes when that leaves nothing to scan, so `scripts/lint-secrets.mts` runs it
+twice: over every file, `.gitignore` honoured, then over the tracked files
+git's ignore rules match, `.gitignore` off. A finding is fixed by removing the
+secret and rotating it, never by loosening `.secretlintrc.json`; a deliberate
+false positive in a test fixture gets an inline `secretlint-disable` comment
+with a reason.
 
 ## Push protection
 
@@ -307,7 +319,8 @@ hooks. Pre-commit runs lint-staged: ESLint with `--fix` on staged TypeScript
 and JavaScript, ESLint without it on staged JSON and YAML (the pnpm catalog
 fix would write an unstaged `pnpm-workspace.yaml`, so the rule fails the
 commit and `pnpm lint:fix` then `pnpm install` repair it), the portability
-checker when a markdown file is staged, and secretlint on every staged file.
+checker when a markdown file is staged, and secretlint on every staged file
+`.gitignore` does not match.
 It runs with `CI=1` so the antfu config lints the same way it does in CI
 rather than in editor mode; commit-msg runs commitlint. `deny-hook-bypass` keeps them in force. It denies
 `--no-verify` (and its unique abbreviations) on `git commit`, `git push`, and

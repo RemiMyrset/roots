@@ -170,7 +170,7 @@ pnpm install
 | `pnpm --filter <package> test` | One package's tests (`test:watch` for watch mode) |
 | `pnpm --filter @repo/example-app start` | Runs the sample CLI (`node src/main.ts`) against the sample package |
 | `pnpm lint` / `pnpm lint:fix` | ESLint (antfu flat config) repo-wide |
-| `pnpm lint:secrets` | secretlint over every tracked file |
+| `pnpm lint:secrets` | secretlint over every tracked file (a force-added gitignored one included) and every untracked file `.gitignore` does not exclude |
 | `pnpm boundaries` | turbo boundaries: no import leaves its package by relative path, and every imported package is declared |
 | `pnpm test:hooks` | Agent guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |

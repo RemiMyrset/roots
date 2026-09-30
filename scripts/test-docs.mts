@@ -4,40 +4,40 @@
  * record a past bug — plus the readers (readers.mts) called directly and the skills mirror
  * generator (gen-skills.mts). Copies a fixture tree (scripts/docs/fixtures/clean, /broken)
  * to a temp dir, runs each script with that cwd, and asserts the exit code and the messages.
- * Also pins the rulebook budget, the CI-annotation gating, a missing docs dir, the
- * three-step repo-root fallback, the stale-region comparison (with a CRLF checkout), the
- * skills mirror clean, drifted, generated, and absent, a region holding merge conflict
- * lines (named, then repaired by automd), dated and legacy decision records side by side (a
- * legacy-only table byte for byte as before), index pages without regions, `docs:list`, a
- * Status keyword matched whole, Source and Tests values with a line reference, a route-file
- * path (a param matcher and a `%5F` escape too), a wrapped line, or no path, a stale template
- * page's remedy, sidebar text escaped as HTML and a Status comment dropped by the readers,
- * fences nested in list items, inline code wrapped across lines, link targets spelled with a
- * space, percent-encoding, or the wrong case or starting on the next line, public pages that
- * link outside docs/public or to its root, symlinks out of docs/public (made at test time,
- * skipped where the platform refuses one), a VitePress include or snippet in every form
- * VitePress expands, reference definitions in quotes and list items (the destination on the
- * next line too, the label escaped or wrapped, a `[^label]:` one on a public page) but not a
- * `[Term]:` followed by prose, automd regions on a public page (filled by the installed automd
- * to show each refused one leaks, a `ſrc` key among them) and a multi-line automd opener, text
- * the checker must not blank (after an escaped backtick, where a list item, a quote, a
- * thematic break, a setext underline, a table's header row, or an HTML block's start ends the
- * paragraph a stray backtick opened, after a comment opener its paragraph never closes, below a
- * comment its quote or list item ends, below a `<!--` in indented code, space- or
- * tab-indented, below a backtick fence whose info string holds a backtick, in a mid-line
- * comment VitePress's grammar refuses: a `--` in it, `<!-->`, an escaped `<`, a table cell's
- * pipe, a code span opened first, a link's title holding it, a nested item's heading, a table,
- * or an HTML block ending the paragraph; and in blocks read as VitePress reads them: an HTML
- * block's lines, which hold no code span and no fence, a table's rows, split at their pipes,
- * and list items, lazy lines, and quotes as CommonMark nests them), while a comment that
- * grammar accepts stays hidden (holding a pipe, in a table cell or an HTML block, past a lone
- * `<br>`), a tab-indented fence in a list item, a quoted fence that ends with its quote, and the
- * property dated names exist for: two git branches that each add a record merge with no
- * conflict. The skill trees are planted in the copy at test time: a fixture under
- * `.claude/skills` would be listed as a live skill. Runs in CI on Ubuntu and Windows via
- * `pnpm test:docs`. Node builtins only; git runs with an isolated config; the automd runs
- * use the installed automd in a child process and are skipped, with a note, where automd is
- * not installed.
+ * Also pins the rulebook budget (a nested checkout's rulebook left out), the CI-annotation
+ * gating, a missing docs dir, the three-step repo-root fallback, the stale-region comparison
+ * (with a CRLF checkout), the skills mirror clean, drifted, generated, and absent, a region
+ * holding merge conflict lines (named, then repaired by automd), dated and legacy decision
+ * records side by side (a legacy-only table byte for byte as before), index pages without
+ * regions, `docs:list`, a Status keyword matched whole, Source and Tests values with a line
+ * reference, a route-file path (a param matcher and a `%5F` escape too), a wrapped line,
+ * or no path, a stale template page's remedy, sidebar text escaped as HTML and a Status
+ * comment dropped by the readers, fences nested in list items, inline code wrapped across
+ * lines, link targets spelled with a space, percent-encoding, or the wrong case or starting
+ * on the next line, public pages that link outside docs/public or to its root, symlinks out of
+ * docs/public (made at test time, skipped where the platform refuses one), a VitePress include
+ * or snippet in every form VitePress expands, reference definitions in quotes and list items
+ * (the destination on the next line too, the label escaped or wrapped, a `[^label]:` one
+ * on a public page) but not a `[Term]:` followed by prose, automd regions on a public page
+ * (filled by the installed automd to show each refused one leaks, a `ſrc` key among them)
+ * and a multi-line automd opener, text the checker must not blank (after an escaped backtick,
+ * where a list item, a quote, a thematic break, a setext underline, a table's header row, or
+ * an HTML block's start ends the paragraph a stray backtick opened, after a comment opener
+ * its paragraph never closes, below a comment its quote or list item ends, below a `<!--`
+ * in indented code, space- or tab-indented, below a backtick fence whose info string holds
+ * a backtick, in a mid-line comment VitePress's grammar refuses: a `--` in it, `<!-->`, an
+ * escaped `<`, a table cell's pipe, a code span opened first, a link's title holding it,
+ * a nested item's heading, a table, or an HTML block ending the paragraph; and in blocks
+ * read as VitePress reads them: an HTML block's lines, which hold no code span and no fence,
+ * a table's rows, split at their pipes, and list items, lazy lines, and quotes as CommonMark
+ * nests them), while a comment that grammar accepts stays hidden (holding a pipe, in a table
+ * cell or an HTML block, past a lone `<br>`), a tab-indented fence in a list item, a quoted
+ * fence that ends with its quote, and the property dated names exist for: two git branches that
+ * each add a record merge with no conflict. The skill trees are planted in the copy at test
+ * time: a fixture under `.claude/skills` would be listed as a live skill. Runs in CI on Ubuntu
+ * and Windows via `pnpm test:docs`. Node builtins only; git runs with an isolated config; the
+ * automd runs use the installed automd in a child process and are skipped, with a note, where
+ * automd is not installed.
  */
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -502,7 +502,8 @@ function runAutomd(cwd: string): Run {
   check('two days ahead is in the future', future.out.includes('is in the future'), future.out)
 }
 
-// 4. The rulebook budget applies to every AGENTS.md in the tree: 200 lines pass, 201 fail.
+// 4. The rulebook budget applies to every AGENTS.md in this checkout (a nested checkout's is
+// its own): 200 lines pass, 201 fail.
 {
   const over = fixture('clean')
   mkdirSync(join(over, 'packages/x'), { recursive: true })
@@ -516,6 +517,20 @@ function runAutomd(cwd: string): Run {
   writeFileSync(join(exact, 'packages/x/AGENTS.md'), `# Big\n${'- line\n'.repeat(199)}`)
   const ok = run('docs:check', exact, withoutCi)
   check('rulebook of exactly 200 lines passes', ok.status === 0, ok.out)
+
+  // A directory with its own `.git` entry is another checkout, so its rulebook is its own: a
+  // linked worktree (a `.git` file) and a nested clone (a `.git` directory).
+  const nested = fixture('clean')
+  for (const [dir, git] of [['.claude/worktrees/lane', 'file'], ['vendor/clone', 'dir']] as const) {
+    mkdirSync(join(nested, dir), { recursive: true })
+    if (git === 'file')
+      writeFileSync(join(nested, dir, '.git'), 'gitdir: /elsewhere/.git/worktrees/lane\n')
+    else
+      mkdirSync(join(nested, dir, '.git'))
+    writeFileSync(join(nested, dir, 'AGENTS.md'), `# Big\n${'- line\n'.repeat(200)}`)
+  }
+  const skipped = run('docs:check', nested, withoutCi)
+  check('a rulebook in a nested checkout is not held to the budget', skipped.status === 0 && !skipped.out.includes('rulebook budget'), skipped.out)
 }
 
 // 5. Warnings are GitHub annotations only under GitHub Actions.

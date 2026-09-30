@@ -106,7 +106,9 @@ fails on drift. The checks:
   one's error says deleting it stops the next one
 - no page under `docs/` holds a `<<<<<<<` conflict line outside a region or a
   fence
-- every `AGENTS.md` is within the 200-line budget
+- every `AGENTS.md` in this checkout is within the 200-line budget; a
+  directory with its own `.git` entry (a worktree under `.claude/worktrees/`, a
+  nested clone) is another checkout and is skipped
 - `.agents/skills` matches `.claude/skills` byte for byte
 
 ## In-flight planning

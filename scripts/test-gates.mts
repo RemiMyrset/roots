@@ -303,10 +303,12 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // the node-version file (the major) and CI's turbo cache key the exact node; the pre-commit
 // hook must run ESLint on every file type a repo rule covers; every package tsconfig must take
 // in every TypeScript file of its package; the install hook must set up the git hooks in a
-// checkout and leave a linked worktree alone; and verify's docs drift gate must skip only
-// outside a git checkout, failing on any other git error. It runs the installed eslint,
-// turbo, typescript, and simple-git-hooks, so it needs the install that verify and CI run
-// first. The probes that need files write them to a temp directory only.
+// checkout and leave a linked worktree alone; verify's docs drift gate must skip only
+// outside a git checkout, failing on any other git error; the secret scan must fail on a
+// force-added `.env` and pass an untracked one; and .gitignore must ignore every env-file name
+// the secret-read guard denies. It runs the installed eslint, turbo, typescript,
+// simple-git-hooks, and secretlint, so it needs the install that verify and CI run first. The
+// probes that need files write them to a temp directory only.
 const failures: string[] = []
 const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
@@ -646,6 +648,83 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
   }
 }
 
+// The secret scan, run in a repository whose .gitignore lists `.env`: secretlint applies the
+// .gitignore cascade to every path it is given, so `pnpm lint:secrets` runs
+// scripts/lint-secrets.mts, which must pass a `.env` holding a token while it is untracked (a
+// developer's real one) and fail it once `git add -f` tracks it. The probe writes its own
+// secretlint config, so a repository's own rule choices do not decide it.
+{
+  const scripts = parseJson<{ scripts?: Record<string, unknown> }>(readFileSync(join(root, 'package.json'), 'utf8'))?.scripts ?? {}
+  const command = scripts['lint:secrets']
+  if (typeof command !== 'string' || !/\bscripts\/lint-secrets\.mts\b/.test(command))
+    failures.push(`package.json runs \`${String(command)}\` as lint:secrets, which skips a file git tracks although .gitignore matches it; set it to \`node scripts/lint-secrets.mts\``)
+  const env = probeEnv(join(root, 'node_modules', '.bin'))
+  const repo = join(tmp, 'secrets-repo')
+  mkdirSync(repo)
+  writeFileSync(join(repo, '.gitignore'), '.env\n')
+  writeFileSync(join(repo, '.secretlintrc.json'), `${JSON.stringify({ rules: [{ id: '@secretlint/secretlint-rule-preset-recommend' }] })}\n`)
+  // A GitHub token the recommended preset flags, assembled here so this file holds none.
+  writeFileSync(join(repo, '.env'), `GITHUB_TOKEN=${['ghp', 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'].join('_')}\n`)
+  const lintSecrets = join(root, 'scripts', 'lint-secrets.mts')
+  const scan = (): { status: number | null, out: string } => runIn(env, repo, process.execPath, lintSecrets)
+  const init = runIn(env, repo, 'git', 'init', '-q')
+  if (!existsSync(lintSecrets)) {
+    failures.push('scripts/lint-secrets.mts is missing, so nothing scans a file git tracks although .gitignore matches it; run `pnpm sync:template`')
+  }
+  else if (init.status !== 0) {
+    failures.push(`could not set up the git repository for the secret scan probe: ${init.out.trim()}`)
+  }
+  else {
+    const untracked = scan()
+    if (untracked.status !== 0)
+      failures.push(`scripts/lint-secrets.mts failed on an untracked .env that .gitignore matches (exit ${untracked.status}), so it fails for anyone who keeps a real one: ${untracked.out.trim()}`)
+    const add = runIn(env, repo, 'git', 'add', '-f', '.env')
+    const forced = scan()
+    if (add.status !== 0 || forced.status === 0 || !forced.out.includes('GITHUB_TOKEN'))
+      failures.push(`scripts/lint-secrets.mts did not flag a force-added .env holding a GitHub token (exit ${forced.status}), so a tracked secret .gitignore matches reaches CI unscanned: ${add.out.trim()}${forced.out.trim()}`)
+  }
+}
+
+// .gitignore ignores each env-file name the secret-read guard denies, so `git add -A` stages
+// none, and neither name the guard lets an agent read: the `.env.example` carve-out and
+// `.environment`, which `.env*` would catch. The guard is asked first, so the lists stay its
+// own; git reads the root .gitignore alone, in a repository of its own. GIT_CONFIG_GLOBAL alone
+// would still let git read $XDG_CONFIG_HOME/git/ignore (or ~/.config/git/ignore), the default
+// core.excludesFile, so the call points core.excludesFile at a file that does not exist: a
+// developer's global `.env*` cannot fail the check, nor a global `.env~` hide a missing line.
+const SECRET_ENV_NAMES = ['.env', '.env.local', '.env.production', '.env-prod', '.env_x', '.env~', '.envrc', '.envrc.local', '.envrc-x', '.envrc_x', '.envrc~']
+const READABLE_ENV_NAMES = ['.env.example', '.environment']
+{
+  const { verdict } = await import('../.claude/hooks/deny-secret-reads.mts')
+  const ctx = { cwd: root, env: process.env, settingsFile: join(root, '.claude', 'settings.json') }
+  const outOfStep = [
+    ...SECRET_ENV_NAMES.filter(name => verdict(`cat ${name}`, ctx) === null),
+    ...READABLE_ENV_NAMES.filter(name => verdict(`cat ${name}`, ctx) !== null),
+  ]
+  if (outOfStep.length > 0)
+    failures.push(`the env-file name lists disagree with .claude/hooks/deny-secret-reads.mts on ${outOfStep.join(', ')}; move each to the list that matches the guard's verdict`)
+  const env = probeEnv(join(root, 'node_modules', '.bin'))
+  const repo = join(tmp, 'gitignore-repo')
+  mkdirSync(repo)
+  const gitignore = join(root, '.gitignore')
+  writeFileSync(join(repo, '.gitignore'), existsSync(gitignore) ? readFileSync(gitignore) : '')
+  const init = runIn(env, repo, 'git', 'init', '-q')
+  const check = runIn(env, repo, 'git', '-c', `core.excludesFile=${join(tmp, 'no-global-excludes')}`, 'check-ignore', '--no-index', ...SECRET_ENV_NAMES, ...READABLE_ENV_NAMES)
+  // check-ignore exits 0 when it prints an ignored name, 1 when there is none.
+  if (init.status !== 0 || (check.status !== 0 && check.status !== 1)) {
+    failures.push(`could not read .gitignore with git check-ignore: ${init.out.trim()}${check.out.trim()}`)
+  }
+  else {
+    const ignored = new Set(check.out.split(/\r?\n/))
+    const missed = SECRET_ENV_NAMES.filter(name => !ignored.has(name))
+    if (missed.length > 0)
+      failures.push(`.gitignore leaves ${missed.join(', ')} unignored, which the secret-read guard treats as secrets, so \`git add -A\` stages one; list \`.env\`, \`.env.*\`, \`.env-*\`, \`.env_*\`, \`.env~*\`, \`.envrc\`, \`.envrc.*\`, \`.envrc-*\`, \`.envrc_*\`, and \`.envrc~*\`, then \`!.env.example\``)
+    const over = READABLE_ENV_NAMES.filter(name => ignored.has(name))
+    if (over.length > 0)
+      failures.push(`.gitignore ignores ${over.join(', ')}, which the secret-read guard lets an agent read; ignore the env-file names by their separator rather than \`.env*\`, and end the list with \`!.env.example\``)
+  }
+}
+
 if (failures.length > 0) {
   console.error(`\n✖ gates — ${failures.length} rule(s) the gates do not hold:\n`)
   for (const f of failures)
@@ -653,4 +732,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets fails a force-added .env and passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies`)
