@@ -835,7 +835,8 @@ const paths = [...MECHANICS.filter(p => !exclude.has(p)), ...(state?.include ?? 
 // bootstraps by dropping a fresh copy in place and running it, and the checkout below
 // replaces it with the template's version anyway), and the state file when it is staged
 // and otherwise clean, which is what a previous run left behind; a second run before the
-// commit must not refuse its own work.
+// commit must not refuse its own work. The refusal says commit, never stash: every linked
+// worktree shares one stash list, so another session's bare `git stash pop` can take the entry.
 const dirty: string[] = []
 const statusEntries = zList(tryGit(['status', '--porcelain', '-z', '--', ...paths, STATE_FILE]))
 for (let i = 0; i < statusEntries.length; i++) {
@@ -851,7 +852,7 @@ for (let i = 0; i < statusEntries.length; i++) {
   dirty.push(entry)
 }
 if (dirty.length > 0)
-  fail(`Uncommitted changes in template-managed paths — commit or stash first (a previous sync's staged files count too: commit them, or discard with git restore --staged --worktree <path>):\n\n${dirty.join('\n')}`)
+  fail(`Uncommitted changes in template-managed paths — commit first (a previous sync's staged files count too: commit them, or discard with git restore --staged --worktree <path>):\n\n${dirty.join('\n')}`)
 
 if (existingRemote === undefined)
   git(['remote', 'add', '--no-tags', REMOTE, url])

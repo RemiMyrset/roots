@@ -20,13 +20,15 @@ and the contract are in `docs/template/sync-template.md`.
    missing follow-up on a first run:
    `mkdir -p scripts && git fetch --no-tags https://github.com/RemiMyrset/roots.git main && git show FETCH_HEAD:scripts/sync-template.mts > scripts/sync-template.mts`
 2. Start clean. The script refuses uncommitted changes under the synced paths
-   and in `.template-sync.json`; commit or stash them first, never discard
-   them. Commit an edited `.template-sync.json`, never stash it: the sync would
-   run without its `exclude` and `include`.
+   and in `.template-sync.json`; commit them first, never discard them. Never
+   stash them: every linked worktree shares one stash list, so another
+   session's `git stash pop` can take the entry, and a stashed
+   `.template-sync.json` runs the sync without its `exclude` and `include`.
 3. Run `pnpm sync:template`, or `node scripts/sync-template.mts` while
    `package.json` has no `sync:template` script (add the fork URL if this repo
    tracks a fork, or `--ref <branch|tag>` to pin a template branch or tag; both
-   are remembered). Claude Code runs it without a prompt; Codex and Gemini ask.
+   are remembered). Claude Code runs the `pnpm` form without a prompt and asks
+   before the `node` one; Codex and Gemini ask.
    If it stops on an invalid `.template-sync.json`, fix the field it names;
    deleting the file drops its `exclude` and `include`.
    Read the output top to bottom. On a first sync, the `Baseline:` line says how

@@ -12,7 +12,9 @@ for the next run unless a `minimumReleaseAgeExclude` entry names it (step 3).
 Why there is no update bot is in `docs/template/conventions.md`.
 
 Work on a branch such as `chore/update-deps`, cut from an up-to-date default
-branch with a clean tree.
+branch with a clean tree. Claude Code asks before each `pnpm outdated`,
+`pnpm update`, `pnpm audit`, and `gh api` call: the allowlist leaves them out
+(Permission prompts in `docs/template/agent-surfaces.md`).
 
 1. List. `pnpm outdated -r` prints every dependency with a newer release, with
    its current and latest version, and exits 1 whenever it prints one; that is

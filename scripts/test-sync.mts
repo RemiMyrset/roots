@@ -391,6 +391,8 @@ refused('invalid ref', json({ ...VALID, ref: '-x' }), '"ref"')
   const r = run(child)
   check('dirty path exits 1', r.status === 1, `status ${r.status}`)
   check('dirty path named', r.stderr.includes('Uncommitted changes') && r.stderr.includes('.claude/skills/x/SKILL.md'))
+  // Linked worktrees share one stash list, so the refusal must never send anyone to stash.
+  check('dirty path says commit, never stash', r.stderr.includes('commit first') && !/stash/i.test(r.stderr), r.stderr)
   check('failures carry the mark', r.stderr.startsWith('✖ '))
   gitSafe(child, 'checkout', '--', '.')
 }

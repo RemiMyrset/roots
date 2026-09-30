@@ -76,9 +76,11 @@ to stop pulling it (say `.gemini/settings.json` once you have local Gemini
 settings), or an extra path under `include` (for example `tsconfig.base.json`
 or `eslint.config.ts`) to pull it too. You can write the file by hand before
 the first sync and commit it; the sync fills in `commit`. An uncommitted state
-file is refused like any other change (behavior 7), and a stashed one takes
-its lists with it. Never edit `MECHANICS` in the script itself: the script is
-synced, and the edit would be staged for revert on the next run.
+file is refused like any other change (behavior 7); commit it, never stash it:
+a stashed one takes its lists with it, and a stash is not private to a worktree
+([agent-surfaces](./agent-surfaces.md#permission-prompts)). Never edit
+`MECHANICS` in the script itself: the script is synced, and the edit would be
+staged for revert on the next run.
 
 An organization that keeps its own fork of roots as its template syncs the
 fork from roots, and a repository made from the fork syncs from the fork. The
@@ -339,10 +341,11 @@ stderr.
    `commit`, the run is a first sync with no warning that uses the file's
    `url` and lists. A leading byte-order mark is ignored.
 7. Given uncommitted changes under a synced path or to the state file, when run,
-   then exit `1`, stderr names the paths, nothing is fetched or staged, and the
-   `template` remote is not added or changed. `scripts/sync-template.mts`
-   itself never counts, untracked or modified: a fresh copy dropped in by hand
-   is how an older repo bootstraps. The state file counts only when it has
+   then exit `1`, stderr names the paths and says to commit them without ever
+   suggesting a stash, nothing is fetched or staged, and the `template` remote
+   is not added or changed. `scripts/sync-template.mts` itself never counts,
+   untracked or modified: a fresh copy dropped in by hand is how an older repo
+   bootstraps. The state file counts only when it has
    worktree changes: staged and clean is what a previous run left, so a second
    run before the commit proceeds.
 8. Given an untracked copy of the script, or an older tracked and now modified
