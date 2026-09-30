@@ -136,7 +136,11 @@ The dispatcher imports every `deny-*.mts` in the directory and runs its
 call, and a guard that throws or exports no verdict denies too. It also denies
 when the hook input is not a payload with a string `tool_input.command`
 (malformed JSON, a missing or null field) and when stdin never closes within
-five seconds. A dispatcher that cannot start (node missing or too old to run
+five seconds. That watchdog covers only the delivery of the input: it stops
+once stdin closes, so a guard that runs longer still returns its own verdict
+rather than a report of missing input.
+
+A dispatcher that cannot start (node missing or too old to run
 `.mts`, a file that fails to load) denies as well, and so does a pnpm that
 fails or is missing under Codex or Gemini, whose registrations run through it:
 each registration maps any failure to exit 2
@@ -222,11 +226,22 @@ reaches the home directory. The Bash-path guard `deny-secret-reads`
 covers the common shell-read forms of the same set (`.env` and `.envrc` matched
 case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
 readable; `credentials`, `config`, and `hosts.yml` count only under their
-credential directory): direct readers, `<` redirects (including `$(<file)` and
-`<>`), `pnpm exec` wrappers, and a glob that can expand to one of those names
-(`.env*`, `~/.ssh/*`, `secret?/api.txt`, `?ecrets/api.txt`, `certs/*.pe?`).
+credential directory): direct readers, `git diff`, `git difftool`,
+`git grep`, and `git blame`, `<` redirects (including `$(<file)` and `<>`), `pnpm exec`
+wrappers, and a glob that can expand to one of those names (`.env*`,
+`~/.ssh/*`, `secret?/api.txt`, `?ecrets/api.txt`, `certs/*.pe?`).
 A glob counts only where bash expands it: a quoted or escaped `*`, `?`, or `[`
-is text, so a search pattern such as `grep "import .* from"` passes. `find -exec` and `-ok` are denied when a word
+is text, so a search pattern such as `grep "import .* from"` passes.
+
+The git subcommands count as readers because `git diff`, `git difftool`, and
+`git grep` read the working tree under `--no-index`, and git diff turns that
+mode on by itself when a path lies outside the worktree (`git diff /dev/null
+.env`); `git blame --contents` prints the file it names. A secret named as a
+long option's `--name=` value, or glued to a short `-f` or `-g`, counts like
+the same name written as its own word: `--include=.env`, `--from-file=.env`,
+`-f.env`, `-fid_rsa`, and rg's `-g.env`.
+
+`find -exec` and `-ok` are denied when a word
 names a secret or a `-name` or `-path` pattern can match one, quoted or not,
 because find matches it itself. A pattern whose matches can never reach the
 `-exec` passes: a negated one (`-not -path '*/.*'`), or a pruned one with
@@ -250,15 +265,21 @@ and are covered by the guard and the Read list only.
 
 Beyond the shared out-of-scope list, this guard cannot catch a recursive walker
 with no secret literal (`grep -r .`), a filename routed via xargs or a stdin
-pipe, or a glob that opens with a wildcard outside a credential directory
+pipe, a secret glued to a short option other than `-f` or `-g`, or a glob that opens with a wildcard outside a credential directory
 (`*rc`) or stops short of a key extension (`key.*`). The backstop is
 `.gitignore`, the Read-tool deny list, and human review.
 
 Known over-block (safe direction, never a bypass): a reader whose
-secret-looking token is a search term or output prefix (`look .env`,
-`split in .env_`) is denied although it reads no secret. `find` pointed at a
-secret with `-exec` is denied whatever program it runs (`-exec ls`), because
-`-exec sh -c …` can read what it is handed. Rephrase or run it in a terminal.
+secret-looking token is a search term, an output prefix, a pathspec, or an
+exclusion is denied although it reads no secret (`look .env`, `split in .env_`,
+`git grep '\.env'`, `git diff -- .env`, `--exclude .env`,
+`--exclude-dir=secrets`). A grep or diff exclusion is denied in either spelling
+because the guard cannot tell it from an include such as rg's `-g .env`, which
+makes rg read the file; rg's negated glob (`-g '!.env'`) passes.
+
+`find` pointed at a secret with `-exec` is denied whatever program it runs
+(`-exec ls`), because `-exec sh -c …` can read what it is handed. Rephrase
+either kind of command or run it in a terminal.
 
 ## Secrets in commits
 

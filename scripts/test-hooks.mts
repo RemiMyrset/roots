@@ -392,6 +392,60 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \'secrets\\token\'' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \'C:\\Users\\me\\.ssh\\id_rsa\'' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'echo "a\\nb"' },
+  // git diff, difftool, and grep read the working tree under --no-index, which a path outside
+  // the worktree turns on for git diff, and git blame --contents prints the file it names.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git diff /dev/null .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git diff --no-index .env.example .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git difftool --no-index -y -x cat /dev/null .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git -C . --no-pager diff /dev/null ~/.aws/credentials' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git -c core.pager=cat diff /dev/null ~/.aws/credentials' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'pnpm exec git diff /dev/null .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git grep --no-index -e . .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git diff /dev/null .e*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git blame --contents .env README.md' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git -C secrets grep --no-index -e . .' }, // a global option's value
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'git diff -- .env' }, //                      a pathspec: declared over-block
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'git diff --cached' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'git diff main...HEAD --stat' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'git diff a.txt b.txt' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'git diff -- .env.example' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'git grep -n process.env' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'git blame README.md' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'git status --short .env' }, //             prints no content
+  // A secret named as an option's value is judged like the same value written as its own word:
+  // `--name=value`, and a value glued to a short -f or -g. An exclusion counts too (declared
+  // over-block), and an rg glob without `!` is an include that makes rg read the file.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -rn KEY --include=.env .' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -r _authToken --include=.npmrc ~' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'diff --from-file=.env .env.example' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep --file=.env -r x .' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -f.env x' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -rf.env x .' }, //                     -f last in a cluster
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -fsecrets/api.txt x' }, //             a value that starts with a letter
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -rfsecrets/token x .' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -fid_rsa x' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -f_netrc x' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'sed -fsecrets/x y' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'rg -gsecrets/* KEY' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'rg -uu KEY --glob=.env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'rg -uu KEY -g.env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'rg KEY -g.env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'rg KEY -g .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'rg KEY --glob=.env*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -r x . --exclude .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -r x . --exclude=.env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -r x . --exclude-dir secrets' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep -r x . --exclude-dir=secrets' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep -rn x --include=*.ts .' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'diff --from-file=a.txt b.txt' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep -f./patterns.txt x' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep -fpatterns.txt x' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'sort -fg data.txt' }, //                    flags alone, no value
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'rg KEY -g \'!.env\'' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'rg KEY --glob=!.env' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep -rn x --include \'.env*\' .' }, //   a quoted glob is text
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'sort --output=.env.out data.txt' }, //   the output target
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'sort --output=x.pem data.txt' },
 
   // --- deny-push-protected: no pushes to protected branches (default: main) ----
   // Explicit targets. The REMOTE side of a refspec is what lands on the branch.
@@ -1630,9 +1684,10 @@ for (const c of LEXER_CASES) {
   if (got.head !== c.head || got.probe !== (c.probe ?? false))
     fails.push(`[lexer] ${JSON.stringify(c.cmd)}: head=${got.head} probe=${got.probe}, want head=${c.head} probe=${c.probe ?? false}`)
 }
-// A run of digits once made tokenize() backtrack quadratically: 100k digits took seconds, past
-// the dispatcher's own timeout, and a shell check per heredoc did the same over thousands of
-// heredocs. The lexer is a linear scan, so each of these stays far under budget.
+// A run of digits once made tokenize() backtrack quadratically: 100k digits took seconds, and a
+// shell check per heredoc did the same over thousands of heredocs. A slow check fails open under
+// Gemini, which runs the call once a hook outlasts its 10 s timeout. The lexer is a linear scan,
+// so each of these stays far under budget.
 const BUDGET: Record<string, string> = {
   '100k digits': `echo ${'1'.repeat(100_000)}`,
   '5000 heredocs on one line': `cat${' <<A'.repeat(5000)}\nA\n`,
@@ -1680,6 +1735,29 @@ for (const [name, cmd] of Object.entries(BUDGET)) {
   const took = performance.now() - started
   if (took > 500)
     fails.push(`[lexer] ${name} took ${Math.round(took)} ms, want under 500`)
+}
+// The same budget for the secret guard's verdict, which turns a glob into a regex and expands
+// braces: one `.*` per star once made 20 stars take 20 s, and a regex over a run of `{` was
+// quadratic. Twenty stars, not more, so a regression fails in about 20 s per case rather than
+// hanging the suite. Each verdict still denies the .env beside the slow word.
+const STARS = '*'.repeat(20)
+const VERDICT_BUDGET: Record<string, { cmd: string, expect: 0 | 2 }> = {
+  '20 stars': { cmd: `cat .${STARS}z .env`, expect: D },
+  '20 stars alone': { cmd: `cat .${STARS}z`, expect: A },
+  '20 stars in a redirect': { cmd: `cat <.${STARS}z <.env`, expect: D },
+  '20 stars in a find pattern': { cmd: `find . -name '.${STARS}z' -o -name .env -exec cat {} +`, expect: D },
+  '20 stars in an option value': { cmd: `grep -r x --include=.${STARS}z --include=.env .`, expect: D },
+  '100k open braces': { cmd: `cat ${'{'.repeat(100_000)} .env`, expect: D },
+  '100k brace members': { cmd: `cat {${'a,'.repeat(50_000)}} .env`, expect: D },
+}
+for (const [name, { cmd, expect }] of Object.entries(VERDICT_BUDGET)) {
+  const started = performance.now()
+  const got = secretReads(cmd, { cwd: process.cwd(), env: process.env, settingsFile: join(HOOKS, '..', 'settings.json') }) === null ? A : D
+  const took = performance.now() - started
+  if (took > 500)
+    fails.push(`[deny-secret-reads.mts] ${name} took ${Math.round(took)} ms, want under 500`)
+  if (got !== expect)
+    fails.push(`[deny-secret-reads.mts] ${name}: got ${got}, want ${expect}`)
 }
 for (const c of CASES) {
   const env: Record<string, string | undefined> = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env }
@@ -1896,29 +1974,43 @@ else {
 
 // A harness that opens stdin and never closes it must not hang the tool call: the dispatcher
 // denies after its timeout, the session hook still prints its context and exits 0. Async on
-// purpose — spawnSync would close the child's stdin. Both start before either is awaited, so
-// the suite waits once for the 5s backstop, not twice.
+// purpose — spawnSync would close the child's stdin. The timeout covers only the delivery of
+// the input, so a guard slower than it, here one that sleeps past it in a copy of the hooks,
+// still returns its own verdict. All three start before any is awaited, so the suite waits
+// once for the 5s backstop, not three times.
+const SLOW_CLAUDE = join(tmp, 'slow-claude')
+cpSync(join(HOOKS, '..'), SLOW_CLAUDE, { recursive: true })
+writeFileSync(join(SLOW_CLAUDE, 'hooks', 'deny-zz-slow.mts'), 'export const verdict = () => {\n  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5500)\n  return null\n}\n')
 const hung = spawn(process.execPath, [join(HOOKS, 'dispatch.mts')], { stdio: ['pipe', 'ignore', 'ignore'] })
 const hungSession = spawn(process.execPath, [join(HOOKS, SESSION)], { stdio: ['pipe', 'pipe', 'ignore'] })
+const slow = spawn(process.execPath, [join(SLOW_CLAUDE, 'hooks', 'dispatch.mts')], { stdio: ['pipe', 'ignore', 'pipe'], env: { ...process.env, PROTECTED_BRANCHES: 'main' } })
 let hungSessionOut = ''
+let slowErr = ''
 hungSession.stdout.on('data', (d) => {
   hungSessionOut += d
 })
-const [hungStatus, hungSessionStatus] = await Promise.all([
+slow.stderr.on('data', (d) => {
+  slowErr += d
+})
+slow.stdin.end(payload('pnpm install'))
+const [hungStatus, hungSessionStatus, slowStatus] = await Promise.all([
   new Promise<number | null>(resolve => hung.on('exit', resolve)),
   new Promise<number | null>(resolve => hungSession.on('close', resolve)),
+  new Promise<number | null>(resolve => slow.on('close', resolve)),
 ])
 if (hungStatus !== 2)
   fails.push(`[dispatch.mts] stdin never closed: got ${hungStatus ?? 'null'}, want 2 (timeout deny)`)
 for (const p of sessionProblems({ name: 'stdin never closed', raw: '', context: true }, hungSessionStatus, hungSessionOut, ''))
   fails.push(`[${SESSION}] stdin never closed: ${p}`)
+if (slowStatus !== 0 || slowErr !== '')
+  fails.push(`[dispatch.mts] a guard slower than the stdin timeout: got ${slowStatus ?? 'null'}${slowErr ? ` (${slowErr.trim()})` : ''}, want 0 and no output`)
 
 if (fails.length > 0) {
-  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + SESSION_CASES.length + launchRuns + 2} failed:\n`)
+  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + Object.keys(VERDICT_BUDGET).length + SESSION_CASES.length + launchRuns + 3} failed:\n`)
   for (const f of fails)
     console.error(`  ${f}`)
   console.error('')
   process.exit(1)
 }
 const skippedNote = launchSkipped.length > 0 ? ` (${launchSkipped.join(', ')} not installed, skipped)` : ''
-console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${SESSION_CASES.length} session cases + ${launchRuns} launch runs${skippedNote} + both stdin timeouts + the three registrations pass`)
+console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${Object.keys(VERDICT_BUDGET).length} verdict time budgets + ${SESSION_CASES.length} session cases + ${launchRuns} launch runs${skippedNote} + both stdin timeouts + a slow guard + the three registrations pass`)

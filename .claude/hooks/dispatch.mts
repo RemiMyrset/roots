@@ -13,9 +13,11 @@
  * per spawn, and six spawns made every shell call wait a second. Node builtins only (node 24
  * runs .mts natively), so the guards work before `pnpm install`, which the Codex and Gemini
  * registrations stop pnpm from running first, and in any repo they are synced into. A harness
- * that opens stdin and never closes it would hang the tool call, so the dispatcher denies after
- * 5s — far above any real payload, under the 10s timeout the Gemini registration sets, past
- * which Gemini runs the call (Gemini's own default is 60s).
+ * that opens stdin and never closes it would hang the tool call, so the dispatcher denies when
+ * no complete input arrives within 5s — far above any real payload, under the 10s timeout the
+ * Gemini registration sets, past which Gemini runs the call (Gemini's own default is 60s). That
+ * watchdog covers only stdin delivery: it is cleared once stdin ends, so a slow guard still
+ * returns its own verdict rather than a false report of missing input.
  *
  * Exit codes are set through process.exitCode and the loop is left to drain rather than
  * forced with process.exit(): on Windows, stdio pipes are asynchronous, and exiting from
@@ -31,7 +33,7 @@ import { commandOf } from './_lexer.mts'
 
 const TIMEOUT_MS = 5000
 
-setTimeout(() => {
+const watchdog = setTimeout(() => {
   process.stderr.write('guards: no complete hook input within 5s; denying by default (fail closed).\n')
   process.exitCode = 2
   // Releasing stdin lets the loop drain; the second timer is the backstop if it does not.
@@ -89,6 +91,7 @@ function isMonitorSocket(raw: string): boolean {
 
 let input = ''
 process.stdin.on('data', (d) => { input += d }).on('end', () => {
+  clearTimeout(watchdog)
   const cmd = commandOf(input)
   if (cmd === null && isMonitorSocket(input)) {
     process.exitCode = 0
