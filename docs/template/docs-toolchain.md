@@ -140,8 +140,21 @@ gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_ac
 the official TypeScript-and-node image at node 24, the Claude Code and GitHub
 CLI Dev Container features, `pnpm install` after creation, the editor
 extensions the repo already recommends, the two VitePress dev-server ports
-forwarded, and the pnpm store on a named volume, so a rebuild copies packages
-from it instead of downloading them again.
+forwarded, and the pnpm home on a volume of its own.
+
+The volume is named `pnpm-home-${devcontainerId}`, and the id is derived from
+the checkout's path. So the volume belongs to this checkout's container alone
+and survives a rebuild, which then copies packages from it instead of
+downloading them again. For a clean slate, find the volume's name under
+`Mounts` in `docker inspect <container>`, remove the container, then delete
+the volume with `docker volume rm <name>`.
+
+The pnpm home holds the store and the pnpm binary that `packageManager`
+switches to. Docker shares a named volume with every container that names it,
+so a fixed name would let an agent in one repository plant code that another
+repository's container runs. `pnpm test:gates` fails a devcontainer config
+whose `mounts` names a volume without `${devcontainerId}` in its name; it does
+not read `runArgs` or a compose file.
 
 The container runs as the non-root `node` user, and Docker creates the
 volume's mount point owned by root, so the post-create step first hands it to
@@ -154,22 +167,102 @@ version `packageManager` pins but, unlike corepack, does not check the
 download against the pin's hash. Corepack's shims would land in a root-owned
 directory behind it on the path, so the container does not enable corepack.
 
-Open it with VS Code's "Reopen in Container", a GitHub Codespace, or the
-`devcontainer` CLI. Inside it an unattended agent run cannot reach your keys,
-your other repos, or anything outside the mounted workspace.
+How you open the container decides which of your credentials it carries in.
+Start an unattended agent run with the `devcontainer` CLI:
+
+```sh
+pnpm dlx @devcontainers/cli up --workspace-folder .
+pnpm dlx @devcontainers/cli exec --workspace-folder . claude
+```
+
+- The `devcontainer` CLI forwards no host credentials: no SSH agent, no git
+  or Docker credential helper, and no `~/.gitconfig`.
+- VS Code's "Reopen in Container" forwards your SSH agent through a socket
+  under `/tmp`, answers git and Docker credential requests from your host's
+  helpers, and copies `~/.gitconfig`, so an agent in it can push anywhere you
+  can. The `dev.containers.*` user settings only skip writing that setup into
+  the container's config, and `"remoteEnv": { "SSH_AUTH_SOCK": "" }` hides the
+  variable but not the socket. Keep VS Code for interactive work.
+- A GitHub Codespace carries a `GITHUB_TOKEN` that can push to the
+  repository, plus every Codespaces secret you have given it.
+
+The CLI keeps your credentials out, not your checkout: it mounts your host
+folder writable, as VS Code does. Code an agent writes there runs on your host
+the next time a host tool loads it:
+
+- git runs the commands `.git/config` names and the hooks in `.git/hooks`: a
+  `core.fsmonitor` or a `post-index-change` hook at your next `git status`,
+  and at your next commit the commit hooks with the lint-staged, ESLint, and
+  commitlint configs they load.
+- `devcontainer up` runs the `initializeCommand` in
+  `.devcontainer/devcontainer.json` every time, and a mount or `runArgs` entry
+  added there takes effect at the next rebuild.
+- pnpm runs the package scripts, and the files under `node_modules` they call,
+  the next time you run it outside the container.
+
+So after an unattended run, read `.git/config`, and every file in `.git/hooks`
+that lacks a `.sample` suffix, with `cat` before any git command. Then review
+everything the run changed, its commits included, before you commit, run pnpm,
+or run `devcontainer up` in that folder on your host. `git status` does not
+show `node_modules`, so delete it before your first pnpm command there.
 
 Egress control is the opt-in second step because it needs Linux container
-privileges. Copy Anthropic's reference `init-firewall.sh` (the
-`.devcontainer/` folder of the anthropics/claude-code repository) into
-`.devcontainer/`, add `"runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"]`
-and `"postStartCommand": "sudo /usr/local/bin/init-firewall.sh"` to the JSON,
-and install `iptables` and `ipset` in a small Dockerfile. The script allows
-only the npm registry, GitHub, and the Anthropic API, so a prompt-injected
-agent has nowhere to send data.
+privileges. Anthropic's reference `init-firewall.sh` (the `.devcontainer/`
+folder of the anthropics/claude-code repository) narrows egress without
+closing it: DNS and SSH stay open to any host, the Docker host's network stays
+reachable, and GitHub and the npm registry accept writes, so a token an
+attacker plants in a prompt still gets data out. Read your copy of the script
+before relying on it.
+
+To add it:
+
+1. Copy `init-firewall.sh` into `.devcontainer/`.
+2. Add `.devcontainer/Dockerfile`, built from the image the JSON names now. It
+   installs the tools the script calls, puts the script on the path, and
+   creates the pnpm home owned by `node`. The image gives `node` passwordless
+   sudo for every command, and with `NET_ADMIN` that is enough to flush the
+   rules, so the Dockerfile narrows sudo to the script:
+
+   ```dockerfile
+   FROM mcr.microsoft.com/devcontainers/typescript-node:24-bookworm
+   RUN apt-get update \
+     && apt-get install -y --no-install-recommends iptables ipset dnsutils aggregate \
+     && rm -rf /var/lib/apt/lists/*
+   COPY init-firewall.sh /usr/local/bin/init-firewall.sh
+   RUN chmod +x /usr/local/bin/init-firewall.sh \
+     && mkdir -p /home/node/.local/share/pnpm \
+     && chown -R node:node /home/node/.local \
+     && echo 'node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh' > /etc/sudoers.d/node \
+     && chmod 0440 /etc/sudoers.d/node
+   ```
+
+3. In `devcontainer.json`, replace the `"image"` line with a build of that
+   file, and add the two capabilities, the post-start step, and a wait for it.
+   The post-create step drops its `sudo chown`, which the narrowed sudo
+   refuses: a new volume takes its owner from the folder it mounts over, and
+   the Dockerfile made that folder `node`'s.
+
+   ```jsonc
+   {
+     "build": { "dockerfile": "Dockerfile" },
+     "postCreateCommand": "pnpm install",
+     "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"],
+     "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+     "waitFor": "postStartCommand"
+     // The other keys stay as they are.
+   }
+   ```
+
+4. Rebuild the container and check that the post-start output ends with a
+   `Firewall verification passed` line. The script flushes every rule before
+   it adds its own, so a run that stops partway, on a missing tool or a failed
+   lookup, leaves the container running with egress wide open.
 
 Claude Code itself does not need the firewall or the capabilities; leave them
 out if your own network controls cover it. Never mount host secrets into the
-container; pass what an agent needs as environment variables.
+container, and never start an unattended run through VS Code or a Codespace,
+which forward them for you. Pass only what an agent needs, such as an API key,
+as an environment variable.
 
 ## Growth paths
 

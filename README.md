@@ -44,13 +44,14 @@ Not for anyone who wants an unopinionated starter.
   (the mechanics) into any repository made from the template (a child) and
   reports what a file copy cannot carry; recipe and contract in
   [sync-template](./docs/template/sync-template.md).
-- Supply-chain defaults and a sandbox: dependency build scripts off, a 48-hour
-  release cooldown, pinned actions, secrets scanned at commit and in CI
+- Supply-chain defaults and an agent container: dependency build scripts off,
+  a 48-hour release cooldown, pinned actions, secrets scanned at commit and in CI
   ([guards](./docs/template/guards.md#secrets-in-commits)), an `update-deps`
   skill that refreshes dependencies and pins in one PR when you ask, with no
   bot to install
   ([docs-toolchain](./docs/template/docs-toolchain.md#keep-dependencies-current)),
-  and a devcontainer for unattended runs
+  and a devcontainer for unattended runs, started with the `devcontainer` CLI,
+  which forwards none of your host credentials
   ([docs-toolchain](./docs/template/docs-toolchain.md#sandbox-agents-in-a-devcontainer)).
 
 ## Layout
@@ -193,7 +194,7 @@ pnpm install
 | `pnpm test:hooks` | Agent guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm test:docs` | Docs checker fixtures (a clean tree and a broken one, node only) |
-| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps; the workflows pin actions by SHA and never cancel a run on `main`; ESLint rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version; lint-staged lints what CI lints; package tsconfigs take in every file; the install hook skips a linked worktree; changelogen sends no commit author's email out unless `changelog.excludeAuthors` lists names, and the release script refuses a dirty tree |
+| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps; the workflows pin actions by SHA and never cancel a run on `main`; ESLint rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version; lint-staged lints what CI lints; package tsconfigs take in every file; the install hook skips a linked worktree; changelogen sends no commit author's email out unless `changelog.excludeAuthors` lists names, and the release script refuses a dirty tree; the devcontainer's `mounts` share no volume with another repository's container |
 | `pnpm docs:gen` | Regenerate the `.agents/skills` mirror and any automd region a page keeps |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:list` | Print the decisions table and the spec list, read from the files (`decisions` or `specs` prints one) |
@@ -222,8 +223,9 @@ pnpm install
   drives it end to end; recipe and contract are in
   [sync-template](./docs/template/sync-template.md).
 - `.devcontainer/` gives every tool the same node 24 + pnpm environment inside
-  a container, for unattended runs and Codespaces; the egress firewall is an
-  opt-in recipe in
+  a container. Start an unattended run with the `devcontainer` CLI and keep
+  VS Code and Codespaces for interactive work; what each carries in and the
+  opt-in egress firewall are in
   [docs-toolchain](./docs/template/docs-toolchain.md#sandbox-agents-in-a-devcontainer).
 
 ## Where things live

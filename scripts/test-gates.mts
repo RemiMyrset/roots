@@ -235,12 +235,13 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // probe below, linted from stdin under a path that is never written; turbo's cache key must
 // cover the node version; the pre-commit hook must run ESLint on every file type a repo rule
 // covers; every package tsconfig must take in every TypeScript file of its package; the
-// install hook must set up the git hooks in a checkout and leave a linked worktree alone; and
-// the release flow must keep the release skill's word: changelogen sends no commit author's
-// email out unless `changelog.excludeAuthors` lists names, and the release script refuses a
-// dirty tree. It runs the installed eslint, turbo, typescript, simple-git-hooks, and
-// changelogen, so it needs the install that verify and CI run first. The probes that need
-// files write them to a temp directory only.
+// install hook must set up the git hooks in a checkout and leave a linked worktree alone; the
+// release flow must keep the release skill's word: changelogen sends no commit author's email
+// out unless `changelog.excludeAuthors` lists names, and the release script refuses a dirty
+// tree; and a devcontainer's `mounts` must share no volume with another repository's container.
+// It runs the installed eslint, turbo, typescript, simple-git-hooks, and changelogen, so it needs
+// the install that verify and CI run first. The probes that need files write them to a temp
+// directory only.
 const failures: string[] = []
 const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
@@ -582,6 +583,61 @@ for (const [excluded, sent, want] of verdictCases) {
   }
 }
 
+// Docker shares a named volume with every container on the host that names it, so a volume a
+// devcontainer config mounts under a fixed name, such as the pnpm home and the pnpm binary it
+// holds, is writable from every other repository whose config names it too. `${devcontainerId}`
+// is derived from the checkout's path, so a name that carries it is one container's alone and
+// survives a rebuild. A mount string follows `docker run --mount`, which lowercases its keys and
+// its type, takes `src` for `source` with the later of the two winning, and defaults the type to
+// volume; a volume with no source is anonymous and already per-container. The object form has
+// `source` only. Every place the Dev Container spec looks for a config is read, and a repository
+// with none passes. Only `mounts` is read: a volume passed through `runArgs` or a compose file
+// goes unchecked.
+let devcontainerChecked = 'no devcontainer config'
+{
+  const ID = `\${devcontainerId}`
+  // The source of each named volume in a config's `mounts`, string and object forms alike.
+  const namedVolumes = (mounts: unknown): string[] => (Array.isArray(mounts) ? mounts as unknown[] : []).flatMap((mount) => {
+    const fields: { type?: unknown, source?: unknown } = typeof mount === 'string'
+      ? Object.fromEntries(mount.split(',').map((pair) => {
+          const key = pair.split('=')[0]!.trim().toLowerCase()
+          return [key === 'src' ? 'source' : key, pair.slice(pair.indexOf('=') + 1).trim()]
+        }))
+      : typeof mount === 'object' && mount !== null ? mount : {}
+    const { source } = fields
+    return String(fields.type ?? 'volume').toLowerCase() === 'volume' && typeof source === 'string' && source !== '' ? [source] : []
+  })
+  const sample = namedVolumes(['source=shared,target=/a,type=volume', 'src=bare,dst=/b', { source: 'object', target: '/c', type: 'volume' }, `source=own-${ID},target=/d,type=volume`, 'type=bind,source=/home,target=/e', 'type=volume,target=/f', 'Source=upper,target=/g', 'type=Volume,source=caps,target=/h', 'Type=BIND,source=/tmp,target=/i', `source=early-${ID},src=late,target=/j`, `src=early,source=late-${ID},target=/k`])
+  const want = ['shared', 'bare', 'object', `own-${ID}`, 'upper', 'caps', 'late', `late-${ID}`]
+  if (sample.join(' ') !== want.join(' '))
+    failures.push(`the devcontainer probe misreads mounts: it found the named volumes [${sample.join(', ')}], want [${want.join(', ')}]`)
+
+  const dir = join(root, '.devcontainer')
+  const configs = [
+    join(root, '.devcontainer.json'),
+    join(dir, 'devcontainer.json'),
+    ...(existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => join(dir, e.name, 'devcontainer.json')) : []),
+  ].filter(file => existsSync(file))
+  if (configs.length > 0) {
+    const ts = (await import('typescript')).default
+    let volumes = 0
+    for (const file of configs) {
+      const where = relative(root, file).replaceAll('\\', '/')
+      const { config, error } = ts.parseConfigFileTextToJson(file, readFileSync(file, 'utf8')) as { config?: { mounts?: unknown }, error?: unknown }
+      if (error || typeof config !== 'object' || config === null) {
+        failures.push(`${where} could not be read as JSON with comments`)
+        continue
+      }
+      for (const source of namedVolumes(config.mounts)) {
+        volumes++
+        if (!source.includes(ID))
+          failures.push(`${where} mounts the volume "${source}", which every container that names it shares, so an agent in one repository can plant code another repository's container runs; put ${ID} in the name, as in pnpm-home-${ID}, which is this container's alone and survives a rebuild`)
+      }
+    }
+    devcontainerChecked = `${volumes} devcontainer volume(s) are this container's alone`
+  }
+}
+
 if (failures.length > 0) {
   console.error(`\n✖ gates — ${failures.length} rule(s) the gates do not hold:\n`)
   for (const f of failures)
@@ -589,4 +645,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; ${releaseChecked}`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; ${releaseChecked}; ${devcontainerChecked}`)

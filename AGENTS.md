@@ -55,7 +55,8 @@ affect passes clean after your last edit. When unsure which apply, run
 - Test gates: `pnpm test:gates` (verify and the workflows run the same steps; the rules
   the gates rely on hold in the workflows, ESLint, lint-staged, turbo, and package tsconfigs;
   changelogen sends no commit author's email out unless `changelog.excludeAuthors` lists
-  names, and the release script refuses a dirty tree)
+  names, and the release script refuses a dirty tree; the devcontainer's `mounts` share no
+  volume with another repository's container)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint`. Run `pnpm lint:fix` after making code changes.
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
