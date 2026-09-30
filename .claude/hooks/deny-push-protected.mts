@@ -11,7 +11,7 @@
 import type { GuardContext, Verdict } from './_lexer.mts'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { base, gitSubcommand, PNPM_VALUE_FLAG, resolveHead, segments, SUBST, tokenize, unquote, withoutRedirects } from './_lexer.mts'
+import { base, gitSubcommand, PNPM_VALUE_FLAG, resolveHead, segments, SUBST, tokenize, unquote, withoutExpansions, withoutRedirects } from './_lexer.mts'
 
 const ENV_VAR = 'PROTECTED_BRANCHES'
 
@@ -155,7 +155,9 @@ function pushVerdict(words: string[], ctx: GuardContext): string | null {
     else if (t.includes(SUBST)) {
       return `"${t}" is built by a command substitution, so the push target is unknown`
     }
-    if (protectedRefs.test(t))
+    // A parameter expansion in a name may be empty (`main${x}`), so the name is judged without it
+    // too.
+    if (protectedRefs.test(t) || protectedRefs.test(withoutExpansions(t)))
       return `"${t}" is a protected branch (${ENV_VAR}="${protectedRefs.patterns.join(',')}" in .claude/settings.json env; default "main"). Push a feature branch and open a PR instead`
   }
   return null

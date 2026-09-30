@@ -85,6 +85,10 @@ const GEMINI = { cwd: process.cwd(), hook_event_name: 'BeforeTool', session_id: 
 function monitor(input: Record<string, unknown>, tool = 'Monitor'): string {
   return JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: { description: 'd', timeout_ms: 300000, ...input } })
 }
+// `cmd` under `depth` layers of `eval`, each double-quoting the layer inside it.
+function nestedEval(depth: number, cmd: string): string {
+  return Array.from({ length: depth }).reduce<string>(s => `eval ${JSON.stringify(s)}`, cmd)
+}
 
 const CASES: Case[] = [
   // --- deny-non-pnpm: this repo is pnpm-only ---------------------------------
@@ -249,6 +253,18 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm exec pnpm exec npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm dlx pnpm dlx npm i' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'pnpm exec pnpm exec cat .env' },
+  // pnpm's shell mode (`-c`, `--shell-mode`) hands its words to a shell, so they are a command.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm exec -c "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm -r -c exec "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm --shell-mode=true exec \'npm install\'' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm dlx -c "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnx -c "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm --package cowsay -c dlx \'echo hi | npm install\'' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'pnpm -c exec "cat .env"' },
+  { guard: P, expect: D, cmd: 'pnpm -c exec "git push origin main"', cwd: ON_FEAT },
+  { guard: B, expect: D, cmd: 'pnpm exec --shell-mode "git commit --no-verify -m x"' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pnpm -c exec "echo hi"' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pnpm -r -c exec \'tsc && pnpm test\'' },
 
   // --- pass-10 (audit 7): per-wrapper flag-arity bypass class ------------------
   // Boolean wrapper flags a single global VALUE_FLAG wrongly treated as value-taking,
@@ -265,6 +281,16 @@ const CASES: Case[] = [
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'flock -n /tmp/l pnpm approve-builds' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'sudo -k cat .env' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'flock -n /tmp/l cat .env' },
+  // The string flock's and runuser's -c (--command) hand a shell is a command too.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'flock /tmp/l -c "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'flock -w 5 /tmp/l -c \'npm install\'' },
+  { guard: P, expect: D, cmd: 'flock /tmp/l --command "git push origin main"', cwd: ON_FEAT },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'flock /tmp/l -c "cat .env"' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'flock /tmp/l -c "pnpm approve-builds"' },
+  { guard: B, expect: D, cmd: 'flock /tmp/l -c "git commit --no-verify -m x"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'runuser -c "npm install" root' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'runuser -lc \'npm install\' root' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'flock /tmp/l -c "pnpm install"' },
   // Under-consume: a real value-flag absent from the old set left its arg as the head.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'sudo -p prompt npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'xargs -a list npm install' },
@@ -333,6 +359,11 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'mise exec -- cat .env' },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'mise x pnpm@12 -- pnpm approve-builds' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise x pnpm@12.3.4 -- pnpm install' },
+  // So is the string mise x|exec's -c (--command) hands a shell.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'mise x -c "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'mise exec node@24 --command=\'npm install\'' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'mise x -c "cat .env"' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise x node@24 -c "pnpm install"' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise install' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'mise run build' },
   // --- audit round 2: quoted multi-word messages, mise value flags, changelogen spellings,
@@ -609,6 +640,8 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case a\nin a) npm install;; esac' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'shopt -s extglob\ncase $1 in !(b)) npm install;; esac' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case a in a) case b in b) :;; esac;; c) npm install;; esac' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case b in a) :;;(b) npm install;; esac' }, // a pattern's own `(`
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case b in (a) :;;&(b) npm install;; esac' },
   { guard: P, expect: D, cmd: 'case $1 in\n  a) git push origin main;;\nesac' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case $1 in a) :;; esac|npm install' }, // after `esac`, `|` is a pipe
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'case "$1" in -h|--help) echo usage;; *) pnpm run "$1";; esac' },
@@ -681,6 +714,405 @@ const CASES: Case[] = [
   { guard: P, expect: A, cmd: 'git push -u origin feat/x 2>&1 | tail -3', cwd: ON_FEAT },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '&>/dev/null npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\\>&npm install' }, // an escaped > is text, so & separates
+
+  // --- lexer: words split where bash splits them -------------------------------------------
+  // A quoted or escaped blank stays inside its word, so the head after it is still the head.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'FOO="a b" npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'FOO=a\\ b npm install' },
+  { guard: P, expect: D, cmd: 'GIT_SSH_COMMAND="ssh -i k" git push origin main' },
+  { guard: P, expect: D, cmd: 'git -c user.name="First Last" push origin main' },
+  { guard: P, expect: D, cmd: 'git -C "my dir" push origin main' },
+  { guard: B, expect: D, cmd: 'git -c user.name="First Last" commit --no-verify -m x' },
+  { guard: B, expect: D, cmd: 'git -c \'user.name=First Last\' commit --no-verify -m x' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'X="a b" cat .env' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'X="a b" pnpm approve-builds' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '"C:\\Program Files\\nodejs\\npm.cmd" install' },
+  { guard: B, expect: A, cmd: 'git -c user.name="First Last" commit -m "no --no-verify here"' },
+  { guard: P, expect: A, cmd: 'X="a b" git push origin feat/x' },
+  // A `${…}` expansion runs to its `}` as one word, bare or in double quotes, operators included.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `FOO=\${x:-a b} npm install` },
+  { guard: P, expect: D, cmd: `X=\${Y:-a b} git push origin main` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `FOO="\${x:-"a b"}" npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `FOO=\${x:-a;b} npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `FOO=\${x:-a\nb} npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `FOO="\${x:-";a"}" npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `FOO="\${x:-'";a'}" npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${x:-<<EOF}\nnpm install\nEOF` }, // `<<` in it is text
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $\${x; npm install}` }, // `$$` is the PID: `{` opens nothing
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${x:-<(npm install)}` }, //  a process substitution still runs
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=1; echo \${x:+a>(npm install; echo })}` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `echo "\${x:-<(npm install)}"` }, //  but is text in double quotes
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `echo \${x:-a; npm i}` },
+  // A `${` before a blank, a newline, or a `|` runs its body as commands, as bash 5.3 and mksh do.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=\${ npm install; }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `FOO=\${ npm install;} true` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${| npm install; }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${|npm install;}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=\${\nnpm install\n}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=\${\tnpm install; }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${\\\n npm install; }` }, // a blank after the continuation
+  { guard: P, expect: D, cmd: `FOO=\${ git push origin main;} true`, cwd: ON_FEAT },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: `X=\${ pnpm approve-builds; } true` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `x=\${ cat .env; }` },
+  { guard: B, expect: D, cmd: `x=\${ git commit --no-verify -m x; }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${ :; } npm install` }, // it may expand to nothing
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '$(true) npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${ :; }npm install` }, //   or glued before the name
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '"$(true)"npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '`true`npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '$(true) pnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${ npm install; }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ npm install; }"` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `cat <<EOF\n\${ npm install; }\nEOF` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${x:-\${ npm install; }}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${x:-\${ npm install; }}"` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `x=\${ pnpm install; }` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `echo '\${ npm install; }'` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `cat <<'EOF'\n\${ npm install; }\nEOF` },
+  // Its body ends at a `}` where a command starts: an argument or a quoted `}` is text.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${ echo }; npm install; }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${ echo "}"; npm install; }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${ { echo a; }; npm install; }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ echo a; }x"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${ (echo a)}; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `echo "\${ echo a; } npm install"` }, // the quote resumes
+  // A `}` also ends it right after a word that ends a compound command (a group's `}`, glued
+  // too, `fi`, `done`, `esac`, `]]`), as bash 5.3 reads it, so a quote after it cannot hide the
+  // rest; a `}` after a plain word, an assignment, or a redirect is still text.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ { :; } }"; npm install` },
+  { guard: P, expect: D, cmd: `echo "\${ { :; } }"; git push origin main`, cwd: ON_FEAT },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo "\${ { :; } }"; cat .env` },
+  { guard: B, expect: D, cmd: `echo "\${ { :; } }"; git commit --no-verify -m x` },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: `echo "\${ { :; } }"; pnpm approve-builds` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ if :; then :; fi }"; npm install` },
+  { guard: P, expect: D, cmd: `echo "\${ if :; then :; fi }"; git push origin main`, cwd: ON_FEAT },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ for x in a; do :; done }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ case a in a) :; esac }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ [[ a ]] }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ { :; }}"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x="\${ { :; } }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `cat <<< "\${ { :; } }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${x:-"\${ { :; } }"}; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(echo "\${ { :; } }"); npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ f() { :; } }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ time { :; } }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ { { :; } } }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ { { :; }}}"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ { :; }\\\n}"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ { if :; then :; fi }}"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ if :; then if :; then :; fi fi }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ if :; then if :; then :; fi else :; fi }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ if [[ a ]] then :; fi }"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ echo fi }; npm install; }"` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ echo }}; npm install; }"` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ x=1 }; npm install; }"` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ [[ a ]]>/dev/null }; npm install; }"` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '{ if :; then cat <<\'E\'; fi } | bash\nnpm install\nE' }, // `}` after `fi` ends the group
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `x="\${ if :; then :; fi }"; pnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `echo "\${ { :; }}"; pnpm install` },
+  // bash before 5.3 (macOS /bin/bash, Git for Windows, Ubuntu 24.04) reads `${ x }` as an
+  // expansion that ends at its `}` and fails when it runs, then runs the next line: both
+  // readings are judged.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ x }"\nnpm install` },
+  { guard: P, expect: D, cmd: `x="\${ HOME }"\ngit push origin main`, cwd: ON_FEAT },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo "\${ x }"\ncat .env` },
+  { guard: B, expect: D, cmd: `echo "\${| x }"\ngit commit --no-verify -m x` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `eval 'echo "\${ x }"\nnpm install'` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `echo "\${ x }"\npnpm install` },
+  // bash scans `$((…))` by counting parentheses and `$[…]` by counting brackets, so a `${` that
+  // never closes inside them ends with the scan; it fails when it runs, and the next commands run.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $((\${x) a); npm install` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo $((\${x) a); cat .env` },
+  { guard: B, expect: D, cmd: `echo $((\${x) a); git commit --no-verify -m x` },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: `echo $((\${x) a); pnpm approve-builds` },
+  { guard: P, expect: D, cmd: `x=$((\${x:-a) a); git push origin main`, cwd: ON_FEAT },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $((\${x:-a) a)\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(( (\${x:-a) ) ); npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "$((\${x) a)"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $[ \${x) ]\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "$[ \${x) ]"\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $[\${x:-a; b]\nnpm install` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo $[ ( \${x ) ]\ncat .env` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(( 1 + $[ \${x ] ))\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $[ $(( \${x) )) ]\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "$[ (\${x ]"\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "$(( $[\${x))"\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `cat <<< "$(( $[\${x:-a) )"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $[ 1 << 2 ]\nnpm install\n2' }, //    a shift, not a heredoc
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `x=1; echo $(( \${x:-(1)} + $[ a[1] ] )); pnpm install` },
+  // bash ends a backtick substitution at its first unescaped backtick before it parses anything
+  // in it, so a quote inside a `$[`, `$(`, `(`, array, or process substitution open there closes
+  // with it. That scan pairs a backslash with what follows it, in a quote or a comment too.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo $[ \'`\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo $[ \'`; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo $[\'`\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo "`echo $[ \'`"\nnpm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'echo `echo $[ \'`\ncat .env' },
+  { guard: B, expect: D, cmd: 'echo `echo $[ \'`\ngit commit --no-verify -m x' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'echo `echo $[ \'`\npnpm approve-builds' },
+  { guard: P, expect: D, cmd: 'echo `echo $[ \'`\ngit push origin main', cwd: ON_FEAT },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \`echo \${x:-<('\`\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \`echo \${x:-<( '\`\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo $(\'`\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo $((\'`\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo $(echo \'`; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `(echo \'`\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `x=(a \'`\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo <(\'`\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo \'\\\\` ; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `# \\` \' ` ; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo $(# \\` \' ` ; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `cat <<E\n\\` \'x\nE\n` ; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo `echo \'\\`\'`; pnpm install' }, // an escaped backtick
+  // So closed, a substitution is a word of its own or a part of one, which may print nothing:
+  // several glued together may hide no head, a redirect standing alone takes the next word as
+  // its target, and one glued into a file name can name a secret.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\`done))+=$(\${x((x[\${x:-$(case a in \`$( }}else a) npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '>& ] `(a[${x${x:-<(#\\"${` npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .env`$[ >(` #' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '$(true)$(true) npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '`true``true` npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '> x npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '>& x $(true) npm install' },
+  { guard: P, expect: D, cmd: '2> err.log git push origin main', cwd: ON_FEAT },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: '> out cat .env' },
+  { guard: B, expect: D, cmd: '< in git commit --no-verify -m x' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: '> x pnpm approve-builds' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .env$(true)' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .env`true`' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ".env$(true)"' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .e`true`nv' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: '<(true) cat .env' }, //      a process substitution is a word
+  { guard: B, expect: D, cmd: `\${x//[[ a \n}\\\ngit commit --no-verify -m x<<E\n` }, // an expansion may be empty
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x}npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x}\`$(case a in \` npm install` },
+  { guard: B, expect: D, cmd: `$x\`$[ a[\${x &&echo \`git commit --no-verify -m x\n}+= a` },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: '\n$x`(`eval pnpm approve-builds' },
+  { guard: P, expect: D, cmd: '$x git push origin main', cwd: ON_FEAT },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '$x npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat .env\\\n\${x//a/}` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .env$x' },
+  // bash ends `${x:-'}'}` past the quoted `}`, so an expansion holding a quote stays text and the
+  // globs after it are still read as globs.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat \${x:-'}'} .e*v` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat \${x:-'}'} .[e]nv` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat \${x:-"}"} .e*v` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat \${x//'}'/a} .e*v` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat \${x:-'}'} ~/.ssh/id_*` },
+  { guard: P, expect: D, cmd: `\\git push origin main\\\n\${x//a/}`, cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: `git push origin main\${x}`, cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push origin "$BRANCH"', cwd: ON_FEAT },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '"$x" npm install' }, //                     a quoted empty word is a word
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `"\${EDITOR:-vi}" notes.md; pnpm install` },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: `cat "$FILE" config/\${ENV}.json; pnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '> /dev/null pnpm install' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat "$(git rev-parse --show-toplevel)/README.md" config$(date +%s).json' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat \'.env$(true)\'' }, //               single quotes run nothing
+  // bash 3.2 (macOS /bin/bash) ends a `$(…)`, `<(…)`, or `>(…)` at the `)` that matches its `(`
+  // and an assignment's subscript at the `]` that matches its `[`, whatever `${` is open inside,
+  // and a `${…}` at its `}`, whatever substitution is open inside it. The expansion fails when it
+  // runs, and the commands after it run there, so that reading is judged too.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(\${x) a; npm install` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo $(\${x); cat .env` },
+  { guard: P, expect: D, cmd: `x=$(\${x)\ngit push origin main`, cwd: ON_FEAT },
+  { guard: B, expect: D, cmd: `echo $(\${x); git commit --no-verify -m x` },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: `echo $(\${x); pnpm approve-builds` },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo <(\${x); cat .env` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo >(\${x); npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `cat <(\${x) a; npm install` },
+  { guard: P, expect: D, cmd: `echo $(\${x:-a) a; git push origin main`, cwd: ON_FEAT },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(\${x)\n\${x}\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `a[\${x]=1\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x[\${y]+=1\nnpm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `a[$(\${x)]=1; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $( (\${x) ) ; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(\${x:-\\)) ; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "$(\${x)"; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(\${x #')\n) ; npm install` }, //   a comment in that count
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(echo \${x:-$(echo }) ) ; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `(echo \${x:-$(echo }) ; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `(echo \${x:-<(echo }) ; npm install` }, // bash 4.4 too
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `(echo \${x:-$[ }]) ; npm install` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `echo "$(echo \${x:-)}; pnpm install)"` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `echo $(echo \${HOME}) "\${x:-a}"; a[\${i}]=1; pnpm install` },
+  // bash rejects an operator or a `(` inside an array (`x=(…)`) and, unlike any other syntax
+  // error, drops only the rest of that line and runs the next, so a quote, a heredoc, or a line
+  // continuation on the rejected line hides nothing.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=((1))\\\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=((1)) "\nnpm install\n"' },
+  { guard: P, expect: D, cmd: 'x=((1)) "\ngit push origin main\n"', cwd: ON_FEAT },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'x=((1)) "\ncat .env\n"' },
+  { guard: B, expect: D, cmd: 'x=((1)) "\ngit commit --no-verify -m x\n"' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'x=((1)) "\npnpm approve-builds\n"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=(a ; b) \'\nnpm install\n\'' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=(a <b) "\nnpm install\n"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<E; x=((1))\nnpm install\nE' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=((1)) <<\'E\nnpm install\nE\'' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=(a\\\n(b) "\nnpm install\n"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $(x=((1)) "\nnpm install\n")' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=(@(a) "\nnpm install\n")' }, //         extglob is off in bash -c
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'x=(a [[ (b) ]] "\nnpm install\n")' }, // a `[…]` span is one word
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'x=(<(a) "\nnpm install\n")' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'x=((1)) "\npnpm install\n"' },
+  // An unquoted expansion standing as the command runs its default, split into words.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x:-\nnpm install# }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x:-\nnpm install\\\n; }` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x:-npm install}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${NPM:-npm} install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x[0]:-npm} install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x:+npm install}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x:-} \${y:-npm} install` }, // an empty default leaves the next word
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x:-\${y:-npm install}}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `eval \${x:-npm install}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `sudo \${x:-npm} install` },
+  { guard: P, expect: D, cmd: `\${B:-git} push origin main`, cwd: ON_FEAT },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `\${x:-cat} .env` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `"\${x:-npm install}"` }, //   one word, no such command
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `\${x:-a} \${y:-npm} install` }, // `a` runs, npm is its argument
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `echo \${x:-npm install}` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `\${PNPM:-pnpm} install` },
+  // So does a pattern substitution's replacement, its quotes removed.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/a/npm install}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/a/npm} install` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x//a/npm install}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/#a/npm install}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/%a/npm install}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/a/"npm install"}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/a/\${y:-npm install}}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/a/} \${x/a/npm} install` }, // an empty one leaves the next word
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/a/sudo} \${x/a/npm} install` },
+  { guard: P, expect: D, cmd: `x=a; \${x/a/git} push origin main`, cwd: ON_FEAT },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: `x=a; \${x/a/cat} .env` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `x=a; "\${x/a/npm install}"` }, // one word, no such command
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `x=a; echo \${x/a/npm install}` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: `x=a; \${x/a/pnpm} install` },
+  // In bash, only a space, a tab, or a newline separates: any other space-like byte is in the word.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'A=\u00A0x npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'A=\u00A0x cat .env' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'A=\u3000x cat .env' },
+  { guard: B, expect: D, cmd: 'A=\rx git commit --no-verify -m x' },
+  { guard: P, expect: D, cmd: 'git -c x.y=\u00A0b push origin main' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<E\u00A0F\nx\nE\u00A0F\nnpm install' }, // one delimiter word
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<E\vF\nx\nE\vF\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\'\r\nx\r\nEOF\r\nnpm install\r\n' }, // a CRLF heredoc still ends
+  // A delimiter keeps a CR that is not right before the newline, and the same line still ends it.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF\r>/dev/null\nx\nEOF\r\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF\r;\nx\nEOF\r\nnpm install' },
+  { guard: P, expect: D, cmd: 'cat <<EOF\r|cat\nx\nEOF\r\ngit push origin main' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\r\'\nx\nEOF\r\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm install\r\n' },
+  { guard: P, expect: D, cmd: 'git push origin main\r\n' },
+  // PowerShell reads such a byte as a blank and a CR as a line end, and that reading is judged too.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm\u00A0install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '\u00A0npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm\u3000install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm\vinstall' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm\finstall' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm\u0085install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '\rnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npm\rinstall' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\rnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a #x\rnpm install' }, // a CR ends PowerShell's comment
+  { guard: P, expect: D, cmd: 'git status # it\'s\rgit push origin main' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a;\u00A0npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval\u00A0"npm install"' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat\u00A0.env' },
+  { guard: P, expect: D, cmd: 'git\u00A0push origin main' },
+  { guard: P, expect: D, cmd: 'git push origin\u00A0main', cwd: ON_FEAT },
+  { guard: B, expect: D, cmd: 'git commit\u00A0--no-verify -m x' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm\u00A0approve-builds' },
+  // A quote closed mid-word keeps the word whole, so the flag after it is still read.
+  { guard: B, expect: D, cmd: 'git commit -m "fix bug"s --no-verify -m "more"' },
+  { guard: B, expect: D, cmd: 'git commit -m \'a b\'c -n' },
+  // What `eval` runs and what `env -S` splits into a command are commands too.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval -- \'npm install\'' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval "eval \'npm install\'"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval "true; npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval "\'#\' ; npm install"' }, // a quoted # is a command, not a comment
+  { guard: P, expect: D, cmd: 'eval \'git push origin main\'' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'eval "cat .env"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -S "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -S\'npm install\'' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -iS "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env --split-string="npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -S "-i npm" install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -S \'npm\\_install\'' }, // env reads `\_` as a space
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'env -u X -S "pnpm approve-builds"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval "bash -s" <<\'EOF\'\nnpm install\nEOF' }, // eval starts the shell
+  // Past eight layers, what is left is read with its quotes dropped, so the chain still ends at npm.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: nestedEval(12, 'npm install') },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: nestedEval(12, 'true; npm install') },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'eval "pnpm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'env -S "pnpm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'eval "echo \'npm install\'"' },
+
+  // --- lexer: a line continuation joins its lines, as bash joins them -------------------------
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'FOO=1 \\\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'sudo \\\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm exec \\\n  npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cd x && \\\n  npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'ls | \\\n  npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'n\\\npm install' },
+  { guard: P, expect: D, cmd: 'git \\\n  push origin main' },
+  { guard: P, expect: D, cmd: 'git -c k=v \\\npush origin main' },
+  { guard: B, expect: D, cmd: 'git \\\ncommit --no-verify -m x' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'FOO=1 \\\ncat .env' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'true && \\\npnpm approve-builds' },
+  // Inside an operator too: `$\<newline>(` is `$(`, `<\<newline><<` a here-string.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo "$\\\n(npm install)"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $\\\n\'a\\\' \'; npm install; echo \'\'' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $\\\n{x:- #}; npm install' }, // `#` inside `${…}` is text
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <\\\n<<\'EOF\'\nnpm install\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\\\nEOF\nx\nEOF\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case b in a) echo A;\\\n; b) npm install;; esac' }, // `;;`
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'case b in a) :;\\\n& b) npm install;; esac' }, // `;&`
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'f (\\\n) { npm install; }' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'EOF\' |\\\n& bash\nnpm install\nEOF' }, // `|&`
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo a >\\\n|npm install' }, // `>|` writes a file named npm
+  // And on the terminator line of a heredoc whose delimiter is unquoted.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<EOF\nbody\nEO\\\nF\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat <<EOF\nx\\\nEOF\nnpm install\nEOF' }, // the line is `xEOF`
+  // A quoted delimiter runs on across lines; inside double quotes a continuation vanishes and a
+  // backslash escapes a quote, as bash removes them.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<"EO\\\nF"; npm install\nx\nEOF' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<\'E\nF\'; npm install\nx' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <<"E\\"F"\nx\nE"F\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'cat <<\'E\\\nF\'\nx\nE\\\nF\nnpm install' }, // no line matches
+  // Inside backticks, the closing backtick ends a delimiter, and a heredoc then has no body.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `cat <<\'E`; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `cat <<\'E`\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `cat <<E`\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo $(cat <<E)\nnpm install' }, // `$(` reads its body below
+  // A backslash before a CR escapes the CR, so the newline after it still ends the command.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo \\\r\nnpm install' },
+  { guard: P, expect: D, cmd: 'git status \\\r\ngit push origin main' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pnpm \\\n  install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo \'a \\\nb\'; pnpm install' }, // literal inside single quotes
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo a \\\n# ; npm install' }, //  the `#` still opens a comment
+
+  // --- lexer: a `#` after a subshell's `)` opens a comment -----------------------------------
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '(echo a)#it\'s fine\nnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '((1))#it\'s\nnpm install' },
+  { guard: P, expect: D, cmd: '(git status)#it\'s clean\ngit push origin main', cwd: ON_MAIN },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: '(true)#it\'s\ncat .env' },
+  // After a process substitution, an array, or a substitution, the word runs on.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <(echo a)#x; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a<(true)#x; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=(a b)#c; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo $(true)#x; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <\\\n(echo a)#x; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'shopt -s extglob\necho @\\\n(a|b)#x; npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: '(echo a)# ; npm install' },
+
+  // --- coproc starts a command like the other reserved words ---------------------------------
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'coproc npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'coproc { npm install; }' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'coproc X { npm install; }' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'coproc X while npm install; do :; done' },
+  { guard: P, expect: D, cmd: 'coproc git push origin main' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'coproc cat .env' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'coproc pnpm install' },
 
   // --- deny-secret-reads: a glob that can expand to a secret reads it ---------------------
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .env*' },
@@ -780,6 +1212,12 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: D, cmd: '# Make sure we\'re up to date first\ngit push origin main' },
   { guard: 'dispatch.mts', expect: D, cmd: 'git push origin 2>&1 | tail -5', cwd: ON_MAIN },
   { guard: 'dispatch.mts', expect: D, cmd: 'cat .env*' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'git \\\n  push origin main' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'eval "npm install"' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'coproc npm install' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'npm\u00A0install', tool: 'PowerShell' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'cat <<EOF\r>/dev/null\nx\nEOF\r\nnpm install' },
+  { guard: 'dispatch.mts', expect: D, cmd: `FOO=\${x:-a b} npm install` },
   // Same dispatcher, Codex-shaped and Gemini-shaped payloads.
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'Bash', extra: CODEX },
   { guard: 'dispatch.mts', expect: D, cmd: 'git push origin main', tool: 'Bash', extra: CODEX },
@@ -854,6 +1292,23 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: '(npm install)', head: 'npm' }, //                     a `(` left on a word is a misread
   { cmd: 'pn exec npm i', head: 'npm' }, //                      `pn` is pnpm
   { cmd: 'pnx -y npm i', head: 'npm' }, //                       `pnx` is `pnpm dlx`
+  { cmd: 'FOO="a b" npm i', head: 'npm' }, //                    a quoted blank stays in its word
+  { cmd: 'FOO=a\\ b npm i', head: 'npm' }, //                    so does an escaped one
+  { cmd: 'A=\u00A0x cat .env', head: 'cat' }, //                 a no-break space is not a blank
+  { cmd: 'GIT_SSH_COMMAND="ssh -i k" git push', head: 'git' },
+  { cmd: 'sudo -u "my user" npm i', head: 'npm' },
+  { cmd: 'FOO=1 \\\nnpm install', head: 'npm' }, //              a line continuation vanishes
+  { cmd: '"C:\\Program Files\\nodejs\\npm.cmd" i', head: 'npm' }, // a quoted path with a space
+  { cmd: 'npm "a b"</dev/null', head: 'npm' }, //               a glued redirect after a quote
+  { cmd: '$() npm i', head: 'npm' }, //                         a substitution may expand to nothing
+  { cmd: '$()npm i', head: 'npm' },
+  { cmd: 'coproc npm i', head: 'npm' },
+  { cmd: 'coproc X { npm i', head: 'npm' }, //                  the name before a compound command
+  { cmd: 'coproc npm { i', head: 'npm' }, //                    a name that is a head is never skipped
+  { cmd: `FOO=\${x:-a b} npm i`, head: 'npm' }, //                an expansion is one word to its `}`
+  { cmd: `FOO="\${x:-"a b"}" npm i`, head: 'npm' }, //            quotes nest inside it
+  { cmd: `\${x/a/b} npm i`, head: 'npm' }, //                     a substitution may be empty; segments() reads `b` too
+  { cmd: 'pnpm -r exec -c npm i', head: 'npm' }, //              shell mode's plain words already name the command
 ]
 
 // The session-start hook prints the writing rules as SessionStart context for Codex and
@@ -1089,6 +1544,32 @@ const BUDGET: Record<string, string> = {
   '5000 heredocs in nested groups': `${'{ cat <<A\nA\n'.repeat(5000)}${'}\n'.repeat(5000)}`,
   '2000 heredocs in nested substitutions': `echo ${'"$(cat <<A\nA\n'.repeat(2000)}${')"'.repeat(2000)} | cat`,
   '5000 heredocs in a continued pipeline': `${'cat <<A |\nA\n'.repeat(5000)}cat`,
+  '50k line continuations': `echo ${'a \\\n'.repeat(50_000)}x`,
+  '20k quoted words': `echo ${'"a b" '.repeat(20_000)}`,
+  '20k evals': `${'eval "x y"; '.repeat(20_000)}true`,
+  '20k env -S': `${'env -S "x y"; '.repeat(20_000)}true`,
+  '12 nested evals': nestedEval(12, 'npm install'),
+  '10k nested expansions in quotes': `echo "${'${x:-"'.repeat(10_000)}a${'"}'.repeat(10_000)}"`,
+  '10k unclosed expansions': `echo ${'"${x '.repeat(10_000)}`,
+  '20k no-break spaces': `echo ${'a\u00A0'.repeat(20_000)}`,
+  '20k continued heredoc lines': `cat <<A\n${'x\\\n'.repeat(20_000)}A\n`,
+  '100k backslashes before a heredoc end': `cat <<A\n${'\\'.repeat(100_001)}\nA\n`,
+  '20k function substitutions': `echo ${`\${ :; }`.repeat(20_000)}`,
+  '10k nested function substitutions': `echo ${'"${ echo '.repeat(10_000)}a${'; }"'.repeat(10_000)}`,
+  '10k glued group closes': `echo "\${ ${'{ '.repeat(10_000)}:; ${'}'.repeat(10_001)}"`,
+  '5000 nested ifs in a substitution': `echo "\${ ${'if :; then '.repeat(5000)}:; ${'fi '.repeat(5000)}}"`,
+  '20k unclosed arithmetic brackets': `echo ${'$[ ${x '.repeat(20_000)}`,
+  '10k rejected array lines': `${'x=((1)) "\n'.repeat(10_000)}npm i`,
+  '20k unclosed substitutions in an expansion': `echo ${'$(${x '.repeat(20_000)}`,
+  '10k backticks around open frames': `${'echo `$( $[ <( \'`\n'.repeat(10_000)}npm i`,
+  '20k glued expansions': `cat .env${'$x$(true)'.repeat(20_000)} ${'$x'.repeat(20_000)}npm i`,
+  '20k CRLF lines': 'echo a\r\n'.repeat(20_000),
+  '10k nested defaults': `${`\${x:-`.repeat(10_000)}npm i${'}'.repeat(10_000)}`,
+  '20k empty defaults': `${`\${x:-} `.repeat(20_000)}npm i`,
+  '10k nested replacements': `${`\${x/a/`.repeat(10_000)}npm i${'}'.repeat(10_000)}`,
+  '20k replacements': `${`\${x/a/b}; `.repeat(20_000)}true`,
+  '20k shell modes': `${'pnpm -c exec "x y"; '.repeat(20_000)}true`,
+  '20k wrapper strings': `${'flock /tmp/l -c "x y"; '.repeat(20_000)}true`,
 }
 for (const [name, cmd] of Object.entries(BUDGET)) {
   const started = performance.now()

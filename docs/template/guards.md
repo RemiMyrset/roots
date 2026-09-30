@@ -24,15 +24,85 @@ and quoted paths with either separator (`'C:\repo\.env'`). A regression suite
 silently reopens another.
 
 The shared lexer splits a command where bash does, and the push guard never
-reads a redirection (`2>&1`, `> log`) as an argument. A `$()` or backtick
-substitution runs wherever bash runs it, inside double quotes and in a heredoc
-with an unquoted delimiter (`<<EOF`) too, while single-quoted text, a `#`
-comment, and a heredoc body are data, so a quote inside them cannot hide a
-later line. A `#` opens a comment only where bash reads one: at a line start
-or after a space or a tab, never after another space-like byte (a no-break
-space, CR) and never inside `[[ … ]]`, `${…}`, or a word's own parentheses
-(`@(#|a)`, `^(#|$)`). A function body and a case arm start a command, as a new
-line does (`f() { …; }`, `case $1 in a) …;; esac`).
+reads a redirection (`2>&1`, `> log`) as an argument. A word ends only at a
+space, a tab, or a newline outside quotes and `${…}`, so a quoted or escaped
+blank (`FOO="a b" npm i`, `a\ b`) and an expansion (`${x:-a b}`) stay inside
+their word, and so does an operator in an expansion (`${x:-a;b}`). A process
+substitution in an unquoted expansion still runs (`${x:-<(npm i)}`), and an
+expansion still ends where bash ends the `$((…))`, `$[…]`, or backtick
+substitution around it, since bash finds that end first
+(`echo $((${x) a); npm i` runs npm): a backtick substitution ends at its first
+unescaped backtick, whatever quote or substitution is open inside it.
+
+Bash 3.2 (macOS `/bin/bash`) finds the end of a `$(…)`, `<(…)`, or `>(…)` the
+same way, by counting parentheses, and the end of an assignment's subscript
+(`a[…]=`) by counting brackets, past any `${` open inside, and it ends a
+`${…}` at its `}` whatever `$(`, `<(`, or `$[` is open inside it. The guards
+also judge a command that holds a `${` as bash 3.2 reads it, so
+`echo $(${x) a; npm i`, which runs npm only there, is denied.
+
+A `${` before a blank, a newline, or a `|` is a substitution instead:
+`${ …; }` and `${| …; }` run their body as commands, as bash 5.3 and mksh do,
+up to a `}` that bash reads as a reserved word: where a command starts, right
+after a word that ends a compound command (a group's `}`, `fi`, `done`,
+`esac`, `]]`: `${ if a; then b; fi }`), or glued to a group's `}` inside the
+substitution (`${ { cmd; }}`). Bash before 5.3 (macOS `/bin/bash`, Git for
+Windows, Ubuntu 24.04) reads `${ x }` as an expansion that ends at its `}`,
+fails when it runs, and then runs the next line, so the guards judge each
+reading and deny what any of them runs.
+
+A word made only of unquoted substitutions and parameter expansions
+(`$(true) npm i`, `$x npm i`) may expand to nothing, so the word after it is
+judged as the command, and so is a name with one glued before it
+(`$(true)npm i`, `${x}npm i`). For the same reason the secret guard reads one
+glued into a file name as a glob that may match nothing (`.env$x` can name
+`.env`), and the push guard judges a target without it too (`main${x}`).
+
+A redirection operator standing alone before the command takes the next word
+as its target (`> log npm i`), unless that word is a package manager.
+
+An unquoted expansion with a default standing as the command runs that default
+(`${x:-npm i}`, `${NPM:-npm} i`), and a pattern substitution runs its
+replacement (`${x/a/npm i}`, `${x/a/npm} i`), so each is judged as the command.
+What `eval` runs, at any depth of nesting, the string `env -S` splits into a
+command, and the string a tool hands a shell are lexed again as commands of
+their own: pnpm's shell mode (`pnpm exec -c '…'`, `pnpm -r -c exec '…'`,
+`pnx -c '…'`), `flock FILE -c '…'`, `mise x -c '…'`, and `runuser -c '…'`.
+`coproc` starts a command like the other reserved words.
+
+Any other space-like byte (a no-break space, a form feed, a CR) stays inside
+its word in bash, a heredoc delimiter included. The guards also read the whole
+input with it as a blank and a CR as a line end, as PowerShell reads them, so
+a CR also ends a `#` comment (`echo a #x<CR>npm i`), and deny what either
+reading runs.
+
+A line continuation (a backslash before a newline) joins its lines as bash
+joins them, unquoted and inside double quotes, but never inside single quotes
+or `$'…'`. That holds inside an operator (a `;;` split across two lines), on
+the terminator line of a heredoc with an unquoted delimiter, and inside a
+double-quoted delimiter (`<<"EO\<newline>F"` is `EOF`); a quoted delimiter
+runs on across lines, as bash reads it. A backslash before a CR escapes only
+the CR, so a CRLF line still ends its command.
+
+Bash rejects an operator or a `(` inside an array (`x=((1))`, `x=(a;b)`) and,
+unlike any other syntax error, drops only the rest of that line and runs the
+next one. The guards also read the input with each such line dropped, so a
+quote, a heredoc, or a line continuation on it cannot hide the next line
+(`x=((1))\<newline>npm i` runs npm).
+
+A `$()` or backtick substitution runs wherever bash runs it, inside double
+quotes and in a heredoc with an unquoted delimiter (`<<EOF`) too, while
+single-quoted text, a `#` comment, and a heredoc body are data, so a quote
+inside them cannot hide a later line. A `#` opens a comment only where bash
+reads one: at a line start, after a space, a tab, a `;`, `&`, or `|`, or a
+subshell's closing `)` (`(cd x)#it's`), and never after another space-like
+byte or inside `${…}` or a word's own parentheses (`@(#|a)`, `^(#|$)`,
+`<(…)#x`, `x=(…)#y`). Inside `[[ … ]]` the guards read a `#` as text: bash
+reads one at a word start as a comment, so the conditional never closes, bash
+rejects the line, and nothing from it on runs. A function body and a case arm
+start a command, as a new line does (`f() { …; }`, `case $1 in a) …;; esac`).
+Inside backticks, the closing backtick ends a heredoc whose body has not
+started, as bash ends it, so the line after it is a command (`` `cat <<E` ``).
 
 A heredoc body a shell reads is lexed as commands: one whose pipeline reaches a
 shell (`bash <<'EOF'`, `cat <<'EOF' | sh`), also on the line after the body
@@ -100,23 +170,25 @@ Out of scope by design, for every guard: a nested interpreter (`sh -c`,
 `bash -c`, `python -c`), ANSI-C escapes (`$'\x6e…'`), and unlisted wrapper words
 (the `WRAP` allowlist in `_lexer.mts` cannot be exhaustive: proxychains,
 firejail, setarch, …). `mise x` and `mise exec` are listed with their value flags;
-`mise run` executes a task defined in a mise config and `mise x -c` takes a
-command string, so both are nested interpreters for this purpose. Claude Code
-on Windows registers the guards for its PowerShell tool as well as Bash; the
-lexer is bash-shaped, so PowerShell spellings are covered only where they
-coincide (`npm install`, `cat .env`, `git push origin main`).
+`mise run` executes a task defined in a mise config, so it is a nested
+interpreter for this purpose. Claude Code on Windows registers the guards for
+its PowerShell tool as well as Bash; the lexer is bash-shaped, so PowerShell
+spellings are covered only where they coincide (`npm install`, `cat .env`,
+`git push origin main`).
 
 Also out of scope: long or clustered wrapper flags (`sudo --user root`,
-`env --chdir /x`, `sudo -iu root`), a quoted command path with a space in it
-(`"C:\Program Files\nodejs\npm.cmd"`), an implicit push target git resolves in
+`env --chdir /x`, `sudo -iu root`), an implicit push target git resolves in
 another checkout or under another name (`git -C`, `--git-dir`, Gemini's
 `dir_path`, `push.default=upstream`), a hooks path set through `GIT_CONFIG_*`
-variables, and Gemini's own file tools (`read_file`, `grep_search`), which run
+variables, a variable's value as or before the command (`$x i`, `$x"npm" i`),
+and Gemini's own file tools (`read_file`, `grep_search`), which run
 no shell command and have no Read deny list.
 
 Known over-block for every guard (safe direction, never a bypass): a heredoc
 fed to a shell that runs a script file (`bash x.sh <<'EOF'`) has its body
-lexed as commands, although the script reads it as input. Backticks inside
+lexed as commands, although the script reads it as input, and the string
+`env -S` splits is lexed as shell input, so a `;` in it separates commands
+although env passes it on as text. Backticks inside
 double quotes are not an over-block: bash runs them, so
 `` -m "never run `npm install`" `` is denied because it would run npm. Quote
 such text in single quotes or a quoted heredoc (`<<'EOF'`), which bash never
@@ -330,9 +402,11 @@ dry-run and passes); a `core.hooksPath` override through `git -c` or
 `HUSKY_SKIP_HOOKS` environment prefixes, whether inline, via `env`, or
 exported (`export`, `declare -x`).
 
-Quoted mentions (`-m "no --no-verify here"`) pass. A quote the heuristic cannot
-balance (closed mid-token, or never) makes the whole command fail closed; every
-token is scanned.
+Quoted mentions (`-m "no --no-verify here"`) pass: words split where bash
+splits them, so a quoted message is one word, and a quote closed mid-word keeps
+its word whole (`-m "fix bug"s --no-verify` is denied). After a quote that
+never closes, the rest of the command splits at any whitespace, so every word
+from there on is scanned (fail closed).
 
 Out of scope, beyond the shared list: a `git config core.hooksPath` run as an
 earlier command, editing `.git/hooks` directly, and uninstalling

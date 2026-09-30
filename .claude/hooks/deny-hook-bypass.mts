@@ -18,33 +18,6 @@ const NO_VERIFY_RE = /^--no-veri(?:f(?:y)?)?$/
 const HOOKS_PATH_RE = /^core\.hookspath=/i
 const SKIP_ENV_RE = /^(?:SKIP_SIMPLE_GIT_HOOKS=|HUSKY=0$|HUSKY_SKIP_HOOKS=)/
 
-// Tokens outside quoted spans: tokenize() splits on whitespace regardless of quotes, so a
-// commit message mentioning `--no-verify` arrives as several tokens; a span from the token
-// that opens a quote to the token that closes it collapses to ONE empty placeholder, so the
-// value-option arity below (`-m <msg>`) stays aligned and `-m` can never swallow the flag
-// that follows the message (`-m "fix the build" --no-verify` once passed that way). `balanced`
-// is false when a quote never closed by this heuristic — the caller then scans every token
-// (fail closed), which also covers a quote closed mid-token (`-m "a "b --no-verify`).
-function outsideQuotes(toks: string[]): { toks: string[], balanced: boolean } {
-  const out: string[] = []
-  let open: string | null = null
-  for (const t of toks) {
-    if (open) {
-      if (t.endsWith(open))
-        open = null
-      continue
-    }
-    const q = t[0]
-    if ((q === '"' || q === '\'') && !(t.length > 1 && t.endsWith(q))) {
-      open = q
-      out.push('')
-      continue
-    }
-    out.push(t)
-  }
-  return { toks: out, balanced: open === null }
-}
-
 function bypass(toks: string[]): string | null {
   const { i, head, probe } = resolveHead(toks)
   if (probe)
@@ -68,10 +41,11 @@ function bypass(toks: string[]): string | null {
   }
   if (!HOOKED.has(sub))
     return null
-  const scanned = outsideQuotes(rest)
-  const args = scanned.balanced ? scanned.toks : rest
-  for (let a = 0; a < args.length; a++) {
-    const t = unquote(args[a]!)
+  // tokenize() splits where bash does, so a quoted message is one word and `-m <msg>` never
+  // swallows the flag after it (`-m "fix the build" --no-verify`). After a quote that never
+  // closes it splits at any whitespace, so every word from there on is scanned (fail closed).
+  for (let a = 0; a < rest.length; a++) {
+    const t = unquote(rest[a]!)
     if (t === '--')
       break
     if (NO_VERIFY_RE.test(t))
