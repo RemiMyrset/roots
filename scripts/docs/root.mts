@@ -60,12 +60,13 @@ export const H1_RE = /^# (.+)$/m
 /** The Status metadata bullet of a decision record; group 1 is the raw value. */
 export const STATUS_BULLET_RE = /^- \*\*Status:\*\*(.*)$/m
 /**
- * An automd opening marker; group 1 is the generator name. Anchored at line start and
- * tolerant of arguments and letter case because automd's own block matcher is, so the two
- * agree on what a region is: a marker quoted mid-line in prose is not one. Global, for
- * `matchAll`; never set its `lastIndex`.
+ * An automd opening marker; group 1 is the generator name, group 2 its arguments up to the
+ * first `-->`, which may stand lines below. Anchored at line start and tolerant of arguments,
+ * line breaks, and letter case because automd's own block matcher is (automd 0.4.3,
+ * findBlocks), so the two agree on what a region is: a marker quoted mid-line in prose is not
+ * one. Global, for `matchAll`; never set its `lastIndex`.
  */
-export const AUTOMD_OPEN_RE = /^<!--\s*automd:(\S+)\s[^\n]*?-->/gim
+export const AUTOMD_OPEN_RE = /^<!--\s*automd:(\S+)\s([\s\S]*?)-->/gim
 /** An automd closing marker, matched as loosely as automd matches it. Global; clone before `exec`. */
 export const AUTOMD_CLOSE_RE = /^<!--\s*\/automd\s*-->/gim
 /**
@@ -119,6 +120,8 @@ export function markdownFiles(dir: string): string[] {
 export interface AutomdRegion {
   /** The generator name, `decisionsIndex` for `<!-- automd:decisionsIndex -->`. */
   name: string
+  /** The opener's arguments as written, line breaks included; empty when it has none. */
+  args: string
   /** Offset of the opening marker. */
   start: number
   /** Offset just past the opening marker: the body starts here. */
@@ -144,7 +147,7 @@ export function automdRegions(text: string): AutomdRegion[] {
     const bodyStart = open.index + open[0].length
     close.lastIndex = bodyStart
     const closed = close.exec(text)
-    out.push({ name: open[1]!, start: open.index, bodyStart, bodyEnd: closed?.index ?? text.length, closed: closed !== null })
+    out.push({ name: open[1]!, args: open[2]!, start: open.index, bodyStart, bodyEnd: closed?.index ?? text.length, closed: closed !== null })
     pos = closed ? closed.index + closed[0].length : text.length
   }
   return out
@@ -153,8 +156,28 @@ export function automdRegions(text: string): AutomdRegion[] {
 const FENCE_RUN_RE = /^(`{3,}|~{3,})/
 const CLOSE_RUN_RE = /^(`{3,}|~{3,})\s*$/
 const LEADING_SPACES_RE = /^ */
-// A list item opener after its indent: the marker, then its spaces or the end of the line.
-const LIST_MARKER_RE = /^(?:[-*+]|\d{1,9}[.)])(?= |$)/
+// A list item opener after its indent: the marker, then its spaces or the end of the line. A
+// thematic break (`- - -`, `* * *`) opens none: CommonMark reads it first.
+const LIST_MARKER_RE = /^(?!([-*_])(?:[ \t]*\1){2,}[ \t]*$)(?:[-*+]|\d{1,9}[.)])(?= |$)/
+// A line's leading run of indentation and list markers, where a tab counts in columns.
+const INDENT_RUN_RE = /^(?:[ \t]|(?:[-*+]|\d{1,9}[.)])(?=[ \t]))*/
+
+/**
+ * The line with each tab in its leading run of indentation and list markers written as the
+ * spaces to the next multiple of four columns, as CommonMark reads a tab there; the rest of the
+ * line is kept as written. blockStart counts columns in spaces, so it reads a tab-indented line
+ * as the renderers do only once the tabs are expanded; fenceOpens and fenceContinues expand
+ * the line themselves.
+ */
+export function expandTabs(line: string): string {
+  const run = INDENT_RUN_RE.exec(line)![0]
+  if (!run.includes('\t'))
+    return line
+  let out = ''
+  for (const ch of run)
+    out += ch === '\t' ? ' '.repeat(4 - (out.length % 4)) : ch
+  return `${out}${line.slice(run.length)}`
+}
 
 /**
  * What a line-by-line fence scan carries from one line to the next: the open fence, with the
@@ -168,37 +191,66 @@ export interface FenceState {
   lists: number[]
 }
 
+/** Where a line's block content starts, read against the list items open above it (blockStart). */
+export interface BlockStart {
+  /** The content column of each list item open at the line, its own marker's included, innermost last. */
+  lists: number[]
+  /** The content column of the container the line's content stands in: its innermost list item, or 0. */
+  base: number
+  /** The column the content starts at, past any list marker; undefined when that is four or more past `base`, which makes the line indented code or a paragraph's continuation. */
+  at: number | undefined
+}
+
 /**
- * Advances `state` over a line outside a fence and says whether the line opens one. A fence
- * opens up to three spaces past the content column of the list item holding it (CommonMark),
- * so a fence nested in a list item at four or more spaces is one; the line's list marker, if
- * it has one, opens a list item first. A non-blank line indented less than an item's content
- * ends that item; a lazy continuation line ends it early, so a fence below one is read as if
- * it stood outside the list.
+ * Reads a non-blank line as CommonMark reads where a block opens on it, given `lists`, the
+ * content columns of the list items open above it: a line indented less than an item's content
+ * ends that item, and each list marker the line opens with (`- - x` holds two) opens a list
+ * item. A block (a fence, an HTML block) opens up to three spaces past the content column of its
+ * container, so one nested in a list item at four or more spaces is one. The line's quote
+ * markers are the caller's to strip first, and its tabs to expand (expandTabs): the columns
+ * returned index the expanded line. Pure: fenceOpens stores the lists it returns.
  */
-export function fenceOpens(state: FenceState, line: string): boolean {
-  if (line.trim() === '')
-    return false
+export function blockStart(lists: readonly number[], line: string): BlockStart {
   const indent = LEADING_SPACES_RE.exec(line)![0].length
-  state.lists = state.lists.filter(col => col <= indent)
-  let base = state.lists.at(-1) ?? 0
+  const open = lists.filter(col => col <= indent)
+  let base = open.at(-1) ?? 0
   if (indent - base > 3)
-    return false
+    return { lists: open, base, at: undefined }
   let at = indent
-  const marker = LIST_MARKER_RE.exec(line.slice(indent))
-  if (marker) {
-    const after = indent + marker[0].length
+  for (let marker = LIST_MARKER_RE.exec(line.slice(at)); marker; marker = LIST_MARKER_RE.exec(line.slice(at))) {
+    const after = at + marker[0].length
     const spaces = LEADING_SPACES_RE.exec(line.slice(after))![0].length
     // One to four spaces set the content column; none (an empty item) or five or more (an
     // indented code block inside the item) put it one space past the marker.
     base = after + (spaces >= 1 && spaces <= 4 && after + spaces < line.length ? spaces : 1)
-    state.lists.push(base)
+    open.push(base)
     at = after + spaces
     if (at - base > 3)
-      return false
+      return { lists: open, base, at: undefined }
   }
+  return { lists: open, base, at }
+}
+
+/**
+ * Advances `state` over a line outside a fence and says whether the line opens one, where
+ * blockStart says a block may open. A lazy continuation line ends a list item early, so a
+ * fence below one is read as if it stood outside the list. A run of backticks followed by
+ * another backtick on the line opens no fence. A tab in the line's indent counts in columns.
+ */
+export function fenceOpens(state: FenceState, written: string): boolean {
+  if (written.trim() === '')
+    return false
+  const line = expandTabs(written)
+  const { lists, base, at } = blockStart(state.lists, line)
+  state.lists = lists
+  if (at === undefined)
+    return false
   const run = FENCE_RUN_RE.exec(line.slice(at))
   if (!run)
+    return false
+  // A backtick fence's info string may not hold a backtick (CommonMark): "```a`b" opens a
+  // code span or reads as text, and the lines below it render.
+  if (run[1]![0] === '`' && line.includes('`', at + run[1]!.length))
     return false
   state.fence = { char: run[1]![0]!, len: run[1]!.length, col: base }
   return true
@@ -209,12 +261,14 @@ export function fenceOpens(state: FenceState, line: string): boolean {
  * The closing run, of the same character and at least the opener's length, belongs to it and
  * closes it. A non-blank line indented less than the fence's container ends the list item
  * holding the fence, and the fence with it: the line does not belong to the fence, so the
- * caller reads it as an ordinary line (with fenceOpens).
+ * caller reads it as an ordinary line (with fenceOpens). A tab in the line's indent counts in
+ * columns.
  */
-export function fenceContinues(state: FenceState, line: string): boolean {
+export function fenceContinues(state: FenceState, written: string): boolean {
   const fence = state.fence
   if (!fence)
     return false
+  const line = expandTabs(written)
   const indent = LEADING_SPACES_RE.exec(line)![0].length
   if (line.trim() !== '' && indent < fence.col) {
     state.fence = undefined

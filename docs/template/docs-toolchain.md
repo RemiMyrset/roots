@@ -36,7 +36,9 @@ Register it in `automd.config.ts`, which is yours unless you list it under
 `include`, and add the marker pair to a page under `docs/`, the only place
 automd looks. automd also ships the built-ins `file` (inline a file),
 `dir-tree`, and `fetch`. The drift gate in `pnpm verify` and CI keeps such a
-region current; `pnpm docs:check` checks only its shape.
+region current; `pnpm docs:check` checks only its shape. A region on a page
+under `docs/public/` reads only from inside it, as rule 4 of
+[markdown-portability](./markdown-portability.md#rules) says.
 
 A region is opt-in, and the template's own index pages carry none;
 [conventions](./conventions.md) says why. A page may keep the
