@@ -296,6 +296,9 @@ const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.cla
   const r = run(child)
   check('commits-since exits 0', r.status === 0, r.detail)
   check('commits-since counts one', r.stdout.includes('1 commit since last sync'))
+  // The sync-template skill reads a hand-edit's template text at the sha after `at`, the one
+  // recorded, never at the older sync point in parentheses.
+  check('Fetched line names the new sync point after at, the last one in parentheses', r.stdout.includes(`\nFetched template/main at ${T3.slice(0, 7)} — 1 commit since last sync (${T2.slice(0, 7)}):\n`), r.stdout)
   check('breaking commit marked', r.stdout.includes('! ') && r.stdout.includes('feat(docs)!: strict docs:check'))
   check('breaking paragraph printed', r.stdout.includes('BREAKING CHANGE: docs:check now fails on stale review dates.'))
   check('commit list ends with the full log range', r.stdout.includes(`\n  Full log: git log ${T2.slice(0, 7)}..${T3.slice(0, 7)}\n`), r.stdout)
@@ -413,7 +416,7 @@ refused('drive include', json({ ...VALID, include: ['C:/x'] }), 'forward slashes
 }
 
 // 7. Dirty synced path refused, before any remote or fetch happens: a modified file, a staged
-// rename, an untracked one, and a worktree edit to the state file.
+// rename, an untracked one, a worktree edit to the state file, and an untracked state file.
 {
   write(child, '.claude/skills/x/SKILL.md', '# x edited\n')
   const r = run(child)
@@ -470,11 +473,20 @@ refused('drive include', json({ ...VALID, include: ['C:/x'] }), 'forward slashes
   git(child, 'reset', '-q', '--hard', 'HEAD~1')
 }
 {
-  // The lists steer the run, so an uncommitted state file is refused like any synced path.
+  // The lists steer the run, so a state file with unstaged edits is refused like any synced path.
   write(child, STATE, json({ ...VALID, exclude: ['.gemini/settings.json'] }))
   const r = run(child)
   check('edited state file exits 1', r.status === 1 && r.stderr.includes('Uncommitted changes') && r.stderr.includes(STATE), r.detail)
   gitSafe(child, 'checkout', '--', STATE)
+}
+{
+  // An untracked state file steers the run as well, and git has no copy of it.
+  git(child, 'rm', '-q', '--cached', '--', STATE)
+  git(child, 'commit', '-q', '-m', 'chore: untrack the state file')
+  const r = run(child)
+  check('untracked state file exits 1', r.status === 1 && r.stderr.includes(`?? ${STATE}`), r.detail)
+  rmSync(join(child, STATE))
+  git(child, 'reset', '-q', '--hard', 'HEAD~1')
 }
 
 // 8. Bootstrap: a repo without the script runs an untracked copy of it; no baseline can be
@@ -827,10 +839,11 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
-// 22. The recorded commit is gone from the template (a force-push; here a URL for a copy that
-// never had it): nothing the template may have shipped is deleted, not even a file of the
-// repository's own at a path the template retired long before, and every file under a synced
-// path that the template does not ship is listed as kept.
+// 22. The recorded commit is lost: this clone lacks it and git cannot fetch it (a force-push
+// once the host prunes it; here a fresh clone and a URL for a copy that never had it): nothing
+// the template may have shipped is deleted, not even a file of the repository's own at a path
+// the template retired long before, and every file under a synced path that the template does
+// not ship is listed as kept.
 {
   git(template, 'branch', 'before')
   write(template, 'docs/template/experimental.md', '# experimental\n')
@@ -1318,6 +1331,51 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   const readable = run(kid)
   check('allow rule the template has is missing here', readable.status === 0 && readable.stdout.includes('  permissions.allow Bash(git status:*)  missing here\n'), readable.detail)
   check('an output style of its own is never listed', !readable.stdout.includes('outputStyle'), readable.stdout)
+}
+
+// 31. A clone that ran the last sync still holds the recorded commit after the template
+// force-pushes it away, so its tree is an exact sync point: an edited copy of a file it shipped
+// that the new head lacks is retired, and the diff is complete. Once the template prunes the
+// commit, a fresh clone cannot fetch it, so it keeps that file and lists it under Kept.
+{
+  const pushTemplate = join(tmp, 'push-template')
+  mkdirSync(pushTemplate)
+  git(pushTemplate, 'init', '-q', '-b', 'main')
+  write(pushTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(pushTemplate, 'docs/template/a.md', '# a\n')
+  const before = commit(pushTemplate, 'chore: t1', T1_AT)
+  const kid = join(tmp, 'push-child')
+  copyTree(pushTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  commit(kid, 'Initial commit', COPY_AT)
+  write(pushTemplate, 'docs/template/b.md', '# b\n')
+  commit(pushTemplate, 'feat(docs): page b', T2_AT)
+  const pushUrl = pathToFileURL(pushTemplate).href
+  const first = run(kid, pushUrl)
+  check('sync before the force-push stages the new page', first.status === 0 && staged(kid).includes('A docs/template/b.md'), first.detail)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(kid, 'docs/template/b.md', '# b, edited here\n')
+  commit(kid, 'docs: edit page b')
+  git(pushTemplate, 'reset', '-q', '--hard', before)
+  write(pushTemplate, 'docs/template/c.md', '# c\n')
+  commit(pushTemplate, 'feat(docs): page c instead', T3_AT)
+  const early = join(tmp, 'push-early')
+  git(tmp, 'clone', '-q', pathToFileURL(kid).href, early)
+  const e = run(early)
+  check('fresh clone fetches a force-pushed sync point the template still has', e.status === 0 && staged(early).includes('D docs/template/b.md') && !e.stdout.includes('Kept'), e.detail)
+  git(pushTemplate, 'reflog', 'expire', '--expire=now', '--all')
+  git(pushTemplate, 'gc', '-q', '--prune=now')
+  const fresh = join(tmp, 'push-fresh')
+  git(tmp, 'clone', '-q', pathToFileURL(kid).href, fresh)
+  const r = run(kid)
+  const s = staged(kid)
+  check('clone holding a force-pushed sync point exits 0', r.status === 0, r.detail)
+  check('clone holding a force-pushed sync point says the diff is complete', r.stdout.includes('not in its history') && r.stdout.includes('the staged diff below is complete regardless') && !r.stdout.includes('git cannot fetch it'), r.stdout)
+  check('clone holding a force-pushed sync point retires an edited copy it shipped', s.includes('D docs/template/b.md') && s.includes('A docs/template/c.md') && !r.stdout.includes('Kept'), `${s.join(', ')}; ${r.stdout}`)
+  const lost = run(fresh)
+  const f = staged(fresh)
+  check('fresh clone after the force-push cannot fetch the sync point', lost.status === 0 && lost.stdout.includes('git cannot fetch it either'), lost.detail)
+  check('fresh clone after the force-push keeps the edited copy', !f.some(l => l.endsWith('docs/template/b.md')) && lost.stdout.includes('\nKept (') && lost.stdout.includes('\n  docs/template/b.md\n'), `${f.join(', ')}; ${lost.stdout}`)
 }
 
 // 32. A new ref or URL alone, at the recorded template commit, is still recorded: pinning the

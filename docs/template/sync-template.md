@@ -81,9 +81,10 @@ CommonJS in a repo that sets `"type": "commonjs"`, which breaks its
 to stop pulling it (say `.gemini/settings.json` once you have local Gemini
 settings), or an extra path under `include` (for example `tsconfig.base.json`
 or `eslint.config.ts`) to pull it too. You can write the file by hand before
-the first sync and commit it; the sync fills in `commit`. An uncommitted state
-file is refused like any other change (behavior 7); commit it, never stash it:
-a stashed one takes its lists with it, and a stash is not private to a worktree
+the first sync and commit it; the sync fills in `commit`. An untracked state
+file, or one with unstaged edits, is refused (behavior 7); a staged one is read
+as it stands. Commit it, never stash it: a stashed one takes its lists with it,
+and a stash is not private to a worktree
 ([agent-surfaces](./agent-surfaces.md#permission-prompts)). Never edit
 `MECHANICS` in the script itself: the script is synced, and the edit would be
 staged for revert on the next run.
@@ -180,20 +181,24 @@ retired, and staged for deletion, only when it is the template's: it is in the
 tree at an exact sync point, or its content is byte-identical to a version the
 template shipped at that path. An exact sync point is the recorded commit,
 fetched by its hash when this clone lacks it (a fresh clone syncing back to an
-older ref), or a `shared history` or `root tree` baseline; with a `root time`
-baseline, which is approximate, with none, or when the template no longer has
-the recorded commit (a force-push, or a URL for another fork), the content
-test is the only one. The content test reads the template head's history and
-the sync point's, so it also catches a copy that got here another way (an
-older copy of the script that recorded no sync point, a sync while the path
-was excluded).
+older ref), or a `shared history` or `root tree` baseline. A clone that still
+holds the recorded commit uses its tree even after a template force-push
+dropped it, since that tree is what the last sync staged.
+
+The recorded commit is lost when this clone lacks it and git cannot fetch it
+(a force-push, once the template's host has pruned the dropped commit, or a
+URL for another fork). With a `root time` baseline, which is approximate, with
+none, or with a lost recorded commit, the content test is the only one. The
+content test reads the template head's history and the sync point's, so it
+also catches a copy that got here another way (an older copy of the script
+that recorded no sync point, a sync while the path was excluded).
 
 A file that stays is listed under `Kept` when it may still be the template's:
 at a path the template once shipped (a copy edited here, or a file of the
 repository's own that reuses the path), or at any path when the recorded
-commit is lost, since the template may have shipped it only in the history it
-lost. Any other file is the repository's own and is never touched or
-mentioned.
+commit is lost, since the template may have shipped it only in the history
+this clone cannot reach. Any other file is the repository's own and is never
+touched or mentioned.
 
 The state file `.template-sync.json` at the repo root is written with LF and
 staged whenever it changes:
@@ -361,8 +366,9 @@ stderr.
    template head, when run, then stdout says the sync point is "not in its
    history", no commit list is printed, script follow-ups are computed
    two-way, and the state is rewritten to the template head. stdout says the
-   staged diff is complete, or, when git cannot fetch the recorded commit,
-   that the files it cannot place are listed under `Kept` (behavior 24).
+   staged diff is complete, or, when this clone lacks the recorded commit and
+   git cannot fetch it, that the files it cannot place are listed under `Kept`
+   (behavior 24).
 6. Given a state file that is not a JSON object, or whose `url`, `repo`,
    `ref`, `exclude`, or `include` fails validation, when run, then exit `1`,
    stderr says it "is invalid" and names the field, and nothing is fetched or
@@ -475,14 +481,16 @@ stderr.
 24. Given a tracked file under a synced path that the template head does not
     ship, when run, then it is staged for deletion only when it is in the
     template's tree at an exact sync point (the recorded commit, fetched by
-    its hash when this clone lacks it, or a `shared history` or `root tree`
-    baseline) or byte-identical to a version the template shipped at that
-    path, however it got here (an older copy of the script that recorded no
-    sync point, a sync while its path was excluded). Otherwise it stays
-    untouched and unstaged. It is listed under `Kept` when the template once
-    shipped a file at that path or, given a recorded commit the template no
-    longer has, whatever its path; otherwise it is the repository's own (a
-    skill, rule, guard, or included path) and is never mentioned.
+    its hash when this clone lacks it and used as it stands when this clone
+    still holds it after a template force-push, or a `shared history` or
+    `root tree` baseline) or byte-identical to a version the template shipped
+    at that path, however it got here (an older copy of the script that
+    recorded no sync point, a sync while its path was excluded). Otherwise it
+    stays untouched and unstaged. It is listed under `Kept` when the template
+    once shipped a file at that path or, given a recorded commit this clone
+    lacks and git cannot fetch, whatever its path; otherwise it is the
+    repository's own (a skill, rule, guard, or included path) and is never
+    mentioned.
 25. Given a state file that came with the repository's first commit (a
     repository made with **Use this template** from one that syncs, such as
     an organization's fork of roots), when run with no URL, then stderr warns
@@ -539,8 +547,20 @@ stderr.
   deletion again on every sync while it stays byte-identical to a version the
   template shipped. Edited, it stays and is listed under `Kept`; moved to a
   path the template never shipped, it is never mentioned again.
+- After a template force-push, clones of one repository can stage different
+  diffs. A clone that holds the recorded commit, or can still fetch it by its
+  hash (git and GitHub serve a commit no branch reaches until the host prunes
+  it), retires an edited copy of a file that commit shipped (a `D` line). A
+  clone that lacks it after the template's host has pruned it keeps that file
+  and lists it under `Kept`.
 - Template tags live under `refs/template-tags/`, so `git describe` and
   changelogen in this repository never see them and `git tag -l` stays clean.
+- `refs/remotes/template/<ref>` and `refs/template-tags/<ref>` are shared by
+  every worktree of a clone, and the next fetch of that ref, from any
+  worktree, moves them to wherever the template's ref now points.
+  A hand-edit that takes the template's text reads it at the sha after `at`
+  on the `Fetched` line, which is the `commit` the run recorded, as the
+  printed `git restore --source=<sha>` lines do.
 - Rename entries in `git status` are read as their destination path. The
   report's `git diff --cached` runs with `--no-renames`, so a deletion paired
   with an unrelated addition cannot hide which file goes.

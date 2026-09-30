@@ -905,7 +905,9 @@ const label = kind === 'tag' ? `${REMOTE}/${ref} (tag)` : `${REMOTE}/${ref}`
 const recorded = state?.commit
 // A fresh clone holds only the template history the fetch above brought, so a recorded commit
 // off it (a sync back to an older ref, a switch to another ref) is fetched by its hash. It is
-// lost only when the template no longer has it (a force-push), or the URL is another fork.
+// lost only when this clone lacks it and git cannot fetch it (a force-push, once the template's
+// host has pruned the dropped commit, or a URL for another fork). A clone that still holds it
+// after a force-push uses its tree, which is what the last sync staged.
 const hasCommit = (sha: string): boolean => tryGit(['cat-file', '-e', `${sha}^{commit}`]) !== null
 const recordedLost = recorded !== undefined && !hasCommit(recorded) && (tryGit(['fetch', '--no-tags', REMOTE, recorded]) === null || !hasCommit(recorded))
 const baseline = recorded === undefined ? inferBaseline(head, label, paths) : undefined
@@ -934,8 +936,8 @@ if ([...upstreamByPath.values()].every(files => files.size === 0))
 // the path was excluded). Anything else stays. It is listed as kept when it may still be the
 // template's: at a path the template once shipped (a copy edited here, or the repository's own
 // file reusing the path), or, with the recorded commit lost, anywhere, since the template may
-// have shipped it only in the history it lost. Any other file, such as the repository's own
-// skill or rule under a synced directory, is never mentioned.
+// have shipped it only in the history this clone cannot reach. Any other file, such as the
+// repository's own skill or rule under a synced directory, is never mentioned.
 const exactBase = base !== undefined && baseline?.how !== 'root time' && !recordedLost ? base : undefined
 const atBase = new Map<string, Set<string>>()
 function inBaseTree(path: string, file: string): boolean {
