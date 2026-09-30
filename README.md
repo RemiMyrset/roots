@@ -3,11 +3,13 @@
 A GitHub template for pnpm + Turborepo TypeScript monorepos that AI coding
 agents can work in safely from day one.
 
-Tooling enforces the rules. One rulebook is read by Claude Code, Codex, and
-Gemini CLI, guards stop the common agent mistakes before they run, and one done
-gate is the same locally and in CI. Decisions, specs, and portable markdown
-live in a docs system, and a sync keeps the shared mechanics current after you
-have made the template your own.
+Tooling enforces the rules: one rulebook read by Claude Code, Codex, and Gemini
+CLI, guards that stop the common agent mistakes before they run, and one done
+gate that is the same locally and in CI. Decisions, specs, and portable
+markdown live in a docs system, and a sync keeps the template-owned files
+(guards, gates, docs checkers, skills) current in your repository. To start,
+press **Use this template** and work through [First run](#first-run) in the
+new repository.
 
 ## Who it is for, and not for
 
@@ -36,10 +38,11 @@ Not for anyone who wants an unopinionated starter.
   from the files so branches that each add one merge without a conflict, and
   built into an internal handbook and a public site that a shipped workflow
   publishes to GitHub Pages with `llms.txt`. Start at
-  [docs/README.md](./docs/README.md); the mechanics are in
+  [docs/README.md](./docs/README.md); how it works is in
   [docs-toolchain](./docs/template/docs-toolchain.md).
-- Template sync, `pnpm sync:template`, which pulls the shared mechanics into
-  any child and reports what a file copy cannot carry; recipe and contract in
+- Template sync, `pnpm sync:template`, which pulls the template-owned files
+  (the mechanics) into any repository made from the template (a child) and
+  reports what a file copy cannot carry; recipe and contract in
   [sync-template](./docs/template/sync-template.md).
 - Supply-chain defaults and a sandbox: dependency build scripts off, a 48-hour
   release cooldown, pinned actions, secrets scanned at commit and in CI
@@ -68,17 +71,22 @@ scripts/           verify, sync, the docs generators and checkers, test suites
 ```mermaid
 flowchart LR
   T[roots template] -- Use this template --> C[your repository]
-  C -- pnpm sync:template --> T
+  T -- pnpm sync:template --> C
   C -- pnpm verify --> G[green on both runners]
 ```
 
 ## First run
 
 > [!IMPORTANT]
-> You are reading a repository just created from the roots template. Nothing in
-> the tree depends on the template's name, so there is no rename script. Work
-> through this list once, then delete the section. In Claude Code the
-> `first-run` skill does every step marked **(skill)** and hands you the rest.
+> On the template itself, this section is the checklist every new repository
+> receives: press **Use this template**, clone the new repository, and work
+> through it there ([Getting started](./docs/public/getting-started.md)). In a
+> repository created from the template, work through this list once, then
+> delete the section.
+>
+> Nothing in the tree depends on the template's name, so there is no rename
+> script. In Claude Code the `first-run` skill does every step marked
+> **(skill)** and hands you the rest.
 
 1. **Prove the done gate.** With node 24 and pnpm installed as
    [Setup](#setup) says, `pnpm install && pnpm verify`, green before you touch
@@ -87,10 +95,11 @@ flowchart LR
    the owners it cannot derive, and the security and conduct contacts)**
    - `package.json`: `name` (your repo slug), `description`, and
      `repository.url`.
-   - This file: the H1 and the pitch above; delete "Who it is for, and not
-     for", "What is in the box", and the diagram under Layout, which describe
-     the template. Under "Where things live", delete the parenthetical that
-     names the template's own site and keep the provenance line.
+   - This file: the H1, and your pitch in place of the two paragraphs under
+     it; delete "Who it is for, and not for", "What is in the box", and the
+     diagram under Layout, which describe the template. Under "Where things
+     live", delete the parenthetical that names the template's own site and
+     keep the provenance line.
    - `docs/public/index.md` and `getting-started.md`: two stubs for your
      product; the shipped pages describe the template and the public site
      publishes what is here.
@@ -134,9 +143,9 @@ flowchart LR
 
 6. **Commit and push.** Delete this section, then
    `git commit -am "chore: initialize from roots"` and push `main` yourself.
-   This is the one direct push, and it is yours: the push guard denies it to
-   agents. Everything after lands through a PR. **(skill proposes the commit;
-   it never pushes)**
+   This and `pnpm release` are the only direct pushes, and both are yours: the
+   push guard denies them to agents. Every other change lands through a PR.
+   **(skill proposes the commit; it never pushes)**
 7. **Branch ruleset.** Run the command under
    [Push protection](./docs/template/guards.md#push-protection) in guards; it
    says when the ruleset can be created and what it costs.
@@ -227,8 +236,8 @@ pnpm install
   [docs-toolchain](./docs/template/docs-toolchain.md)
 - The public site, once Pages is enabled: `https://OWNER.github.io/REPO/` (the
   template's own is [remimyrset.github.io/roots](https://remimyrset.github.io/roots/)).
-- Template provenance: created from [roots](https://github.com/RemiMyrset/roots);
-  pull updates with `pnpm sync:template`.
+- Template provenance: [roots](https://github.com/RemiMyrset/roots);
+  `pnpm sync:template` pulls its updates.
 
 ## License
 

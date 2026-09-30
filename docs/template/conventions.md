@@ -35,8 +35,9 @@ portability requirement. The choices, each with its why:
 - `docs/template/` holds the rules and agent material the template owns, listed
   in [its README](./README.md). It is synced into children and never edited in
   a child, so a fix lands once. `docs/internal/` and `docs/public/` are the
-  child's own and start clean; the decisions and specs folders hold only their
-  index and template files.
+  child's own. `docs/internal/` starts clean: the decisions and specs folders
+  hold only their index and template files. The two public pages describe the
+  template until the README's First run checklist replaces them.
 - Decisions are MADR 4 minimal, the maintained published standard, and
   append-only. Metadata is visible bold bullets because YAML frontmatter is
   invisible in VitePress and noisy on GitHub.

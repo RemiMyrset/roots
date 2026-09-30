@@ -32,7 +32,7 @@ generated `.agents/skills/` mirror); path-scoped rules live in `.claude/rules/`
 | Agent guard threat model | [guards](./docs/template/guards.md) |
 | How each agent tool reads the rulebook, guards, skills, and writing rules | [agent-surfaces](./docs/template/agent-surfaces.md) |
 | Template sync recipe and contract | [sync-template](./docs/template/sync-template.md) |
-| Setup, install, quickstart | [README.md](./README.md) |
+| Setup and install | [README.md](./README.md) |
 <!-- This table is the canonical-home map. Add one row per fact as homes appear
      (ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
      design/). A fact with no row gets one home and one row. -->
