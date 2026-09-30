@@ -862,7 +862,9 @@ if (origin !== undefined && hostPath(origin) === hostPath(url))
 const exclude = new Set(state?.exclude ?? [])
 const paths = [...MECHANICS.filter(p => !exclude.has(p)), ...(state?.include ?? []).filter(p => !MECHANICS.includes(p))]
 
-// Refuse to clobber uncommitted work in the synced paths. Two exemptions: this script
+// Refuse to clobber uncommitted work in the synced paths. Untracked files count, listed one by
+// one whatever `status.showUntrackedFiles` says: the checkout below overwrites one at a path
+// the template ships, and git has no copy of it. Two exemptions: this script
 // itself, untracked or modified (a repo that predates it, or holds an older tracked copy,
 // bootstraps by dropping a fresh copy in place and running it, and the checkout below
 // replaces it with the template's version anyway), and the state file when it is staged
@@ -870,7 +872,7 @@ const paths = [...MECHANICS.filter(p => !exclude.has(p)), ...(state?.include ?? 
 // commit must not refuse its own work. The refusal says commit, never stash: every linked
 // worktree shares one stash list, so another session's bare `git stash pop` can take the entry.
 const dirty: string[] = []
-const statusEntries = zList(tryGit(['status', '--porcelain', '-z', '--', ...paths, STATE_FILE]))
+const statusEntries = zList(tryGit(['status', '--porcelain', '-z', '--untracked-files=all', '--', ...paths, STATE_FILE]))
 for (let i = 0; i < statusEntries.length; i++) {
   const entry = statusEntries[i] ?? ''
   const xy = entry.slice(0, 2)

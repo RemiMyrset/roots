@@ -2,7 +2,7 @@
 
 - **Source:** `scripts/sync-template.mts`
 - **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
-- **Last reviewed:** 2026-09-30
+- **Last reviewed:** 2026-10-01
 
 The contract for `pnpm sync:template`. The tests pin behaviors 1 to 27; the
 per-file-error branch of behavior 23 is untested. The user-facing recipe is the
@@ -221,7 +221,7 @@ that, so a contributor whose `origin` is a fork never changes it; a file that
 lacks it is rewritten to add it. The run that writes it first says so in its
 report, since that `origin` may itself be a personal fork or a mirror. Correct
 it by hand then, or if the repository moves. It must match the same pattern as
-`url`.
+`url`; an `origin` that does not is never recorded.
 
 A missing state file, or one without `commit`, means a first sync; a file
 holding only `url`, `ref`, `exclude`, or `include` is a configuration written
@@ -229,9 +229,9 @@ before the first sync, and all of it applies. A leading byte-order mark is
 ignored, here and in `package.json` and `.claude/settings.json`. An invalid
 `commit` produces a warning on stderr, is treated as a first sync with the
 other fields kept, and is rewritten. Anything else invalid (not a JSON object,
-a bad `url` or `ref`, an `exclude` or `include` that is not an array of valid
-entries) stops the run: dropping the field would switch the template or ref,
-or overwrite an excluded path.
+a bad `url`, `repo`, or `ref`, an `exclude` or `include` that is not an array
+of valid entries) stops the run: dropping the field would switch the template
+or ref, or overwrite an excluded path.
 
 The baseline for a first sync (no recorded commit) is the first match of: the
 merge-base of `HEAD` and the template head when history is shared; else the
@@ -315,7 +315,8 @@ stdout, in order:
    opens with `hooks.<event>  differs` when it replaced a registration here
    (behavior 14), else `hooks.<event>  missing here`, then a `template:` line
    and one `yours:` line per replaced registration, each reading
-   `matcher <matcher>, command <command>`.
+   `matcher <matcher>, command <command>`, with `(none)` for a registration
+   that has no matcher.
 6. A `Next:` block, only when something is staged: the review and discard
    commands; `pnpm docs:gen && git add .agents/skills` when a path under
    `.claude/skills` or `.agents` is staged; `git add <path>` for each file a
@@ -342,9 +343,12 @@ stderr.
    deletion, files outside the synced paths are untouched, the state file is
    written with that URL and the template head and is staged, stdout says
    "first sync", and no template tag exists locally.
-3. Given the recorded commit equals the template head and every synced file
-   already matches, when run, then nothing is staged and stdout says "unchanged
-   since last sync" and "Already up to date".
+3. Given the recorded commit equals the template head, the URL and ref are
+   the recorded ones, `repo` is recorded or there is none to record (behavior
+   25), and every synced file already matches, when run, then nothing is
+   staged and stdout says "unchanged since last sync" and "Already up to
+   date". A new URL or ref alone, or `repo` recorded for the first time, at
+   the recorded commit, stages only the rewritten state file.
 4. Given template commits after the recorded one, when run, then stdout counts
    them, lists them newest first with `!` on commits whose subject carries `!`
    or whose body has a `BREAKING CHANGE` footer, prints that footer's paragraph
@@ -359,21 +363,26 @@ stderr.
    two-way, and the state is rewritten to the template head. stdout says the
    staged diff is complete, or, when git cannot fetch the recorded commit,
    that the files it cannot place are listed under `Kept` (behavior 24).
-6. Given a state file that is not a JSON object, or whose `url`, `ref`,
-   `exclude`, or `include` fails validation, when run, then exit `1`, stderr
-   says it "is invalid" and names the field, and nothing is fetched or staged.
+6. Given a state file that is not a JSON object, or whose `url`, `repo`,
+   `ref`, `exclude`, or `include` fails validation, when run, then exit `1`,
+   stderr says it "is invalid" and names the field, and nothing is fetched or
+   staged.
    Given an invalid `commit` alone, stderr warns, the run proceeds as a first
    sync keeping the other fields, and the file is rewritten. Given no
    `commit`, the run is a first sync with no warning that uses the file's
    `url` and lists. A leading byte-order mark is ignored.
 7. Given uncommitted changes under a synced path or to the state file, when run,
-   then exit `1`, stderr names the paths and says to commit them without ever
+   then exit `1`, stderr names the paths (each untracked file by its own path,
+   even inside an untracked directory) and says to commit them without ever
    suggesting a stash, nothing is fetched or staged, and the `template` remote
-   is not added or changed. `scripts/sync-template.mts` itself never counts,
-   untracked or modified: a fresh copy dropped in by hand is how an older repo
-   bootstraps. The state file counts only when it has
-   worktree changes: staged and clean is what a previous run left, so a second
-   run before the commit proceeds.
+   is not added or changed. An untracked file counts even when
+   `status.showUntrackedFiles` hides it from `git status`: git has no copy of
+   it, and the checkout would overwrite one at a path the template ships.
+   `scripts/sync-template.mts` itself never counts, untracked or modified: a
+   fresh copy dropped in by hand is how an older repo bootstraps. The state
+   file counts only when it has worktree changes (edited, deleted, or
+   untracked): staged and clean is what a previous run left, so a second run
+   before the commit proceeds.
 8. Given an untracked copy of the script, or an older tracked and now modified
    one, when run with a URL, then the run succeeds and the template's version
    of the script is staged.
@@ -454,8 +463,9 @@ stderr.
 21. Given a refused ref (`--ref -x`), an unknown option, or a ref that is
     neither a branch nor a tag, when run, then exit `1` with a reason and the
     state file is untouched.
-22. Given a checkout whose `origin` is the template URL, when run, then exit `1`
-    and stderr says this is the template itself.
+22. Given a checkout whose `origin` is the template URL, compared by host and
+    path in any letter case and with or without a `.git` suffix, when run,
+    then exit `1` and stderr says this is the template itself.
 23. Given a synced path whose checkout fails, when run, then the path and the
     first line of git's reason appear under `Skipped`, the other paths are still
     staged, and exit is `0`; when every checkout fails, exit `1` with the list.
@@ -486,7 +496,7 @@ stderr.
     into one commit whose `repo` is its own `origin`. `repo` is written once
     and kept; a file without it gets it on the next run, from `origin` with
     the user and token of an `http(s)` URL dropped, and stdout names the URL
-    recorded.
+    recorded. An `origin` that fails the URL pattern is never recorded.
 26. Given a template that changed what a synced gate relies on outside the
     synced paths, when run, then `packageManager` and the `devDependencies`,
     `simple-git-hooks`, `lint-staged`, `commitlint`, and `engines` blocks of
@@ -500,7 +510,7 @@ stderr.
     `docs/public/`, `src/`, `packages/`, and `apps/` that this repository
     lacks is listed under `Files` with the command that fetches and stages
     it; `Files` is skipped when the sync point is not on the template head's
-    history (no baseline, a lost or newer recorded commit).
+    history (no baseline, or a lost, newer, or off-history recorded commit).
 27. Given a shallow clone (`git clone --depth 1`, the default of
     `actions/checkout`) whose state file was written by a commit the clone cut
     off, when run, then the file is this repository's own, not inherited: the
