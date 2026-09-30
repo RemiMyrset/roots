@@ -15,13 +15,19 @@ script, read a secret file, push to a protected branch, or skip the git hooks.
 
 What they cover reliably is the direct and common wrapped forms: bare and
 path-prefixed commands in any case, with or without a Windows launcher suffix
-(`npm.cmd`, `bash.exe`) or a version (`corepack yarn@1`), standard wrappers
-(`sudo`, `env`, `nice`, `timeout`, `flock`, `xargs`, `mise x` / `mise exec`,
-…) with their short flags, `pnpm exec` / `dlx` / `x` unwrapping, pnpm's own
-`pn`, `pnx`, and `pnpx`, `;` / `&&` / `|` / `$()` separators, glued redirects,
-and quoted paths with either separator (`'C:\repo\.env'`). A regression suite
-(`pnpm test:hooks`) pins every covered case so a fix for one form never
-silently reopens another.
+(`npm.cmd`, `bash.exe`) or a version (`corepack yarn@1`), yarn's `yarnpkg`
+alias, standard wrappers (`sudo`, `env`, `nice`, `timeout`, `flock`, `xargs`,
+`mise x` / `mise exec`, …) with the short flags their GNU and BSD help lists,
+`pnpm exec` / `dlx` / `x` unwrapping, pnpm's own `pn`, `pnx`, and `pnpx`,
+`npx` and its flags (`npx -y pnpm approve-builds` runs pnpm), `;` / `&&` /
+`|` / `$()` separators, glued redirects, and quoted paths with either separator
+(`'C:\repo\.env'`). A regression suite (`pnpm test:hooks`) pins every covered
+case so a fix for one form never silently reopens another.
+
+A `command -v` presence probe (`command -v npm`) runs nothing and passes. Only
+the shell's own `command` word counts: in `env -u command -v npm i` it is the
+variable env unsets, so npm runs and is denied, and a path such as
+`/usr/bin/command` is a program on disk, so the command after it is judged.
 
 The shared lexer splits a command where bash does, and the push guard never
 reads a redirection (`2>&1`, `> log`) as an argument. A word ends only at a
@@ -167,17 +173,19 @@ through any of the unbounded ways a shell can spell a command. Deciding intent
 from command text alone is undecidable, so the guards do not try.
 
 Out of scope by design, for every guard: a nested interpreter (`sh -c`,
-`bash -c`, `python -c`), ANSI-C escapes (`$'\x6e…'`), and unlisted wrapper words
-(the `WRAP` allowlist in `_lexer.mts` cannot be exhaustive: proxychains,
-firejail, setarch, …). `mise x` and `mise exec` are listed with their value flags;
-`mise run` executes a task defined in a mise config, so it is a nested
-interpreter for this purpose. Claude Code on Windows registers the guards for
-its PowerShell tool as well as Bash; the lexer is bash-shaped, so PowerShell
-spellings are covered only where they coincide (`npm install`, `cat .env`,
-`git push origin main`).
+`bash -c`, `python -c`, `npx -c`), ANSI-C escapes (`$'\x6e…'`), and unlisted
+wrapper words (the `WRAP` allowlist in `_lexer.mts` cannot be exhaustive:
+proxychains, firejail, setarch, …). `mise x` and `mise exec` are listed with
+their value flags; `mise run` executes a task defined in a mise config, so it
+is a nested interpreter for this purpose. Claude Code on Windows registers the
+guards for its PowerShell tool as well as Bash; the lexer is bash-shaped, so
+PowerShell spellings are covered only where they coincide (`npm install`,
+`cat .env`, `git push origin main`).
 
 Also out of scope: long or clustered wrapper flags (`sudo --user root`,
-`env --chdir /x`, `sudo -iu root`), an implicit push target git resolves in
+`env --chdir /x`, `sudo -iu root`), a long or multi-letter npm config flag that
+npx reads with a separate value (`npx --registry URL …`, `npx -reg URL …`), an
+implicit push target git resolves in
 another checkout or under another name (`git -C`, `--git-dir`, Gemini's
 `dir_path`, `push.default=upstream`), a hooks path set through `GIT_CONFIG_*`
 variables, a variable's value as or before the command (`$x i`, `$x"npm" i`),
@@ -372,8 +380,10 @@ binding); the admin bypass above still lets a human release:
 
 `deny-build-scripts` keeps dependency build scripts off, as the AGENTS.md rule
 on `allowBuilds` requires. Wherever pnpm is a command word, `pnpm dlx` and
-`pnpm exec` lines and the `pn`, `pnx`, and `pnpx` shorthands included, it
-denies `approve-builds` and `--allow-build`. It
+`pnpm exec` lines, the `pn`, `pnx`, and `pnpx` shorthands, and pnpm run
+through `npx` included, directly or through a wrapper npx runs
+(`npx corepack pnpm approve-builds`), it denies `approve-builds` and
+`--allow-build`. It
 also denies a setting that allows builds (`allowBuilds`,
 `onlyBuiltDependencies`, `dangerouslyAllowAllBuilds`) where it is set: as a
 flag (`--config.allowBuilds=…`) or after `pnpm config set` or `pnpm set`.

@@ -1114,6 +1114,73 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'coproc cat .env' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'coproc pnpm install' },
 
+  // --- wrapper value flags as each tool's own help lists them, GNU and BSD ---------------------
+  // GNU `xargs -i` takes its value only glued on, so the word after it is the command.
+  { guard: P, expect: D, cmd: 'echo x | xargs -i git push origin main' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'xargs -i cat .env' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'xargs -J % npm install' }, //       BSD xargs
+  // A value flag the table missed made its value the head.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'sudo -D . npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'env -a x cat .env' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -a x npm install' },
+  // Values that are names, not numbers: sudo's auth type and login class, BSD env's user.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'sudo -a passwd npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'sudo -c staff cat .env' }, //    BSD sudo
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'env -L root cat .env' }, //      BSD env
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -U root npm install' }, //       BSD env
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -P /bin npm install' }, //      BSD env
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'doas -a x npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'runuser -u x -G wheel npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'runuser -u x -s /bin/sh npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'runuser -u x -w PATH npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '/usr/bin/time -o log npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'command time -f %e cat .env' },
+  // taskset's -c is boolean (the mask reads as a CPU list), so a flag after it is no value.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'taskset -c -a 0-3 npm install' },
+  { guard: P, expect: A, cmd: 'echo x | xargs -i git push origin feat/x' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'xargs -i cat notes.txt' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'sudo -D /tmp pnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'taskset -c -a 0-3 pnpm install' },
+
+  // --- a `command -v` probe is the `command` wrapper word itself, never a flag's value -------
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -u command -v npm install' },
+  { guard: P, expect: D, cmd: 'env -u command -v git push origin main' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'env -u command -v cat .env' },
+  { guard: B, expect: D, cmd: 'env -u command -v git commit --no-verify -m x' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'mise x -E command -v -- npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: '/usr/bin/command -v npm' }, //      a program, not the builtin
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'env command -v npm' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'command -V yarn' },
+
+  // --- npx runs its first word after its flags; yarnpkg is yarn ------------------------------
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'yarnpkg install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'yarnpkg add x' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npx yarn install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npx -y npm@10 install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npx -p npm npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npx --package=x -- npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npx -n x npm install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npx --npm x yarn install' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npx -C /tmp npm install' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'npx -L x cat .env' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'npx -m x pnpm approve-builds' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'npx pnpm approve-builds' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'npx pnpm install --allow-build=esbuild' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'npx -y pnpm@11 install --allow-build=esbuild' },
+  // corepack ships beside npx in Node's bin dir, so npx runs it, and it runs pnpm.
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'npx corepack pnpm approve-builds' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'npx -y corepack pnpm install --allow-build=esbuild' },
+  { guard: 'deny-build-scripts.mts', expect: D, cmd: 'npx pnpm config set allowBuilds.esbuild true' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'npx cat .env' },
+  { guard: P, expect: D, cmd: 'npx pnpm release' },
+  { guard: P, expect: D, cmd: 'npx -p changelogen changelogen --release --push' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'npx pnpm install' },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'npx tsx x.ts' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'npx pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'npx corepack pnpm install' },
+  { guard: 'deny-build-scripts.mts', expect: A, cmd: 'npx -y create-vite my-app' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'npx tsx x.ts' },
+
   // --- deny-secret-reads: a glob that can expand to a secret reads it ---------------------
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .env*' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'head -n 50 .env*' },
@@ -1218,6 +1285,17 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: D, cmd: 'npm\u00A0install', tool: 'PowerShell' },
   { guard: 'dispatch.mts', expect: D, cmd: 'cat <<EOF\r>/dev/null\nx\nEOF\r\nnpm install' },
   { guard: 'dispatch.mts', expect: D, cmd: `FOO=\${x:-a b} npm install` },
+  { guard: 'dispatch.mts', expect: D, cmd: 'echo x | xargs -i git push origin main' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'xargs -i cat .env' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'env -a x cat .env' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'sudo -D . npm install' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'env -u command -v git push origin main' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'yarnpkg add x' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'npx pnpm approve-builds' },
+  { guard: 'dispatch.mts', expect: D, cmd: 'npx pnpm install --allow-build=esbuild' },
+  { guard: 'dispatch.mts', expect: D, cmd: '/usr/bin/command -v npm' },
+  { guard: 'dispatch.mts', expect: A, cmd: 'command -v npm' },
+  { guard: 'dispatch.mts', expect: A, cmd: 'npx -y changelogen' },
   // Same dispatcher, Codex-shaped and Gemini-shaped payloads.
   { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'Bash', extra: CODEX },
   { guard: 'dispatch.mts', expect: D, cmd: 'git push origin main', tool: 'Bash', extra: CODEX },
@@ -1245,7 +1323,7 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: A, cmd: '<raw: empty command>', raw: '{"tool_input":{"command":""}}' }, // a string, nothing to run
 ]
 
-// Direct lexer pins: WRAP / WRAP_VALUE_FLAGS / POSITIONAL_MODE / wouldHideHead / leadIndex all
+// Direct lexer pins: WRAP / WRAP_VALUE_FLAGS / WRAP_POSITIONAL / wouldHideHead / leadIndex all
 // resolve through resolveHead(), so a table change shows up here before it shows up as a bypass.
 interface LexerCase { cmd: string, head: string, probe?: boolean }
 const LEXER_CASES: LexerCase[] = [
@@ -1265,8 +1343,9 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: 'sudo -n npm i', head: 'npm' }, //                  boolean for sudo
   { cmd: 'nice -n 10 npm i', head: 'npm' }, //               value-taking for nice
   { cmd: 'nice -n 10 pnpm i', head: 'pnpm' },
-  { cmd: 'taskset 0x1 npm i', head: 'npm' }, //              unless-value: bare mask
-  { cmd: 'taskset -c 0-3 npm i', head: 'npm' }, //           unless-value: flag form
+  { cmd: 'taskset 0x1 npm i', head: 'npm' }, //              the mask is a positional
+  { cmd: 'taskset -c 0-3 npm i', head: 'npm' }, //           and stays one after -c
+  { cmd: 'taskset -c -a 0-3 cat .env', head: 'cat' }, //     -c is boolean
   { cmd: 'flock -w 5 /tmp/l npm i', head: 'npm' },
   { cmd: '/usr/bin/env npm i', head: 'npm' }, //             base()-normalised wrapper
   { cmd: 'stdbuf -oL npm install', head: 'npm' },
@@ -1309,6 +1388,29 @@ const LEXER_CASES: LexerCase[] = [
   { cmd: `FOO="\${x:-"a b"}" npm i`, head: 'npm' }, //            quotes nest inside it
   { cmd: `\${x/a/b} npm i`, head: 'npm' }, //                     a substitution may be empty; segments() reads `b` too
   { cmd: 'pnpm -r exec -c npm i', head: 'npm' }, //              shell mode's plain words already name the command
+  // Each wrapper's value flags, from its own help (GNU and BSD).
+  { cmd: 'xargs -i cat .env', head: 'cat' }, //                   -i takes a glued value only
+  { cmd: 'xargs -i npm i', head: 'npm' },
+  { cmd: 'xargs -J % npm i', head: 'npm' }, //                    BSD xargs
+  { cmd: 'sudo -D . npm i', head: 'npm' },
+  { cmd: 'env -a x npm i', head: 'npm' },
+  { cmd: 'doas -a x npm i', head: 'npm' },
+  { cmd: 'runuser -u x -G wheel npm i', head: 'npm' },
+  { cmd: 'runuser -u x -s /bin/sh npm i', head: 'npm' },
+  { cmd: '/usr/bin/time -f %e -o log cat .env', head: 'cat' },
+  // A probe is the `command` wrapper word itself, not a flag's value or a path.
+  { cmd: 'env -u command -v npm', head: 'npm', probe: false },
+  { cmd: 'env command -v npm', head: 'npm', probe: true },
+  { cmd: '/usr/bin/command -v npm', head: 'npm', probe: false },
+  // npx runs the first word after its flags and their values.
+  { cmd: 'npx -y npm@10 i', head: 'npm' },
+  { cmd: 'npx -p cowsay cowsay hi', head: 'cowsay' },
+  { cmd: 'npx -p npm npm i', head: 'npm' }, //                    a value that is a head is not consumed
+  { cmd: 'npx --package=x -- cat .env', head: 'cat' },
+  { cmd: 'npx -n x npm i', head: 'npm' },
+  { cmd: 'npx -C /tmp cat .env', head: 'cat' },
+  { cmd: 'pnpm exec npx -y yarn', head: 'yarn' }, //              runners nest
+  { cmd: 'yarnpkg add x', head: 'yarnpkg' },
 ]
 
 // The session-start hook prints the writing rules as SessionStart context for Codex and

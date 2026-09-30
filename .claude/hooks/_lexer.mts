@@ -9,7 +9,8 @@
  * Best-effort lexical detection, NOT a shell — scope and out-of-scope live in docs/template/guards.md.
  */
 
-export const BANNED: ReadonlySet<string> = new Set(['npm', 'yarn', 'bun', 'bunx'])
+/** The package managers the rulebook bans, by command name as base() reads it (`yarnpkg` is yarn's alias). */
+export const BANNED: ReadonlySet<string> = new Set(['npm', 'yarn', 'yarnpkg', 'bun', 'bunx'])
 
 // Pass-through wrappers whose argv IS the real command: skip them to find the head. An
 // allowlist can never be exhaustive (proxychains/firejail/setarch/catchsegv/...); unknown
@@ -32,43 +33,52 @@ export const PNPM_VALUE_FLAG: ReadonlySet<string> = new Set([
   '--workspace-concurrency', '--reporter', '--loglevel', '--store-dir',
 ])
 
-// Wrapper option flags that consume a SEPARATE value token — PER WRAPPER, because a flag is
-// value-taking for one wrapper (nice -n 10, timeout -s KILL) yet boolean for another (sudo -n,
-// flock -n). A single global set mis-parsed both directions and let the value/head shift; keep
-// these lists complete per wrapper. Command-string flags (-c) are deliberately excluded: the
-// string is no head, and segments() reads it as a command of its own. Unknown/keyword wrappers
-// are absent from the map and so consume no value.
+/**
+ * Wrapper option flags that consume a SEPARATE value token, PER WRAPPER, because a flag is
+ * value-taking for one wrapper (nice -n 10, timeout -s KILL) yet boolean for another (sudo -n,
+ * flock -n). A single global set mis-parsed both directions and let the value/head shift.
+ *
+ * Each set was checked against the tool's own --help or man page, GNU (coreutils, util-linux,
+ * findutils) and BSD alike, and holds every short flag that takes a separate value in either.
+ * A flag only one of them has is listed, since the other rejects it and runs nothing (GNU
+ * xargs rejects BSD's -J). A flag whose value is optional and only ever glued on (xargs -i,
+ * -e, -l) is never listed, or its next word, the command, would be read as that value.
+ * Command-string flags (runuser, flock, and mise -c) are deliberately excluded: the string is
+ * no head, and segments() reads it as a command of its own. sudo's -c names a BSD login class.
+ * Unknown and keyword wrappers are absent from the map and so consume no value.
+ */
 export const WRAP_VALUE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ['sudo', new Set(['-u', '-g', '-U', '-C', '-p', '-r', '-t', '-T', '-h', '-R'])],
-  ['doas', new Set(['-u', '-C'])],
-  ['runuser', new Set(['-u', '-g'])],
-  ['env', new Set(['-u', '-C', '-S'])],
+  ['sudo', new Set(['-a', '-C', '-c', '-D', '-g', '-h', '-p', '-R', '-r', '-T', '-t', '-U', '-u'])],
+  ['doas', new Set(['-a', '-C', '-u'])],
+  ['runuser', new Set(['-G', '-g', '-s', '-u', '-w'])],
+  // GNU env: -a, -C, -S, -u. BSD env: -L, -P, -U too.
+  ['env', new Set(['-a', '-C', '-L', '-P', '-S', '-U', '-u'])],
   ['nice', new Set(['-n'])],
-  ['ionice', new Set(['-c', '-n', '-p'])],
-  ['taskset', new Set(['-c', '-p'])],
-  ['chrt', new Set(['-p'])],
-  ['timeout', new Set(['-s', '-k'])],
-  ['flock', new Set(['-w', '-E'])],
+  // -p, -P, and -u name running processes, and then no command runs.
+  ['ionice', new Set(['-c', '-n', '-P', '-p', '-u'])],
+  // The priority after chrt's flags is numeric, and skip() passes a number.
+  ['chrt', new Set(['-D', '-P', '-T'])],
+  ['timeout', new Set(['-k', '-s'])],
+  ['flock', new Set(['-E', '-w'])],
   ['exec', new Set(['-a'])],
-  ['xargs', new Set(['-I', '-i', '-n', '-P', '-s', '-d', '-E', '-L', '-a'])],
-  ['stdbuf', new Set(['-i', '-o', '-e'])],
+  // /usr/bin/time; bash's `time` keyword takes only -p.
+  ['time', new Set(['-f', '-o'])],
+  // GNU xargs: -a, -d, -E, -I, -L, -n, -P, -s. BSD xargs: -J, -R, -S too.
+  ['xargs', new Set(['-a', '-d', '-E', '-I', '-J', '-L', '-n', '-P', '-R', '-S', '-s'])],
+  ['stdbuf', new Set(['-e', '-i', '-o'])],
   // mise x|exec: directory, env profile, jobs, profile take a value; -c/--command takes a
   // command string, which segments() reads as a command of its own.
   ['mise', new Set(['-C', '--cd', '-E', '--env', '-j', '--jobs', '-P', '--profile'])],
 ])
 
-// Wrappers with a leading POSITIONAL before the command (not a flag), and WHEN to consume it:
-//   'always'       — `timeout DURATION cmd`, `flock LOCKFILE cmd` (the positional is mandatory).
-//   'unless-value' — `taskset MASK cmd`, where the mask is EITHER a bare positional (taskset 0x1
-//                    cmd) OR supplied via a value-flag (taskset -c 0-3 cmd); consume the leading
-//                    positional only in the former, else it eats the command.
-// The positional (a non-numeric `5m` / a path / a hex mask, which skip() would not catch) must be
-// consumed or it becomes the head.
-export const POSITIONAL_MODE: ReadonlyMap<string, 'always' | 'unless-value'> = new Map([
-  ['timeout', 'always'],
-  ['flock', 'always'],
-  ['taskset', 'unless-value'],
-])
+/**
+ * Wrappers with a mandatory POSITIONAL between their flags and the command: `timeout DURATION
+ * cmd`, `flock LOCKFILE cmd`, and `taskset MASK cmd`. taskset's flags are all boolean, `-c`
+ * included (it reads the mask as a CPU list: `taskset -c 0-3 cmd`), so its mask always follows
+ * them. The positional (a non-numeric `5m`, a path, a hex mask, or a CPU list, which skip()
+ * would not catch) must be consumed or it becomes the head.
+ */
+export const WRAP_POSITIONAL: ReadonlySet<string> = new Set(['timeout', 'flock', 'taskset'])
 
 export function unquote(t: string): string {
   return t.replace(/['"]/g, '')
@@ -1105,21 +1115,9 @@ function reparsed(seg: string): string[] {
         out.push(plain.join(' '))
       break
     }
-    const b = base(toks[h] ?? '')
-    const dlx = PNPM_DLX.has(b)
-    if (b !== 'pnpm' && !dlx)
+    const e = runs(toks, h)
+    if (e < 0)
       break
-    let e = h + 1
-    while (e < toks.length) {
-      const t = unquote(toks[e]!)
-      if (t.startsWith('-')) { if (PNPM_VALUE_FLAG.has(t)) e++; e++; continue }
-      break
-    }
-    if (!dlx) {
-      if (e >= toks.length || !/^(exec|dlx|x)$/.test(unquote(toks[e]!)))
-        break
-      e++
-    }
     h = e
     while (h < toks.length && skip(toks[h]!)) h++
   }
@@ -1291,8 +1289,9 @@ function defaulted(raw: string[], i: number): string | null {
   return k === i ? null : [...parts, ...raw.slice(k)].join(' ')
 }
 
-// env's options that take a separate value, by short letter and long name.
-const ENV_VALUE_SHORT = /^[uCa]$/
+// env's options that take a separate value: the short ones leadIndex() skips, and GNU's long
+// names (BSD env has none).
+const ENV_VALUE_SHORT: ReadonlySet<string> = WRAP_VALUE_FLAGS.get('env') ?? new Set()
 const ENV_VALUE_LONG: readonly string[] = ['--unset', '--chdir', '--argv0']
 
 // The string env's `-S` or `--split-string` option takes (clustered, glued, or `=`), read from
@@ -1315,7 +1314,7 @@ function envSplit(argv: string[], a: number): { value: string, next: number } | 
     for (let c = 1; c < t.length; c++) {
       if (t[c] === 'S')
         return c + 1 < t.length ? { value: t.slice(c + 1), next: a + 1 } : { value: argv[a + 1] ?? '', next: a + 2 }
-      if (ENV_VALUE_SHORT.test(t[c]!)) {
+      if (ENV_VALUE_SHORT.has(`-${t[c]!}`)) {
         if (c + 1 === t.length)
           a++
         break
@@ -1666,16 +1665,28 @@ export function withoutRedirects(toks: string[]): string[] {
   return out
 }
 
-// Index of the command head: skip leading VAR=val, wrapper words + a value-flag's value (and a
-// coproc's name), redirects, brace-group tokens and option flags. A flag's arity is PER
-// WRAPPER — tracked via `curWrap` (the base() of the most recent wrapper word) so `sudo -n`
-// stays boolean while `nice -n 10` consumes its value. For a positional-taking wrapper
-// (timeout/flock/taskset), also consume its one leading positional after any of its own flags.
-// All wrapper decisions use base() so a path-prefixed wrapper (`/usr/bin/sudo`) is recognised.
-// A positional/value that would itself be a banned head is never consumed (fail toward deny).
+/**
+ * Index of the command head: skip leading VAR=val, wrapper words + a value-flag's value (and a
+ * coproc's name), redirects, brace-group tokens and option flags. A flag's arity is PER
+ * WRAPPER — tracked via `curWrap` (the base() of the most recent wrapper word) so `sudo -n`
+ * stays boolean while `nice -n 10` consumes its value. For a positional-taking wrapper
+ * (timeout/flock/taskset), also consume its one leading positional after any of its own flags.
+ * All wrapper decisions use base() so a path-prefixed wrapper (`/usr/bin/sudo`) is recognised.
+ * A positional/value that would itself be a banned head is never consumed (fail toward deny).
+ */
 export function leadIndex(toks: string[]): number {
+  return leadScan(toks).i
+}
+
+// leadIndex(), and whether one of the wrapper words it skips is a `command -v` or `-V` presence
+// probe, which runs nothing: the word itself is `command` (quotes dropped; a path such as
+// /usr/bin/command names a program on disk, not the builtin) and -v or -V follows it. A
+// `command` that another wrapper's flag takes as its value (`env -u command -v npm i`, where
+// -v is GNU env's debug flag) is not a probe.
+function leadScan(toks: string[]): { i: number, probe: boolean } {
   let i = 0
   let curWrap = ''
+  let probe = false
   while (i < toks.length && skip(toks[i]!)) {
     const t = toks[i]!
     // `mise x|exec [tool@version ...] [--] cmd`: the tool specs (a `@` in the word) and flags
@@ -1684,7 +1695,7 @@ export function leadIndex(toks: string[]): number {
     if (base(t) === 'mise') {
       const sub = unquote(toks[i + 1] ?? '')
       if (sub !== 'x' && sub !== 'exec')
-        return i
+        return { i, probe }
       i += 2
       const miseFlags = WRAP_VALUE_FLAGS.get('mise')
       while (i < toks.length) {
@@ -1711,26 +1722,23 @@ export function leadIndex(toks: string[]): number {
     }
     const b = base(t)
     if (WRAP.has(b)) {
+      if (unquote(t) === 'command' && /^-[vV]$/.test(unquote(toks[i + 1] ?? '')))
+        probe = true
       curWrap = b
       i++
       // `coproc NAME { …; }` names the coprocess; the name is skipped only before a compound
       // command, as bash reads it, and never when it would hide a head.
       if (b === 'coproc' && /^[A-Za-z_]\w*$/.test(toks[i] ?? '') && COMPOUND.has(toks[i + 1] ?? '') && !wouldHideHead(toks[i]!))
         i++
-      const mode = POSITIONAL_MODE.get(b)
-      if (mode) {
-        let consumedValue = false
+      if (WRAP_POSITIONAL.has(b)) {
+        const vf = WRAP_VALUE_FLAGS.get(b)
         while (i < toks.length && toks[i]!.startsWith('-')) {
           const f = toks[i]!
           i++
-          const vf = WRAP_VALUE_FLAGS.get(b)
-          if (vf?.has(f) && i < toks.length && !wouldHideHead(toks[i]!)) {
-            consumedValue = true
+          if (vf?.has(f) && i < toks.length && !wouldHideHead(toks[i]!))
             i++
-          }
         }
-        const takePositional = mode === 'always' || !consumedValue
-        if (takePositional && i < toks.length && !wouldHideHead(toks[i]!))
+        if (i < toks.length && !wouldHideHead(toks[i]!))
           i++
       }
       continue
@@ -1741,37 +1749,87 @@ export function leadIndex(toks: string[]): number {
     // is a head the guards must see.
     i += redirectWidth(toks, i) === 2 && !wouldHideHead(toks[i + 1]!) ? 2 : 1
   }
-  return i
+  return { i, probe }
 }
 
+// npx's options that take a separate value: npx's own value options as npm's bin/npx-cli.js
+// reads them (`-p` / `--package`, `--cache`, `--userconfig`, `--shell`, and the removed `-n` /
+// `--node-arg` / `--npm`, whose value npx still drops), plus the one-letter npm shorthands npx
+// expands to a config that takes a value (`-w` --workspace, `-C` --prefix, `-L` --location,
+// `-m` --message). npx reads any other npm config flag that is not a switch the same way
+// (`--registry URL`); those long flags are out of scope like long wrapper flags. `-c` /
+// `--call` takes a command string.
+const NPX_VALUE_FLAG: ReadonlySet<string> = new Set([
+  '-p', '--package', '--cache', '--userconfig', '--shell', '-w', '--workspace',
+  '-n', '--node-arg', '--npm', '-C', '-L', '-m',
+])
+
+/**
+ * The index of the command `npx` at `toks[i]` runs: the first word after npx's flags, the value
+ * of each flag that takes one (`-p pkg`), and a `--`, or `toks.length` when none follows, as
+ * for `pnpm dlx`. A value that is itself a head the guards judge is never consumed (fail
+ * toward deny). -1 when npx runs a command string (`-c`, `--call`), a nested interpreter the
+ * guards leave out of scope.
+ */
+export function npxTarget(toks: string[], i: number): number {
+  let k = i + 1
+  while (k < toks.length) {
+    const t = unquote(toks[k]!)
+    if (/^(?:-c|--call)(?:=|$)/.test(t))
+      return -1
+    if (t === '--')
+      return k + 1
+    if (!t.startsWith('-'))
+      break
+    k++
+    if (NPX_VALUE_FLAG.has(t) && k < toks.length && !wouldHideHead(toks[k]!))
+      k++
+  }
+  return k
+}
+
+// Where the command a one-off runner at `toks[i]` runs starts: past `pnpm [flags] exec|dlx|x`,
+// `pnx|pnpx [flags]`, or npx's flags (npxTarget). -1 when the word is no runner or runs nothing
+// the guards can read.
+function runs(toks: string[], i: number): number {
+  const b = base(toks[i] ?? '')
+  if (b === 'npx')
+    return npxTarget(toks, i)
+  const dlx = PNPM_DLX.has(b)
+  if (b !== 'pnpm' && !dlx)
+    return -1
+  let e = i + 1
+  while (e < toks.length) {
+    const t = unquote(toks[e]!)
+    if (t.startsWith('-')) { if (PNPM_VALUE_FLAG.has(t)) e++; e++; continue }
+    break
+  }
+  if (!dlx) {
+    if (e >= toks.length || !/^(exec|dlx|x)$/.test(unquote(toks[e]!)))
+      return -1
+    e++
+  }
+  return e
+}
+
+/** A resolved command: the head's index in the words, its base() name, and whether it is only a `command -v` probe. */
 export interface Head { i: number, head: string, probe: boolean }
 
-// Resolve the real command head: lead-skip, detect a leading `command -v` PROBE (never an
-// argument to a real head), then LOOP-unwrap `pnpm [flags] exec|dlx|x <cmd>` and its
-// `pnx|pnpx [flags] <cmd>` shorthands repeatedly so nested `pnpm exec pnpm exec npm` resolves
-// through to `npm`.
+/**
+ * Resolve the real command head: lead-skip, note a `command -v` PROBE among the wrapper words
+ * (never an argument to a real head or a wrapper flag's value), then LOOP-unwrap the one-off
+ * runners: `pnpm [flags] exec|dlx|x <cmd>`, its `pnx|pnpx [flags] <cmd>` shorthands, and
+ * `npx [flags] <cmd>`, repeatedly, so nested `pnpm exec npx npm` resolves through to `npm`.
+ */
 export function resolveHead(toks: string[]): Head {
-  const i0 = leadIndex(toks)
-  const probe = toks.some((t, k) => k < i0 && unquote(t) === 'command' && /^-[vV]$/.test(unquote(toks[k + 1] ?? '')))
-  let i = i0
+  const { i: lead, probe } = leadScan(toks)
+  let i = lead
   for (;;) {
-    const b = base(toks[i] ?? '')
-    const dlx = PNPM_DLX.has(b)
-    if (b !== 'pnpm' && !dlx)
+    const e = runs(toks, i)
+    if (e < 0)
       break
-    let e = i + 1
-    while (e < toks.length) {
-      const t = unquote(toks[e]!)
-      if (t.startsWith('-')) { if (PNPM_VALUE_FLAG.has(t)) e++; e++; continue }
-      break
-    }
-    if (!dlx) {
-      if (e >= toks.length || !/^(exec|dlx|x)$/.test(unquote(toks[e]!)))
-        break
-      e++
-    }
-    while (e < toks.length && skip(toks[e]!)) e++
     i = e
+    while (i < toks.length && skip(toks[i]!)) i++
   }
   return { i, head: base(toks[i] ?? ''), probe }
 }
