@@ -57,6 +57,11 @@ and the contract are in `docs/template/sync-template.md`.
    `Kept` block lists files that stayed but may be the template's: each is
    yours or one the template retired; `git rm` the template's. A `Skipped`
    block means a checkout failed; fix the path and re-run.
+   A skill is two synced paths, `.claude/skills/<name>/` and its generated
+   mirror `.agents/skills/<name>/`: discard, keep, or `git rm` both. After
+   discarding under `.claude/skills` alone, run
+   `pnpm docs:gen && git add .agents/skills`; a template mirror left staged
+   fails the `docs:gen` drift gate.
 6. Apply the follow-ups. `Follow-ups` lines are `package.json` edits and
    `Workspace` lines are `pnpm-workspace.yaml` edits: "missing here" and
    "changed on the template" entries are edits to make; "differs" (first sync)
@@ -67,10 +72,16 @@ and the contract are in `docs/template/sync-template.md`.
    `allowBuilds.*` line: `AGENTS.md` leaves each one to a human, so hand them
    over.
    A `devDependencies` entry of `catalog:` needs its `catalog.*` entry too.
+   Never apply a "changed on both sides" entry either: this repository
+   changed that value on purpose too (a `packageManager` raised with
+   `corepack use`, say), so list it with its `base:`, `template:`, and
+   `yours:` values and edit only what the user confirms. An entry with a
+   "which this sync deletes" note needs a fix even when it is customized:
+   drop the deleted file from the value, or discard that file's `D` line.
    `Files` lines are template files outside the synced paths: run the printed
    `git restore` for each one this repo needs, such as a config a synced gate
-   reads, and skip the rest. `Settings` lines are
-   `.claude/settings.json` edits: add each rule, output style, and hook
+   reads, and skip the rest; it writes and stages the file. `Settings` lines
+   are `.claude/settings.json` edits: add each rule, output style, and hook
    registration marked "missing here", beside your own hooks. For a hook that
    "differs", the `yours:` lines are registrations the template replaced:
    remove them and add the `template:` one, unless you changed that matcher
@@ -80,7 +91,14 @@ and the contract are in `docs/template/sync-template.md`.
    changed, then `pnpm verify`; it
    stops at the first failure and names it. Fix at the source; never loosen a
    synced checker.
-8. Hand off: summarize what came in, what was discarded and why, which
+8. Stage the follow-ups. The sync stages only its own paths and
+   `.template-sync.json`, so `git add` every file edited in steps 4, 6, and 7
+   (`package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`,
+   `.claude/settings.json`, any file a footer named) and `git rm` every
+   orphan a footer said to delete. Then `git status --porcelain` must show
+   nothing the new mechanics need as unstaged or untracked; a commit without
+   them passes locally and fails in CI.
+9. Hand off: summarize what came in, what was discarded and why, which
    follow-ups were applied, and propose
-   `git commit -m "chore: sync mechanics from template"` including
-   `.template-sync.json`. Do not commit or push unless asked.
+   `git commit -m "chore: sync mechanics from template"`. Do not commit or
+   push unless asked.

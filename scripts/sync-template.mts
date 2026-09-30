@@ -80,6 +80,10 @@ const MECHANICS = [
   '.agents',
 ]
 
+// A skill is two synced paths: `.agents` is generated from `.claude/skills` (pnpm docs:gen), so
+// taking or skipping one without the other leaves a mirror the docs:gen drift gate rejects.
+const SKILL_PAIR = ['.claude/skills', '.agents'] as const
+
 // What the state file may hold before validation: declared (optional) properties, not an
 // index signature, so field access satisfies both `noPropertyAccessFromIndexSignature` and
 // the dot-notation lint rule.
@@ -313,6 +317,12 @@ function readState(): { state?: SyncState, warnings: string[] } {
   for (const e of state.exclude ?? []) {
     if (!MECHANICS.includes(e))
       warnings.push(`${STATE_FILE} "exclude" entry ${JSON.stringify(e)} matches no synced path, so nothing is excluded by it; an entry must equal a whole entry of MECHANICS in ${SELF}.`)
+  }
+  const [skills, mirror] = SKILL_PAIR
+  const skillsOut = state.exclude?.includes(skills) === true
+  if (skillsOut !== (state.exclude?.includes(mirror) === true)) {
+    const [one, other] = skillsOut ? [skills, mirror] : [mirror, skills]
+    warnings.push(`${STATE_FILE} "exclude" lists ${JSON.stringify(one)} without ${JSON.stringify(other)}: ${mirror} is the generated copy of ${skills}, so a sync takes the template's version of one and keeps yours of the other, and the docs:gen drift gate fails on the mismatch; exclude both or neither.`)
   }
   return { state, warnings }
 }
@@ -567,10 +577,18 @@ function workspaceOf(yaml: string | null): Entries | undefined {
   return entries
 }
 
+/**
+ * One entry to report. `missing`: absent here. `changed`: the template moved and this repository
+ * kept the baseline value, or no baseline is known. `both`: this repository moved too (or
+ * defines a key the template only now adds), so `base` carries the baseline value. `customized`:
+ * this repository's own value or entry, reported only for its note that it names a file this
+ * sync deletes.
+ */
 interface FollowUp {
   key: string
-  kind: 'missing' | 'changed'
+  kind: 'missing' | 'changed' | 'both' | 'customized'
   template: string
+  base?: string
   yours?: string
   note?: string
 }
@@ -585,10 +603,15 @@ interface FollowUps {
  * Three-way compare of one block of entries, into `out`: the template now, the template at the
  * baseline (`base`, absent when no baseline is known), and this repo. Only template keys are
  * compared, in template order, so a child's own entries are never mentioned — except to flag
- * one that references a file this sync deletes. Keys are reported as `<block>.<key>`.
+ * one that references a file this sync deletes, customized or not. A value that moved on both
+ * sides since the baseline is `both`, never `changed`, so it is never taken for the template's
+ * edit to copy. Keys are reported as `<block>.<key>`.
  */
 function compareEntries(block: string, template: Entries, base: Entries | undefined, local: Entries, deleted: string[], out: FollowUps): void {
-  const refersToDeleted = (value: string): string | undefined => deleted.find(d => value.includes(d))
+  const deletes = (value: string): string | undefined => {
+    const ref = deleted.find(d => value.includes(d))
+    return ref === undefined ? undefined : `yours references ${ref}, which this sync deletes`
+  }
   const keyOf = (name: string): string => block ? `${block}.${name}` : name
   for (const [name, t] of Object.entries(template)) {
     const key = keyOf(name)
@@ -602,20 +625,26 @@ function compareEntries(block: string, template: Entries, base: Entries | undefi
         out.items.push({ key, kind: 'missing', template: t })
       continue
     }
-    if (base && base[name] === t) {
-      out.customized.push(key)
+    const note = deletes(l)
+    const b = base?.[name]
+    if (base && b === t) {
+      if (note === undefined)
+        out.customized.push(key)
+      else
+        out.items.push({ key, kind: 'customized', template: t, yours: l, note })
       continue
     }
-    const item: FollowUp = { key, kind: 'changed', template: t, yours: l }
-    const ref = refersToDeleted(l)
-    if (ref)
-      item.note = `yours references ${ref}, which this sync deletes`
+    const item: FollowUp = base && b !== l
+      ? { key, kind: 'both', template: t, base: b ?? '(absent)', yours: l }
+      : { key, kind: 'changed', template: t, yours: l }
+    if (note !== undefined)
+      item.note = note
     out.items.push(item)
   }
   for (const [name, l] of Object.entries(local)) {
-    const ref = name in template ? undefined : refersToDeleted(l)
-    if (ref)
-      out.items.push({ key: keyOf(name), kind: 'changed', template: '(not on the template)', yours: l, note: `yours references ${ref}, which this sync deletes` })
+    const note = name in template ? undefined : deletes(l)
+    if (note !== undefined)
+      out.items.push({ key: keyOf(name), kind: 'customized', template: '(not on the template)', yours: l, note })
   }
 }
 
@@ -651,16 +680,19 @@ function workspaceFollowUps(template: Entries | undefined, base: Entries | undef
 }
 
 // A template file under one of these is the repository's own content, never shared configuration:
-// the template's records and pages, and its sample code.
-const OWN_CONTENT = ['docs/internal', 'docs/public', 'src', 'packages', 'apps']
+// the template's records and pages, its release history, and its sample code.
+const OWN_CONTENT = ['docs/internal', 'docs/public', 'CHANGELOG.md', 'src', 'packages', 'apps']
 
 /**
  * Files the template added from `base` to `head` that this repository lacks, outside the synced
- * paths (`synced`, every MECHANICS and include entry, excluded ones too) and OWN_CONTENT: a
- * config file a synced gate reads, such as the secretlint config its lint:secrets step needs.
+ * paths (`synced`, every MECHANICS and include entry, excluded ones too), the state file, and
+ * OWN_CONTENT: a config file a synced gate reads, such as the secretlint config its lint:secrets
+ * step needs. A template that is a fork of roots ships its own state file; on a first sync this
+ * repository has none yet, so it would read as missing here, and restoring it would point the
+ * next sync at the fork's upstream.
  */
 function addedFiles(base: string, head: string, synced: string[]): string[] {
-  const outside = [...synced, ...OWN_CONTENT]
+  const outside = [...synced, STATE_FILE, ...OWN_CONTENT]
   return zList(tryGit(['diff', '--name-only', '--no-renames', '--diff-filter=A', '-z', base, head]))
     .filter(file => !outside.some(p => file === p || file.startsWith(`${p}/`)) && !existsSync(file))
 }
@@ -1091,6 +1123,19 @@ if (kept.length > 0) {
     out.push(`  ${k}`)
 }
 
+function followUpTag(kind: FollowUp['kind']): string {
+  switch (kind) {
+    case 'missing':
+      return 'missing here'
+    case 'both':
+      return `changed on both sides since ${since}`
+    case 'customized':
+      return 'customized locally'
+    case 'changed':
+      return baseInHistory ? `changed on the template since ${since}` : 'differs'
+  }
+}
+
 function listFollowUps(title: string, file: string, f: FollowUps): void {
   out.push('')
   if (f.skipped) {
@@ -1102,8 +1147,9 @@ function listFollowUps(title: string, file: string, f: FollowUps): void {
   else {
     out.push(`${title} — ${file} is yours, sync never edits it. Apply by hand where they apply:`)
     for (const item of f.items) {
-      const tag = item.kind === 'missing' ? 'missing here' : baseInHistory ? `changed on the template since ${since}` : 'differs'
-      out.push(`  ${item.key}  ${tag}`)
+      out.push(`  ${item.key}  ${followUpTag(item.kind)}`)
+      if (item.base !== undefined)
+        out.push(`    base:     ${item.base}`)
       out.push(`    template: ${item.template}`)
       if (item.yours !== undefined)
         out.push(`    yours:    ${item.yours}`)
@@ -1126,9 +1172,11 @@ else if (added.length === 0) {
 }
 else {
   out.push(`Files — the template added these since ${since} outside the synced paths, and sync never copies them. Take each that applies:`)
+  // Staged as well as written: a worktree-only restore leaves a new file untracked, so the
+  // commit the Next block proposes would leave it out.
   for (const file of added) {
     out.push(`  ${file}  missing here`)
-    out.push(`    git restore --source=${short(head)} -- ${file}`)
+    out.push(`    git restore --source=${short(head)} --staged --worktree -- ${file}`)
   }
 }
 
@@ -1151,10 +1199,16 @@ else {
   }
 }
 
+// The sync stages only its own paths, so the commit needs the follow-up edits staged by hand. A
+// staged skill path comes with its `.agents` mirror, and discarding one side alone fails the
+// docs:gen drift gate until the mirror is regenerated and staged.
 if (staged.length > 0) {
+  const steps: [string, string][] = [['git diff --cached', 'review'], ['git restore --staged --worktree <path>', 'discard one path']]
+  if (SKILL_PAIR.some(p => staged.some(s => s.startsWith(`${p}/`))))
+    steps.push(['pnpm docs:gen && git add .agents/skills', 'after discarding under .claude/skills or .agents'])
+  steps.push(['git add <path>', 'each file a follow-up edited by hand'], ['git commit -m "chore: sync mechanics from template"', 'keep'])
   out.push('', 'Next:')
-  out.push('  git diff --cached                                    # review')
-  out.push('  git restore --staged --worktree <path>               # discard one path')
-  out.push('  git commit -m "chore: sync mechanics from template"  # keep')
+  for (const [command, why] of steps)
+    out.push(`  ${command.padEnd(51)}  # ${why}`)
 }
 console.log(out.join('\n'))
