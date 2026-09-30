@@ -8,6 +8,11 @@ paths:
 
 Before editing these files, read `docs/template/spec-discipline.md`.
 
+In the roots template itself, both folders stay as "What roots chose" in
+`docs/template/conventions.md` says: the template's rationale goes in that page
+and a mechanic's contract in its page under `docs/template/`, as step 0 of the
+`new-adr` and `new-spec` skills says.
+
 Decision records are append-only once accepted: `proposed` drafts may be
 revised freely, but after acceptance you supersede, never rewrite, and only the
 old record's Status line changes. Specs describe externally observable behavior;

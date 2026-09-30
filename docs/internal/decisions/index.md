@@ -14,7 +14,9 @@ the only permitted edit to an accepted record is its Status line.
 2. Make the H1 the title alone: `# Title`.
 3. Set the Status and Date bullets. A decision merged as agreed practice is
    `accepted`.
-4. If it replaces or amends an earlier record, link both ways (see the template).
+4. If it replaces or amends an earlier record, it supersedes that record: link
+   both ways (see the template). An amendment restates what still holds of the
+   old record, so the new one reads alone.
 5. Run `pnpm docs:check`.
 
 This directory starts empty in a fresh project, and that is correct. The

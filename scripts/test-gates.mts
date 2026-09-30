@@ -18,7 +18,8 @@
  * (`@<sha> # v1.2.3`), the form the update-deps skill refreshes and GitHub's required SHA
  * pinning accepts. And while the shared VitePress config sets `lastUpdated`, a workflow that
  * builds a docs site checks out full history (`fetch-depth: 0`): a shallow clone stamps every
- * page, and the sitemap, with the checkout commit's date.
+ * page, and the sitemap, with the checkout commit's date. The docs workflow's spec-discipline
+ * nudge counts an edit under docs/template/ as a spec or decision edit.
  * Node builtins only in this first half.
  */
 import { spawnSync } from 'node:child_process'
@@ -173,6 +174,43 @@ for (const [script, runs] of onPush) {
 }
 for (const [where, scripts] of dropped)
   problems.push(`${scripts.join(', ')} run on push only in a concurrency group shared across pushes (${where}): GitHub keeps one run pending per group and cancels the pending one before it, so a commit merged right behind another gets no verdict; give push runs a group of their own commit in one of those workflows: \`group: <name>-\${{ github.event_name == 'pull_request' && github.ref || github.sha }}\``)
+
+// The docs workflow's advisory spec-discipline nudge warns on a pull request that changes files
+// outside docs/ with no spec or decision edit. The roots template keeps its contracts and its
+// rationale under docs/template/, so an edit there counts, or every template pull request that
+// does it right is warned. The step's own grep patterns run over sample change lists; a
+// repository that dropped the step skips this, and one whose patterns this check cannot read
+// fails, so a rewrite of the step cannot turn the check off unseen.
+{
+  const docsWorkflow = join(workflowsDir, 'docs.yml')
+  const text = existsSync(docsWorkflow) ? readFileSync(docsWorkflow, 'utf8') : ''
+  // A line's patterns, or none when any grep on it is in a form this check cannot read.
+  const patterns = (name: string): RegExp[] => {
+    const line = new RegExp(`^\\s*${name}=.*$`, 'm').exec(text)?.[0] ?? ''
+    const read = [...line.matchAll(/grep (?:-v )?-E '([^']+)'/g)].map(m => new RegExp(m[1]!))
+    return read.length === line.match(/\bgrep\b/g)?.length ? read : []
+  }
+  const outside = patterns('nondocs')
+  const synced = patterns('docsync')
+  if (text.includes('Spec-discipline nudge') && (outside.length === 0 || synced.length === 0))
+    problems.push('.github/workflows/docs.yml: the spec-discipline nudge step is present but its nondocs= and docsync= lines hold no `grep -E` / `grep -v -E` pattern this check can read; keep that form or update scripts/test-gates.mts')
+  if (outside.length > 0 && synced.length > 0) {
+    const warns = (changed: string[]): boolean =>
+      changed.some(f => outside.every(re => !re.test(f))) && !changed.some(f => synced.some(re => re.test(f)))
+    const cases: [string[], boolean][] = [
+      [['packages/a/src/a.ts'], true],
+      [['packages/a/src/a.ts', 'docs/public/index.md'], true],
+      [['packages/a/src/a.ts', 'docs/internal/specs/cli/a.md'], false],
+      [['packages/a/src/a.ts', 'docs/internal/decisions/20260101-a.md'], false],
+      [['scripts/sync-template.mts', 'docs/template/sync-template.md'], false],
+      [['docs/template/conventions.md', 'README.md'], false],
+    ]
+    for (const [changed, want] of cases) {
+      if (warns(changed) !== want)
+        problems.push(`.github/workflows/docs.yml: the spec-discipline nudge ${want ? 'stays silent' : 'warns'} on a pull request that changes ${changed.join(' and ')}; it warns only when files outside docs/ change with no edit under docs/internal/specs, docs/internal/decisions, or docs/template`)
+    }
+  }
+}
 
 for (const step of steps) {
   if (!gates.has(step.script))

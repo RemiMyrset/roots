@@ -1,12 +1,17 @@
 ---
 name: new-adr
-description: Create a new decision record (MADR 4 minimal) named by today's date, in the correct format. Use when the user says "new ADR", "record this decision", "write a decision record", or a load-bearing choice was just made. Also use unprompted immediately after making a load-bearing choice yourself: adding or swapping a dependency, changing a convention or format, or reversing an earlier decision.
+description: Create a new decision record (MADR 4 minimal) named by today's date, in the correct format. Use when the user says "new ADR", "record this decision", "write a decision record", or a load-bearing choice was just made. Also use unprompted immediately after making a load-bearing choice yourself, such as adding or swapping a dependency, changing a convention or format, or reversing an earlier decision.
 ---
 
 # New decision record
 
 Create a decision record under `docs/internal/decisions/`.
 
+0. If this is the roots template itself, write no record. Use the check in
+   step 0 of the `first-run` skill. Every child starts with a copy of
+   `docs/internal/decisions/`, so it stays clean here (see "What roots chose"
+   in `docs/template/conventions.md`). Add the choice and its why as a bullet
+   under that heading, and its cost under "Consequences", then stop.
 1. Name it `YYYYMMDD-kebab-title.md`: today's date with no hyphens
    (`date +%Y%m%d` prints it; in PowerShell, `Get-Date -Format yyyyMMdd`),
    then a short declarative kebab title, for example
@@ -23,6 +28,8 @@ Create a decision record under `docs/internal/decisions/`.
 4. If it replaces or amends an earlier record: add a
    `- **Supersedes:** [ID](./file.md)` bullet here, and edit only the old
    record's Status line to `superseded by [ID](./file.md)`, linking this one.
+   An amendment supersedes too: restate what still holds of the old record,
+   so this one reads alone.
    The ID is the filename without `.md` for a dated record
    (`20260929-use-postgres`) and the number for a numbered one (`0007`). Never
    touch an old accepted record's body.

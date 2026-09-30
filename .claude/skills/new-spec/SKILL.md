@@ -7,6 +7,14 @@ description: Create a new specification (capability or entity spec) in the right
 
 Create a spec under `docs/internal/specs/<area>/`.
 
+0. If this is the roots template itself, write nothing under
+   `docs/internal/specs/`. Use the check in step 0 of the `first-run` skill.
+   Every child starts with a copy of `docs/internal/specs/`, so it stays clean
+   here (see "What roots chose" in `docs/template/conventions.md`). A
+   template mechanic's contract lives in its page under `docs/template/`, in
+   the shape of `sync-template.md`: Source, Tests, and Last reviewed bullets,
+   which `pnpm docs:check` holds to the spec rules. Edit that page, or add one
+   and list it in `docs/template/README.md`, then stop.
 1. Decide the kind, capability or entity, per "Spec kinds" in
    `docs/template/spec-discipline.md`.
 2. Pick or create the `<area>` folder (for example `api/`, `cli/`, `domain/`).

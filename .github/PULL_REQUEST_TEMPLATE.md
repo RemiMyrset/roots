@@ -8,8 +8,10 @@ Behavior lives in three places. Tick every one this PR changed, or say why not:
 
 - [ ] Source changed → tests updated
 - [ ] Externally observable behavior changed → spec under `docs/internal/specs/` updated
+      (in the roots template itself: the mechanic's page under `docs/template/`)
 - [ ] A load-bearing decision was made or reversed → record added under
-      `docs/internal/decisions/` (append-only: supersede, never rewrite)
+      `docs/internal/decisions/` (append-only: supersede, never rewrite; in the
+      roots template itself: a bullet in `docs/template/conventions.md`)
 - [ ] N/A — docs-only or mechanical change
 
 ## Docs hygiene

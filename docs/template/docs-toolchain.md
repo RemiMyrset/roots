@@ -8,7 +8,7 @@ and the growth paths roots leaves open.
 | Command | What it does |
 | --- | --- |
 | `pnpm docs:gen` | the `.agents/skills` mirror and any automd region a page keeps (mutates files) |
-| `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness |
+| `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness, skill frontmatter |
 | `pnpm docs:list` | the decisions table and the spec list, read from the files (read-only; `decisions` or `specs` prints one) |
 | `pnpm docs:portability` | portability lint (GitHub, VitePress, Obsidian), blocking |
 | `pnpm docs:internal:dev` / `docs:internal:build` | internal handbook site: preview / build |
