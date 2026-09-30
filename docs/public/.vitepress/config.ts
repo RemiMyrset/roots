@@ -20,9 +20,10 @@ const url = process.env.DOCS_URL ? `${process.env.DOCS_URL.replace(/\/+$/, '')}/
 const origin = url ? new URL(url).origin : undefined
 
 // No Mermaid here on purpose: the plugin preloads the whole diagram registry (Mermaid plus
-// KaTeX, about 500 KB) on every visit, and the public site has no diagram. When a page needs
-// one, wrap this export in withMermaid() from 'vitepress-plugin-mermaid' as the internal
-// site does; docs/template/markdown-portability.md rule 7 says so.
+// KaTeX, about 2 MB minified and 600 KB compressed) on every visit, and the public site has no
+// diagram. When a page needs one, wrap this export in withMermaid() from
+// 'vitepress-plugin-mermaid' as the internal site does; docs/template/markdown-portability.md
+// rule 7 says so.
 export default defineConfig({
   ...shared,
   base,

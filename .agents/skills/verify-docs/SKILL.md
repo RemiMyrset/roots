@@ -23,5 +23,9 @@ source:
    `pnpm docs:public:build` must both succeed.
 
 Report what was regenerated, what was fixed, and any remaining warnings (for
-example stale `Last reviewed` dates that need a human re-read). For the full
-done gate (code and docs together), run `pnpm verify` instead.
+example stale `Last reviewed` dates that need a human re-read). A stale date
+on a `docs/template/` page is the template's to fix: in the template,
+re-verify the page and bump the date; in a child, never edit the page;
+report the warning and propose `pnpm sync:template` (the sync-template
+skill), which runs only when the user asks. For the full done gate (code and
+docs together), run `pnpm verify` instead.

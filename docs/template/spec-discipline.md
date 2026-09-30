@@ -90,11 +90,15 @@ fails on drift. The checks:
   check catches its collision
 - a spec's Source and Tests each name at least one backticked path, and
   every backticked path resolves in the case written (a `:42` or `#L42`
-  suffix is dropped first); its Last reviewed date is real (a warning after
-  180 days); a Source or Tests value that opens with `(pending)` is a warning
-  instead, and HTML comments on the line are ignored
+  suffix is dropped first; a route file such as `[slug]/+page.ts` is a
+  path); its Last reviewed date is real (a warning after 180 days); a Source
+  or Tests value that opens with `(pending)` is a warning instead, and HTML
+  comments in the value are ignored. A bullet may wrap onto indented lines,
+  and the paths there are checked too; a path itself stays on one line
 - specs sit one level below an area, never at the top or nested deeper
-- a template page with a Source bullet meets the spec rules above
+- a template page with a Source bullet meets the spec rules above; its
+  stale-date warning tells a child to run `pnpm sync:template`, since only
+  the template edits the page
 - both index pages exist; neither needs a region
 - no committed automd warning comment, and every automd region under `docs/`
   is closed and free of merge conflict lines; an index region is also current

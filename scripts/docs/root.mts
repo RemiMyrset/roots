@@ -57,8 +57,16 @@ export function decisionIdentity(file: string): DecisionIdentity | undefined {
 export const DECISION_H1_RE = /^# (\d{4})\. (\S.*)$/m
 /** The first H1 of a page; group 1 is its text. */
 export const H1_RE = /^# (.+)$/m
-/** The Status metadata bullet of a decision record; group 1 is the raw value. */
+/** The Status metadata bullet of a decision record; group 1 is the raw value, HTML comments included (drop them with LINE_COMMENT_RE). */
 export const STATUS_BULLET_RE = /^- \*\*Status:\*\*(.*)$/m
+/**
+ * An HTML comment in a metadata bullet's value, closed or running past its end. The checker
+ * and the readers drop it before they read a Status, Source, or Tests value, so both read
+ * `accepted<!-- note -->` as `accepted`, and a copy of the spec template that keeps its
+ * guidance comments, which mention "(pending)", still has its paths checked. Global, for
+ * `replace`; never `test` or `exec` with it.
+ */
+export const LINE_COMMENT_RE = /<!--.*?(?:-->|$)/g
 /**
  * An automd opening marker; group 1 is the generator name, group 2 its arguments up to the
  * first `-->`, which may stand lines below. Anchored at line start and tolerant of arguments,

@@ -5,7 +5,9 @@
  * hyphenated date in a name is rejected), metadata bullets, a Status keyword matched whole,
  * supersede links naming the target's ID and the record they point at (never the record
  * itself), spec Source/Tests values naming at least one path and every path resolving on disk
- * in the case written (a `:line` or `#L` suffix dropped first), review-date freshness, both
+ * in the case written (a `:line` or `#L` suffix dropped first, route-file names such as
+ * `[slug]/+page.ts` included, on the bullet's line or an indented line it wraps onto),
+ * review-date freshness (a template-owned page's stale warning tells a child to sync), both
  * index pages present, every automd
  * region under docs/ closed, free of automd's warning comment and of merge conflict lines,
  * and current with the generators, no page under docs/ left mid-merge, the template-owned
@@ -20,7 +22,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import { INDEX_RENDERERS } from './readers.mts'
-import { AUTOMD_WARNING, automdRegions, byCodeUnit, CONFLICT_LINE_RE, CONFLICT_OPEN_RE, DECISION_H1_RE, decisionIdentity, DECISIONS_DIR, H1_RE, markdownFiles, pathCase, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
+import { AUTOMD_WARNING, automdRegions, byCodeUnit, CONFLICT_LINE_RE, CONFLICT_OPEN_RE, DECISION_H1_RE, decisionIdentity, DECISIONS_DIR, H1_RE, LINE_COMMENT_RE, markdownFiles, pathCase, repoRoot, SKIP_DIRS, SPECS_DIR, STATUS_BULLET_RE, stripFences, WARN } from './root.mts'
 import { posixRelative, skillDrift, SKILLS_SOURCE, SKILLS_TARGET } from './skills.mts'
 
 const STALE_DAYS = 180
@@ -71,17 +73,23 @@ function isFuture(iso: string): boolean {
   return ageInDays(iso) < -1
 }
 const BACKTICK_PATH_RE = /`([^`]+)`/g
-const PATH_CHARS_RE = /^[\w@./-]+$/
+// The characters a cited path may hold: word characters, `@./-`, and the route-file syntax
+// of SvelteKit, Next.js, and Remix: `+page.svelte`, `[slug]`, `[page=fruit]`, `(group)`,
+// `$id.tsx`, and a `%5F` escape.
+const PATH_CHARS_RE = /^[\w@./+$()[\]=%-]+$/
 const EXTENSION_RE = /\.\w+$/
 // A line reference after a cited path, `src/a.ts:42`, `:42-50`, `:42:7`, or `#L42-L50`: dropped
 // before the existence check, so the path itself is still verified.
 const LINE_SUFFIX_RE = /(?::\d+(?:[-:]\d+)?|#L\d+(?:-L?\d+)?)$/
 const REVIEWED_BULLET_RE = /^- \*\*Last reviewed:\*\*\s*(\d{4}-\d{2}-\d{2})/m
 const SOURCE_BULLET_RE = /^- \*\*Source:\*\*/m
-// An HTML comment on a bullet line, closed or running past it: the spec template's guidance
-// comments mention "(pending)", and a copy that keeps them must still have its paths checked.
-const LINE_COMMENT_RE = /<!--.*?(?:-->|$)/g
+// A line a metadata bullet wraps onto: indented, and not blank.
+const CONTINUATION_RE = /^[ \t]+\S/
 const PENDING = '(pending)'
+// What a stale Last reviewed date asks for. A template-owned page is edited only in the
+// template: a child that has not synced a newer copy syncs one, never re-reviews the page.
+const SPEC_STALE = 're-verify against the source'
+const TEMPLATE_STALE = 'template-owned: in the template, re-verify and bump the date; in a child, run `pnpm sync:template` and never edit the page'
 const CRLF_RE = /\r\n/g
 
 const root = repoRoot()
@@ -103,12 +111,34 @@ function nestedMarkdown(dir: string): string[] {
   return out
 }
 
-/** The Source, Tests, and Last reviewed bullets of a spec-shaped page: paths resolve, the date is real and fresh. */
-function checkSpecPage(where: string, raw: string): void {
+/**
+ * The value of a spec page's `- **Source:**` or `- **Tests:**` bullet: the rest of its line
+ * and each indented line it wraps onto, up to a blank or unindented line, joined with spaces,
+ * so a comment that wraps reads whole and a path on a wrapped line is checked; a path broken
+ * inside its backticks reads with a space and is not a path. Empty for an empty bullet, which
+ * never takes the next bullet as its value; undefined when there is no such bullet.
+ */
+function bulletValue(text: string, bullet: 'Source' | 'Tests'): string | undefined {
+  const opener = `- **${bullet}:**`
+  const lines = text.split('\n')
+  const at = lines.findIndex(line => line.startsWith(opener))
+  if (at < 0)
+    return undefined
+  const parts = [lines[at]!.slice(opener.length)]
+  for (let i = at + 1; i < lines.length && CONTINUATION_RE.test(lines[i]!); i++)
+    parts.push(lines[i]!)
+  return parts.map(part => part.trim()).join(' ').trim()
+}
+
+/**
+ * The Source, Tests, and Last reviewed bullets of a spec-shaped page: paths resolve, the date
+ * is real and fresh. `stale` is what a date past STALE_DAYS asks the reader to do.
+ */
+function checkSpecPage(where: string, raw: string, stale = SPEC_STALE): void {
   const text = stripFences(raw)
   for (const bullet of ['Source', 'Tests'] as const) {
-    const line = text.match(new RegExp(`^- \\*\\*${bullet}:\\*\\*\\s*(.+)$`, 'm'))?.[1]
-    if (!line) {
+    const line = bulletValue(text, bullet)
+    if (line === undefined) {
       errors.push(`${where}: missing "- **${bullet}:** ..." bullet`)
       continue
     }
@@ -121,9 +151,10 @@ function checkSpecPage(where: string, raw: string): void {
     }
     let paths = 0
     for (const [, token] of value.matchAll(BACKTICK_PATH_RE)) {
-      // A Source/Tests line may cite a test name beside its path, e.g. `src/foo.ts` (`add`).
-      // Only a path-shaped token is existence-checked: path characters throughout, and
-      // either a `/` or an extension; a bare identifier is a name, not a path.
+      // A Source/Tests value may cite a test name beside its path, e.g. `src/foo.ts` (`add`).
+      // Only a path-shaped token is existence-checked: path characters throughout, route-file
+      // syntax included, and either a `/` or an extension; a bare identifier is a name, not a
+      // path. Every path-shaped token is checked, on the bullet's line or a line it wraps onto.
       const p = token!.replace(LINE_SUFFIX_RE, '')
       if (!PATH_CHARS_RE.test(p) || !(p.includes('/') || EXTENSION_RE.test(p)))
         continue
@@ -153,7 +184,7 @@ function checkSpecPage(where: string, raw: string): void {
     warnings.push(`${where}: last reviewed ${reviewed} is in the future — likely a year typo`)
   }
   else if (ageInDays(reviewed) > STALE_DAYS) {
-    warnings.push(`${where}: last reviewed ${reviewed} (> ${STALE_DAYS} days ago) — re-verify against the source`)
+    warnings.push(`${where}: last reviewed ${reviewed} (> ${STALE_DAYS} days ago) — ${stale}`)
   }
 }
 
@@ -399,6 +430,7 @@ function checkAutomdMarkers(): void {
 // --- template contracts --------------------------------------------------------
 // Template mechanics are specified under docs/template (sync-template.md, …): any page
 // there that carries a Source bullet is held to the same Source/Tests/Last reviewed rules.
+// A stale date names the template-owned remedy, since a child never edits these pages.
 function checkTemplateContracts(): void {
   const dir = join(root, 'docs/template')
   if (!existsSync(dir))
@@ -406,7 +438,7 @@ function checkTemplateContracts(): void {
   for (const file of readdirSync(dir).filter(f => f.endsWith('.md')).sort(byCodeUnit)) {
     const text = readFileSync(join(dir, file), 'utf8')
     if (SOURCE_BULLET_RE.test(stripFences(text)))
-      checkSpecPage(`docs/template/${file}`, text)
+      checkSpecPage(`docs/template/${file}`, text, TEMPLATE_STALE)
   }
 }
 

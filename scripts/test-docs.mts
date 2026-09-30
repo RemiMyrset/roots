@@ -9,7 +9,9 @@
  * skills mirror clean, drifted, generated, and absent, a region holding merge conflict
  * lines (named, then repaired by automd), dated and legacy decision records side by side (a
  * legacy-only table byte for byte as before), index pages without regions, `docs:list`, a
- * Status keyword matched whole, Source and Tests values with a line reference or no path,
+ * Status keyword matched whole, Source and Tests values with a line reference, a route-file
+ * path (a param matcher and a `%5F` escape too), a wrapped line, or no path, a stale template
+ * page's remedy, sidebar text escaped as HTML and a Status comment dropped by the readers,
  * fences nested in list items, inline code wrapped across lines, link targets spelled with a
  * space, percent-encoding, or the wrong case or starting on the next line, public pages that
  * link outside docs/public or to its root, symlinks out of docs/public (made at test time,
@@ -207,10 +209,24 @@ function runAutomd(cwd: string): Run {
     'docs/internal/specs/cli/no-path.md: Source names no path to check — write the repo-relative path in backticks (`src/feature.ts`), or (pending) before the code exists',
     'docs/internal/specs/cli/no-path.md: Tests names no path to check',
     'docs/internal/specs/cli/wrong-case.md: Source path `readme.md` is README.md on disk; the case must match, or Linux CI fails it',
+    // A route file is a path, and a bullet is read with the indented lines it wraps onto; an
+    // empty bullet names no path rather than taking the next bullet as its value.
+    'docs/internal/specs/cli/routes.md: Source path `src/routes/(group)/+page.ts` does not exist',
+    'docs/internal/specs/cli/routes.md: Source path `src/routes/[id=integer]/+page.svelte` does not exist',
+    'docs/internal/specs/cli/routes.md: Tests path `app/routes/$id.tsx` does not exist',
+    'docs/internal/specs/cli/routes.md: Tests path `app/%5Fprivate/page.tsx` does not exist',
+    'docs/internal/specs/cli/wrapped.md: Source path `src/gone.ts` does not exist',
+    'docs/internal/specs/cli/empty-source.md: Source names no path to check',
+    // A stale spec is re-verified; a stale template page is the template's to re-verify, and a
+    // child syncs it instead of editing it.
+    'docs/internal/specs/cli/stale.md: last reviewed 2020-01-01 (> 180 days ago) — re-verify against the source',
+    'docs/template/aged.md: last reviewed 2020-01-01 (> 180 days ago) — template-owned: in the template, re-verify and bump the date; in a child, run `pnpm sync:template` and never edit the page',
     '.agents/skills/y/SKILL.md: missing — run `pnpm docs:gen` to mirror .claude/skills',
     '.agents/skills/x/SKILL.md: differs from .claude/skills/x/SKILL.md — never hand-edit the mirror',
     '.agents/skills/z/SKILL.md: has no source under .claude/skills — run `pnpm docs:gen` to remove it',
   ])
+  check('a path inside a comment that wraps is not checked', !c.out.includes('src/ignored.ts'), c.out)
+  check('a template page\'s stale warning does not ask a child to re-verify it', !c.out.includes('docs/template/aged.md: last reviewed 2020-01-01 (> 180 days ago) — re-verify against the source'), c.out)
   check('a "(pending)" inside a comment is not a pending bullet', !c.out.includes('template-copy.md: Source is (pending)') && !c.out.includes('template-copy.md: Tests is (pending)'), c.out)
   check('an index page without a region is not an error', !c.out.includes('missing <!-- automd:'), c.out)
   check('a bad filename date is reported once, not also per bullet', c.out.split('20260230-not-a-date.md').length === 2, c.out)
@@ -1054,6 +1070,25 @@ function runAutomd(cwd: string): Run {
   const m = run('docs:portability', miss, withoutCi)
   const rules = readFileSync(join(import.meta.dirname, '..', 'docs/template/markdown-portability.md'), 'utf8').replace(/\s+/g, ' ')
   check('a backtick in a link\'s title is still a miss the rules doc names', m.status === 0 && rules.includes('a backtick in a link\'s destination or title'), m.out)
+}
+
+// 23. The sidebars hold HTML, since VitePress renders sidebar text as HTML: a title's `&`, `<`,
+// and `>` are escaped and its code spans become `<code>`. A Status comment is dropped wherever
+// the Status is read, and a Status holding only a comment reads as unknown.
+{
+  const dir = withoutRegions(fixture('clean'))
+  const decisions = join(dir, 'docs/internal/decisions')
+  writeFileSync(join(decisions, '20260107-result.md'), '# Return `Result<T, E>` & friends\n\n- **Status:** proposed<!-- until the spike lands -->\n- **Date:** 2026-01-07\n')
+  writeFileSync(join(decisions, '20260108-blank.md'), '# Blank\n\n- **Status:** <!-- pick one -->\n- **Date:** 2026-01-08\n')
+  writeFileSync(join(dir, 'docs/internal/specs/cli/quote.md'), '# Quote `` `x` `` when a<b\n\n- **Source:** `src/hello.txt`\n- **Tests:** `test/hello.txt`\n- **Last reviewed:** 2026-09-07\n')
+  const statuses = readDecisions(dir).slice(-2).map(d => d.status)
+  check('readDecisions drops a Status comment, and a comment alone reads as unknown', same(statuses, ['proposed', 'unknown']), JSON.stringify(statuses))
+  const sidebar = decisionsSidebar(dir).slice(-2).map(d => d.text)
+  check('decisionsSidebar escapes a title and renders its code span', same(sidebar, ['2026-01-07 Return <code>Result&lt;T, E&gt;</code> &amp; friends (proposed)', '2026-01-08 Blank (unknown)']), JSON.stringify(sidebar))
+  const specs = specsSidebar(dir).map(s => s.text)
+  check('specsSidebar escapes a title and renders a double-backtick span', same(specs, ['cli: Hello', 'cli: Quote <code>`x`</code> when a&lt;b']), JSON.stringify(specs))
+  const l = run('docs:list', dir, withoutCi, ['decisions'])
+  check('docs:list prints a title as written and a Status without its comment', l.out.includes('| [20260107-result](./20260107-result.md) | Return `Result<T, E>` & friends | proposed |') && !l.out.includes('<!--'), l.out)
 }
 
 if (fails.length > 0) {
