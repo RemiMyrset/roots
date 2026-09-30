@@ -1,7 +1,7 @@
 # Capability or entity name
 
 - **Source:** `path/to/implementation` <!-- repo-relative, backticked; verified by docs:check. "(pending)" is legal spec-first. -->
-- **Tests:** `path/to/test` — name of the suite or describe block <!-- "(pending)" allowed, warned -->
+- **Tests:** `path/to/test` (name of the suite or describe block) <!-- "(pending)" allowed, warned -->
 - **Last reviewed:** YYYY-MM-DD
 
 <!-- Capability and entity specs share this template; the two kinds are under

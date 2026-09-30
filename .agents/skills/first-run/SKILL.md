@@ -1,6 +1,6 @@
 ---
 name: first-run
-description: Initialize a repository just created from the template by running the README "First run" checklist. Prove the done gate, name the project, replace the template's pitch, pages, licence, and owner values with yours, apply the GitHub settings with gh, delete the section, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when README.md still contains a "## First run" section and this checkout is not the template itself. Never pushes.
+description: Initialize a repository just created from the template by running the README "First run" checklist. Prove the done gate, name the project, replace the template's pitch, pages, licence, and owner values with yours, apply the GitHub settings with gh, delete the section, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when README.md still has the template's First run callout, the one that names the first-run skill, and this checkout is not the template itself. Never pushes.
 ---
 
 # First run
@@ -9,22 +9,40 @@ The README section is the checklist; this skill executes it. Nothing in the tree
 depends on the template's name, so every step is plain editing plus a few `gh`
 calls. Ask before any step whose input you would otherwise have to invent.
 
-0. Stop if this is the template itself: `git remote get-url origin` points at
-   `github.com/RemiMyrset/roots`, or `gh repo view --json isTemplate -q .isTemplate`
-   prints `true`. Say so; there the section is the product.
+0. Go on only in a child. `<origin>` is the `OWNER/REPO` that
+   `git remote get-url origin` names; pass it to each `gh` call in this
+   skill, since a bare `gh repo view` reads an `upstream` remote when one
+   exists. Check, in order:
+   - A fork:
+     `gh repo view <origin> --json parent -q '.parent | select(.) | .owner.login + "/" + .name'`
+     prints `RemiMyrset/roots`, or a remote other than `origin` and
+     `template` (the one `pnpm sync:template` adds) points at
+     `github.com/RemiMyrset/roots`. Without `gh`, ask whether origin is a
+     fork of roots. For a fork, ask whether this is a contribution to roots
+     (stop) or a new project forked from it. A new project goes on and skips
+     the next check, since a fork inherits the template flag, and step 6
+     adds `--template=false` to `gh repo edit`.
+   - The template itself: origin points at `github.com/RemiMyrset/roots`, or
+     `gh repo view <origin> --json isTemplate -q .isTemplate` prints `true`.
+     Stop and say so; there the section is the product. A clone meant to
+     become a new repository needs `git remote set-url origin <new-url>`
+     first, then a new run.
+   - `README.md` has no `## First run` heading with the callout under it
+     that names this skill. Either first run is already done, or the section
+     is the repository's own, not the template's checklist; stop and say so.
 1. Environment. `node --version` must print v24 or later (`.node-version`
    pins 24) and `pnpm --version` must print a version. If either fails, say
    the machine is not set up yet, point to the README's `## Setup` section,
    and stop; that is the environment, not a template defect.
-2. Derive identity, then ask for what cannot be derived. `OWNER/REPO` comes
-   from `git remote get-url origin`, or `gh repo view --json owner,name` when
-   authenticated. The slug is the repo name and must match `^[\w.-]+$`.
+2. Derive identity, then ask for what cannot be derived. `<owner>` and
+   `<repo>` are the two halves of `<origin>` from step 0. The slug is the
+   repo name and must match `^[\w.-]+$`.
    `gh api repos/<owner>/<repo> --jq '.owner.type, .visibility'` prints
    whether the owner is a `User` or an `Organization` and whether the
    repository is `public`, `private`, or `internal`; without `gh`, ask. Then
    ask, never invent:
-   - the one-line pitch; offer `gh repo view --json description -q .description`
-     if it is set;
+   - the one-line pitch; offer
+     `gh repo view <origin> --json description -q .description` if it is set;
    - the licence: keep MIT, another licence, or none;
    - the licence holder, unless the answer was none: offer the owner's name,
      `gh api users/<owner> --jq '.name // .login'`, which is the
@@ -34,8 +52,10 @@ calls. Ask before any step whose input you would otherwise have to invent.
    - for a repository that is not public, the address that takes security
      reports: GitHub offers private vulnerability reporting on public
      repositories only;
-   - the contact for conduct reports in `CODE_OF_CONDUCT.md`: a user handle
-     or an address; offer `@<owner>` for a user.
+   - the contact for conduct reports in `CODE_OF_CONDUCT.md`: an email
+     address that reaches the maintainers privately. Never offer a handle:
+     GitHub has no private messages, so a handle takes reports only in
+     public, and the file promises the reporter privacy.
 3. Done gate: `pnpm install && pnpm verify`. Red here is a template defect;
    stop and report it, never work around it.
 4. Rename, exact edits:
@@ -52,7 +72,9 @@ calls. Ask before any step whose input you would otherwise have to invent.
      sections `## Who it is for, and not for` and `## What is in the box` and
      the `mermaid` block under `## Layout`; they describe the template, not
      this repository. Under `## Where things live`, delete the parenthetical
-     that names the template's own site and keep the provenance line.
+     that names the template's own site, make the public-site address
+     `https://<owner>.github.io/<repo>/` with `<owner>` lowercased, and keep
+     the provenance line.
    - `docs/public/index.md` becomes `# <slug> documentation`, one paragraph
      with the pitch, and `Start with [Getting started](./getting-started.md).`
      `docs/public/getting-started.md` becomes `# Getting started` with three
@@ -77,8 +99,8 @@ calls. Ask before any step whose input you would otherwise have to invent.
      step 6 turns the button on.
    - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` becomes
      `<owner>/<repo>` in both links.
-   - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact link becomes the contact
-     the user names.
+   - `CODE_OF_CONDUCT.md`: the contact link under `## Enforcement` becomes
+     `[<address>](mailto:<address>)`, with the address the user gave.
    - Package scope, only if the user wants something other than `@repo/`:
      `grep -rl '@repo/' --exclude-dir=node_modules --exclude-dir=.claude --exclude-dir=.agents .`
      (the README's command) lists every file. Edit each except
@@ -97,8 +119,8 @@ calls. Ask before any step whose input you would otherwise have to invent.
    `gh workflow run`, and `gh api` calls prompt in every tool, which is
    expected):
    `gh repo edit <owner>/<repo> --description "<pitch>" --add-topic typescript --add-topic pnpm --add-topic turborepo --add-topic ai-agents --enable-wiki=false --enable-projects=false --delete-branch-on-merge`
-   (add the product's own topics),
-   then `gh workflow run labels.yml` and
+   (add the product's own topics, and `--template=false` for a fork),
+   then `gh workflow run labels.yml -R <owner>/<repo>` and
    `gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true`
    ("Keep dependencies current" in `docs/template/docs-toolchain.md` says
    why). For a public repository also run
@@ -115,13 +137,24 @@ calls. Ask before any step whose input you would otherwise have to invent.
    protection" in `docs/template/guards.md`, and, if the user wants the public
    docs, the three commands under "Publish the public site on GitHub Pages" in
    `docs/template/docs-toolchain.md`, with the cost sentence above them for a
-   repository that is not public. Run before the push, the first deploy
-   would publish the template's pages. Then remind the user that
+   repository that is not public. Each printed `gh` call names the
+   repository, as step 0 says, so the first deploy is
+   `gh workflow run pages.yml -R <owner>/<repo>`. Run before the push, the
+   first deploy would publish the template's pages. Then remind the user that
    `packages/example-package`, `apps/example-app`, and the two `docs/public/`
-   stubs are still placeholders. Last,
-   `git grep -n -i remimyrset -- . ':!docs/template' ':!.claude/skills' ':!.agents/skills' ':!scripts/sync-template.mts'`
-   must print only the provenance line in the README. The excluded paths are
-   synced and name the template on purpose (the sync URL, the bootstrap
-   command); never edit them.
+   stubs are still placeholders. Last, look for the template owner's values
+   left behind. The excluded paths below are synced and name the template on
+   purpose (the sync URL, the bootstrap command); never edit them. When
+   `<owner>`, compared case-insensitively, does not contain `myrset`,
+   `git grep -n -i myrset -- . ':!docs/template' ':!.claude/skills' ':!.agents/skills' ':!scripts/sync-template.mts'`
+   must print only the provenance line in the README; `myrset` also catches
+   the `LICENSE` holder, spelled `Remi Myrset`. When `<owner>` contains it,
+   as RemiMyrset or an organization named `myrset-labs` does, the new owner
+   values match too, so run
+   `git grep -n -i -E 'remimyrset(\.github\.io)?/roots([^-_0-9a-z]|$)' -- . ':!docs/template' ':!.claude/skills' ':!.agents/skills' ':!scripts/sync-template.mts'`
+   instead; it too must print only the provenance line. The tail keeps a
+   repository named `roots-demo` or `roots2` from matching. Neither grep
+   has to catch the template's `.github/CODEOWNERS` comment: step 4
+   rewrites that file whole.
 
 If the request carries the pitch, the licence, or a package scope, use them.

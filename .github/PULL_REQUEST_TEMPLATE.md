@@ -12,11 +12,11 @@ Behavior lives in three places. Tick every one this PR changed, or say why not:
 - [ ] A load-bearing decision was made or reversed → record added under
       `docs/internal/decisions/` (append-only: supersede, never rewrite; in the
       roots template itself: a bullet in `docs/template/conventions.md`)
-- [ ] N/A — docs-only or mechanical change
+- [ ] N/A: docs-only or mechanical change
 
 ## Docs hygiene
 
-- [ ] `pnpm docs:gen` run — nothing hand-edited between automd markers
+- [ ] `pnpm docs:gen` run; nothing hand-edited between automd markers
 - [ ] `pnpm docs:check && pnpm docs:portability` pass locally
 - [ ] No new file restates a fact that already has a canonical home (linked instead)
 

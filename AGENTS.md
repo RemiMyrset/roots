@@ -57,7 +57,7 @@ affect passes clean after your last edit. When unsure which apply, run
   changelogen sends no commit author's email out unless `changelog.excludeAuthors` lists
   names, and the release script refuses a dirty tree)
 - Typecheck: `pnpm typecheck`
-- Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
+- Lint: `pnpm lint`. Run `pnpm lint:fix` after making code changes.
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
 - Boundaries: `pnpm boundaries` (turbo: imports stay inside their package unless by
   package name, and every imported package is declared)
@@ -122,9 +122,9 @@ before touching behavior.
 
 ## Monorepo map
 
-- `packages/example-package` — `@repo/example-package`, sample library; replace
+- `packages/example-package`: `@repo/example-package`, sample library; replace
   it with (or rename it to) your first real package.
-- `apps/example-app` — `@repo/example-app`, sample CLI consuming the package over
+- `apps/example-app`: `@repo/example-app`, sample CLI consuming the package over
   `workspace:*` (`pnpm --filter @repo/example-app start`); replace it with your
   first real app.
 <!-- One line per package and its purpose, nothing else. A stale map is worse

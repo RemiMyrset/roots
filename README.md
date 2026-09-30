@@ -100,8 +100,9 @@ flowchart LR
    - This file: the H1, and your pitch in place of the two paragraphs under
      it; delete "Who it is for, and not for", "What is in the box", and the
      diagram under Layout, which describe the template. Under "Where things
-     live", delete the parenthetical that names the template's own site and
-     keep the provenance line.
+     live", delete the parenthetical that names the template's own site, put
+     your owner (lowercased) and repository name in place of `OWNER` and
+     `REPO` in the public-site address, and keep the provenance line.
    - `docs/public/index.md` and `getting-started.md`: two stubs for your
      product; the shipped pages describe the template and the public site
      publishes what is here.
@@ -115,12 +116,16 @@ flowchart LR
      replaces the **Report a vulnerability** button, which GitHub offers on
      public repositories alone (step 5 turns it on there).
    - `.github/ISSUE_TEMPLATE/config.yml`: `RemiMyrset/roots` in both links.
-   - `CODE_OF_CONDUCT.md`: the `@RemiMyrset` contact becomes yours.
+   - `CODE_OF_CONDUCT.md`: the report contact under Enforcement becomes an
+     email address that reaches your maintainers privately. GitHub has no
+     private messages, so a handle takes reports only in public.
    - Optional: a package scope other than `@repo/`. In any POSIX shell (Git
      Bash on Windows),
      `grep -rl '@repo/' --exclude-dir=node_modules --exclude-dir=.claude --exclude-dir=.agents .`
-     lists every file to change. It skips the synced skills, which name
-     `@repo/` only as the default.
+     lists the files that name it; it skips the synced skills, which name
+     `@repo/` only as the default. Edit each one except `pnpm-lock.yaml`,
+     then run `pnpm install` to regenerate the lockfile, since the done gate
+     installs with `--frozen-lockfile`.
 3. **Agent tools.** Start Claude Code and Gemini CLI at the repository root
    and say yes to the trust prompts, or the guards stay off: each tool asks to
    trust the folder, and Codex then asks for each hook (`/hooks`). Details in
@@ -134,11 +139,12 @@ flowchart LR
    stubs from step 2 grow into product docs later; keep one page beside
    `docs/public/index.md` or the build emits no `llms.txt`. Not today.
 5. **GitHub settings.** Needs `gh auth login`; `OWNER/REPO` is your repository.
-   **(skill)**
+   A fork of roots inherits the template flag, so add `--template=false` to
+   `gh repo edit`. **(skill)**
 
    ```sh
    gh repo edit OWNER/REPO --description "your pitch" --add-topic typescript --add-topic pnpm --add-topic turborepo --add-topic ai-agents --enable-wiki=false --enable-projects=false --delete-branch-on-merge
-   gh workflow run labels.yml   # seeds the labels from .github/labels.yml
+   gh workflow run labels.yml -R OWNER/REPO   # seeds the labels from .github/labels.yml
    gh api -X PUT repos/OWNER/REPO/private-vulnerability-reporting   # public repositories: SECURITY.md's reporting button
    gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_actions=all -F sha_pinning_required=true
    ```
@@ -154,9 +160,10 @@ flowchart LR
 8. **Publish the public docs (optional).** After the push, run the three
    commands under
    [Publish the public site on GitHub Pages](./docs/template/docs-toolchain.md#publish-the-public-site-on-github-pages):
-   enable Pages, run the first deploy (`gh workflow run pages.yml`), and set
-   the homepage. The recipe also says what Pages costs on a private
-   repository. **(skill prints them)**
+   enable Pages, run the first deploy
+   (`gh workflow run pages.yml -R OWNER/REPO`), and set the homepage. The
+   recipe also says what Pages costs on a private repository.
+   **(skill prints them)**
 
 ## Setup
 

@@ -8,7 +8,8 @@ description: Create a new specification (capability or entity spec) in the right
 Create a spec under `docs/internal/specs/<area>/`.
 
 0. If this is the roots template itself, write nothing under
-   `docs/internal/specs/`. Use the check in step 0 of the `first-run` skill.
+   `docs/internal/specs/`. Use the fork and template checks in step 0 of the
+   `first-run` skill; a contribution fork of roots counts as the template.
    Every child starts with a copy of `docs/internal/specs/`, so it stays clean
    here (see "What roots chose" in `docs/template/conventions.md`). A
    template mechanic's contract lives in its page under `docs/template/`, in

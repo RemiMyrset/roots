@@ -70,7 +70,7 @@ one needs GitHub Pro, Team, or Enterprise.
 
 ```sh
 gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow
-gh workflow run pages.yml                       # first deploy without waiting for a push
+gh workflow run pages.yml -R OWNER/REPO         # first deploy without waiting for a push
 gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/
 ```
 

@@ -7,8 +7,9 @@ description: Create a new decision record (MADR 4 minimal) named by today's date
 
 Create a decision record under `docs/internal/decisions/`.
 
-0. If this is the roots template itself, write no record. Use the check in
-   step 0 of the `first-run` skill. Every child starts with a copy of
+0. If this is the roots template itself, write no record. Use the fork and
+   template checks in step 0 of the `first-run` skill; a contribution fork of
+   roots counts as the template. Every child starts with a copy of
    `docs/internal/decisions/`, so it stays clean here (see "What roots chose"
    in `docs/template/conventions.md`). Add the choice and its why as a bullet
    under that heading, and its cost under "Consequences", then stop.
