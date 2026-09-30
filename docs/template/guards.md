@@ -229,15 +229,20 @@ Codex and Gemini prompt for them
 convenience rests on this guard (the guard runs before an allowed command), and
 the out-of-scope list under [Limits](#limits) (nested interpreters first) is
 why the server-side ruleset is the boundary that matters. `gh pr merge` stays off the
-list: merging into a protected branch is a human decision and always asks.
+list: merging into a protected branch is a human decision, so each tool asks
+first unless the session auto-approves commands.
 
 Create the ruleset once `ci` and `docs` have reported on `main` at least once;
 a required check that has never reported blocks every PR. The check names are
 the matrix job names. The ruleset is free on public repositories and needs
-GitHub Pro on private ones. Repository admins bypass it: the release script
-pushes the release commit and tag straight to `main`, and a required check can
-never have reported on a commit that does not exist yet. Agents on an admin's
-machine are still stopped by this guard, and every PR still needs green
+GitHub Pro on private ones.
+
+Repository admins bypass the ruleset: the release script pushes the release
+commit and tag straight to `main`, and a required check can never have
+reported on a commit that does not exist yet. The bypass covers an agent on an
+admin's machine too: this guard denies the direct `git push` forms, but a push
+it cannot see (the out-of-scope forms above and under [Limits](#limits)) or a
+`gh pr merge --admin`, which no guard inspects, reaches `main` without green
 checks. Drop the `bypass_actors` line to make releases go through a temporary
 ruleset change instead.
 

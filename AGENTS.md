@@ -33,6 +33,7 @@ generated `.agents/skills/` mirror); path-scoped rules live in `.claude/rules/`
 | How each agent tool reads the rulebook, guards, skills, and writing rules | [agent-surfaces](./docs/template/agent-surfaces.md) |
 | Template sync recipe and contract | [sync-template](./docs/template/sync-template.md) |
 | Setup and install | [README.md](./README.md) |
+| Branch names and the PR flow | [CONTRIBUTING.md](./CONTRIBUTING.md) |
 <!-- This table is the canonical-home map. Add one row per fact as homes appear
      (ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
      design/). A fact with no row gets one home and one row. -->
@@ -108,7 +109,7 @@ Other commands, never part of done and never run to prove it:
 For minor implementation choices such as naming, file placement, the shape of a
 refactor, or which of two equivalent approaches, pick a reasonable option and
 note it in the PR description. Ask first only for a change in scope, a new
-dependency, deleting user data or git history, or anything a hook blocks.
+dependency, deleting user data or git history, or anything a guard denies.
 
 ## Spec discipline
 
@@ -136,8 +137,9 @@ is a lint error).
 A package with its own conventions gets a scoped `AGENTS.md` (same 200-line
 budget) plus a sibling `CLAUDE.md` holding only `@AGENTS.md`. The pairing is for
 Claude Code, which discovers nested `CLAUDE.md` and never nested `AGENTS.md` (the
-import resolves relative to the file holding it); Codex and Gemini read the
-nested `AGENTS.md` directly.
+import resolves relative to the file holding it). When Codex and Gemini load a
+nested `AGENTS.md` is under
+[agent-surfaces](./docs/template/agent-surfaces.md#nested-rulebooks).
 
 ## Gotchas
 

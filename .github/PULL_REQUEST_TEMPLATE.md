@@ -20,4 +20,5 @@ Behavior lives in three places. Tick every one this PR changed, or say why not:
 
 ## Notes for reviewer
 
-<!-- Risks, follow-ups, anything the diff doesn't say. -->
+<!-- How it was checked (the gate commands that ran), risks, follow-ups,
+     anything the diff doesn't say. -->
