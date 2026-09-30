@@ -1,12 +1,20 @@
 /**
- * Drift check between the done gate and CI: every `pnpm <script>` a workflow runs must be
- * a gate in scripts/verify.mts, and every gate must be run by some workflow — otherwise
- * "pnpm verify is what CI runs" quietly stops being true. A separate script rather than a
- * verify self-check because CI runs discrete steps and never `pnpm verify` itself.
+ * Drift check between the done gate, CI, and the rulebook: every `pnpm <script>` a workflow
+ * runs must be a gate in scripts/verify.mts, and every gate must be run by some workflow —
+ * otherwise "pnpm verify is what CI runs" quietly stops being true. A separate script rather
+ * than a verify self-check because CI runs discrete steps and never `pnpm verify` itself.
+ * The AGENTS.md Commands list, the one place the rulebook restates the done gate, names every
+ * gate but the install as `pnpm <script>` above its "Other commands" part; an AGENTS.md without
+ * a `## Commands` heading is not checked.
  * A workflow step that is deliberately not a gate carries a trailing `# not a gate` comment
  * (the exemption lives in the child-owned workflow, so a child can add its own steps without
  * diverging from the synced files); the frozen-lockfile install is a gate like any other.
- * Every `pnpm <script>` on a step line counts, so `pnpm a && pnpm b` records both.
+ * A step line is one whose code starts with `pnpm`, after any `NAME=value` assignments and one
+ * `cd <dir> &&`, so the quoted text of an `echo` stays out. Every call on it counts, so
+ * `pnpm a && pnpm b` records both. A call that runs no root script the way verify does, one
+ * after a `cd` earlier on its line or with a flag before its script (`pnpm --filter web e2e`,
+ * `pnpm -r test`), is never read as a gate, so it needs the comment. A `working-directory:` key
+ * and a `cd` on an earlier line are not seen.
  * Four workflow rules ride along. A workflow that runs a gate also runs on `pull_request`, so
  * a break in it (a bumped action, an edited step) shows before merge, not first on main; and a
  * gate run on `push` is run there by at least one workflow that keeps every push run, one
@@ -85,33 +93,95 @@ const USES_RE = /^\s*(?:- )?uses:\s*(\S+)(\s.*)?$/
 const PINNED_RE = /^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/
 const VERSION_COMMENT_RE = /^\s+#\s*v?\d+\.\d+\.\d\S*/
 
+/**
+ * The lines of the step that holds line `i`: from the nearest `- ` item at or above it to
+ * before the next line indented no deeper than that dash. Undefined above the first item.
+ */
+function stepAt(lines: string[], i: number): string[] | undefined {
+  let dash = i
+  while (dash >= 0 && !/^\s*- /.test(lines[dash]!))
+    dash--
+  if (dash < 0)
+    return undefined
+  const indent = lines[dash]!.search(/\S/)
+  let end = dash + 1
+  while (end < lines.length && (lines[end]!.trim() === '' || lines[end]!.search(/\S/) > indent))
+    end++
+  return lines.slice(dash, end)
+}
+
 /** The 1-based lines of the `actions/checkout` steps that do not set `fetch-depth: 0`. */
 function shallowCheckouts(lines: string[]): number[] {
   const found: number[] = []
   lines.forEach((line, i) => {
     if (!/\buses:\s*actions\/checkout@/.test(line))
       return
-    // The step starts at the nearest `- ` item at or above the uses line and ends before the
-    // next line indented no deeper than that dash.
-    let dash = i
-    while (dash >= 0 && !/^\s*- /.test(lines[dash]!))
-      dash--
-    if (dash < 0)
-      return
-    const indent = lines[dash]!.search(/\S/)
-    let end = dash + 1
-    while (end < lines.length && (lines[end]!.trim() === '' || lines[end]!.search(/\S/) > indent))
-      end++
-    if (!lines.slice(dash, end).some(l => /^\s*(?:- )?fetch-depth:\s*["']?0["']?\s*(?:#.*)?$/.test(l)))
+    const step = stepAt(lines, i)
+    if (step && !step.some(l => /^\s*(?:- )?fetch-depth:\s*["']?0["']?\s*(?:#.*)?$/.test(l)))
       found.push(i + 1)
   })
   return found
 }
 
+// A step line: `pnpm` first in its code, after any list dash, `run: `, `NAME=value`
+// assignments, and one `cd <dir> &&`. The anchor keeps the quoted text of an echo line out.
+const STEP_RE = /^\s*(?:- )?(?:run:\s+)?((?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|[^\s"'])*\s+)*(?:cd\s+(\S+)\s*&&\s*)?pnpm\s.*)$/
+
+/**
+ * A pnpm call on a step line: the root script it runs, or, for a call that runs none the way
+ * verify does (one after a `cd` earlier on its line, with a flag before its script, or whose
+ * script is no plain name, such as an expression), `scoped` holds the call as written, which is
+ * never read as a gate.
+ */
+interface Call { script: string, scoped?: string }
+
+/**
+ * Reads one workflow line: undefined when it is no step line; else its code (before any
+ * trailing comment), whether it carries `# not a gate`, and the pnpm calls in that code.
+ */
+function readStep(line: string): { code: string, exempt: boolean, calls: Call[] } | undefined {
+  const m = STEP_RE.exec(line)
+  if (!m)
+    return undefined
+  const [code = '', comment = ''] = m[1]!.split(/\s#/, 2)
+  const calls: Call[] = []
+  for (const call of code.matchAll(/\bpnpm\s+(?:run\s+)?([^\s;&|]+)([^;&|]*)/g)) {
+    const script = call[1]!
+    // The line's leading cd, or the last `cd` earlier on the line: either moves the call out of the root.
+    const dir = m[2] ?? [...code.slice(0, call.index).matchAll(/(?:^|[;&|]\s*)cd\s+([^\s;&|]+)/g)].at(-1)?.[1]
+    if (dir === undefined && /^[a-z][\w:-]*$/.test(script))
+      calls.push({ script })
+    else
+      calls.push({ script, scoped: `${dir === undefined ? '' : `cd ${dir} && `}pnpm ${script}${call[2]!.trimEnd()}` })
+  }
+  return { code, exempt: /\bnot a gate\b/.test(comment), calls }
+}
+
+// The step reader, run first on lines of its own, so a form of call it misses fails here
+// rather than letting a workflow step escape the gate-or-comment rule.
+const STEP_PROBES: { line: string, want: string[] }[] = [
+  { line: '      - run: pnpm install --frozen-lockfile', want: ['install'] },
+  { line: '          pnpm docs:gen && pnpm run docs:check', want: ['docs:gen', 'docs:check'] },
+  { line: '      - run: CI=1 NODE_OPTIONS="--max-old-space-size=4096" pnpm e2e', want: ['e2e'] },
+  { line: '      - run: cd apps/web && pnpm test', want: ['cd apps/web && pnpm test'] },
+  { line: '      - run: pnpm install && cd apps/web && pnpm test', want: ['install', 'cd apps/web && pnpm test'] },
+  { line: '      - run: pnpm --filter web e2e', want: ['pnpm --filter web e2e'] },
+  { line: '      - run: pnpm -r test && pnpm lint', want: ['pnpm -r test', 'lint'] },
+  { line: '      - run: echo "then run pnpm test"', want: [] },
+]
+
 const problems: string[] = []
 
-// Every `pnpm <script>` step in a workflow, with its file:line.
-interface Step { where: string, script: string }
+for (const probe of STEP_PROBES) {
+  const read = (readStep(probe.line)?.calls ?? []).map(c => c.scoped ?? c.script)
+  if (read.join('\n') !== probe.want.join('\n'))
+    problems.push(`the step reader read [${read.join(', ')}] from \`${probe.line.trim()}\`, want [${probe.want.join(', ')}]`)
+}
+if (readStep('      - run: pnpm --filter web e2e # not a gate')?.exempt !== true)
+  problems.push('the step reader missed the `# not a gate` comment on a filtered call')
+
+// Every pnpm call on a workflow step line, with its file:line.
+interface Step extends Call { where: string }
 const steps: Step[] = []
 // Each gate a workflow runs on push, with the workflows that run it there and whether each
 // keeps every push run; `where` names the shared group when it does not.
@@ -124,22 +194,22 @@ for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f)).sor
   let buildsSite = false
   const own: string[] = []
   lines.forEach((line, i) => {
-    const m = /^\s*(?:- )?(?:run: )?(pnpm .*)$/.exec(line)
-    if (!m)
+    const step = readStep(line)
+    if (!step)
       return
-    const [code = '', comment = ''] = m[1]!.split(/\s#/, 2)
-    if (/\bpnpm (?:run )?docs:[\w-]+:build\b/.test(code))
+    if (/\bpnpm (?:run )?docs:[\w-]+:build\b/.test(step.code))
       buildsSite = true
-    if (/\bnot a gate\b/.test(comment))
+    if (step.exempt)
       return
-    for (const call of code.matchAll(/\bpnpm (?:run )?([a-z][\w:-]*)/g)) {
-      steps.push({ where: `${where}:${i + 1}`, script: call[1]! })
-      own.push(call[1]!)
+    for (const call of step.calls) {
+      steps.push({ where: `${where}:${i + 1}`, ...call })
+      if (call.scoped === undefined)
+        own.push(call.script)
       gateSteps++
     }
   })
   if (gateSteps > 0 && !runsOn(lines, 'pull_request'))
-    problems.push(`${where} runs verify gates but not on pull_request, so a break in it first shows on main`)
+    problems.push(`${where} runs verify gates but not on pull_request, so a break in it first shows on main; run it on pull_request too, or end each line that is not a gate with \`# not a gate\``)
   if (gateSteps > 0 && runsOn(lines, 'push')) {
     const shared = concurrencyGroups(lines).find(g => !/\bgithub\.(?:sha|run_id)\b/.test(g.group))
     for (const script of new Set(own)) {
@@ -175,31 +245,68 @@ for (const [where, scripts] of dropped)
   problems.push(`${scripts.join(', ')} run on push only in a concurrency group shared across pushes (${where}): GitHub keeps one run pending per group and cancels the pending one before it, so a commit merged right behind another gets no verdict; give push runs a group of their own commit in one of those workflows: \`group: <name>-\${{ github.event_name == 'pull_request' && github.ref || github.sha }}\``)
 
 for (const step of steps) {
-  if (!gates.has(step.script))
+  if (step.scoped !== undefined)
+    problems.push(`${step.where} runs \`${step.scoped}\`, which runs no root script the way scripts/verify.mts does, so it is never a gate; end that line with \`# not a gate\`, or run the gate as \`pnpm <script>\` from the root`)
+  else if (!gates.has(step.script))
     problems.push(`${step.where} runs \`pnpm ${step.script}\` but scripts/verify.mts has no such gate; if the step is deliberately not a gate, end that line with \`# not a gate\``)
 }
-const run = new Set(steps.map(s => s.script))
+const run = new Set(steps.filter(s => s.scoped === undefined).map(s => s.script))
 for (const gate of gates) {
   if (!run.has(gate))
     problems.push(`verify gate \`${gate}\` is run by no workflow`)
 }
 
+/**
+ * The verify gates, the install aside, that an AGENTS.md text's Commands list leaves out:
+ * those named as `pnpm <script>` nowhere between the `## Commands` heading and the "Other
+ * commands" part or the next heading. Undefined when the text has no `## Commands` heading.
+ */
+function unlistedGates(text: string): string[] | undefined {
+  const lines = text.split(/\r?\n/)
+  const start = lines.findIndex(l => /^##\s+Commands\s*$/.test(l))
+  if (start < 0)
+    return undefined
+  const listed = new Set<string>()
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{1,2}\s/.test(line) || /^Other commands\b/.test(line))
+      break
+    for (const m of line.matchAll(/\bpnpm\s+(?:run\s+)?([a-z][\w:-]*)/g))
+      listed.add(m[1]!)
+  }
+  return [...gates].filter(g => g !== 'install' && !listed.has(g))
+}
+
+// The reader, run first on a list of its own that names one gate only under "Other commands".
+{
+  const [probeGate = ''] = [...gates].filter(g => g !== 'install').slice(-1)
+  const probe = ['# Rules', '', '## Commands', '', ...[...gates].filter(g => g !== probeGate).map(g => `- \`pnpm ${g}\``), '', 'Other commands:', '', `- \`pnpm ${probeGate}\``, '', '## Next', ''].join('\n')
+  const read = unlistedGates(probe)
+  if (read?.join() !== probeGate || unlistedGates('# Rules\n\n- `pnpm test`\n') !== undefined)
+    problems.push(`the Commands list reader read [${read?.join(', ') ?? 'no list'}] as missing from a probe list, want [${probeGate}]`)
+}
+const agentsFile = join(root, 'AGENTS.md')
+const unlisted = existsSync(agentsFile) ? unlistedGates(readFileSync(agentsFile, 'utf8')) : undefined
+for (const gate of unlisted ?? [])
+  problems.push(`AGENTS.md: the Commands list names no \`pnpm ${gate}\`, a verify gate, so the rulebook's definition of done leaves it out; add its line above "Other commands"`)
+
 if (problems.length > 0) {
-  console.error(`\n✖ gates — ${problems.length} problem(s) between scripts/verify.mts and .github/workflows:\n`)
+  console.error(`\n✖ gates — ${problems.length} problem(s) between scripts/verify.mts, .github/workflows, and AGENTS.md:\n`)
   for (const p of problems)
     console.error(`  ${p}`)
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} workflow steps`)
+console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} workflow steps${unlisted ? ' and the AGENTS.md Commands list' : ''}`)
 
 // The second half holds the gates to what AGENTS.md says they enforce: ESLint must reject each
-// probe below, linted from stdin under a path that is never written; turbo's cache key must
-// cover the node version; the pre-commit hook must run ESLint on every file type a repo rule
-// covers; every package tsconfig must take in every TypeScript file of its package; and the
-// install hook must set up the git hooks in a checkout and leave a linked worktree alone. It
-// runs the installed eslint, turbo, typescript, and simple-git-hooks, so it needs the install
-// that verify and CI run first. The probes that need files write them to a temp directory only.
+// probe below, linted from stdin under a path that is never written; turbo's hash must cover
+// the node-version file (the major) and CI's turbo cache key the exact node; the pre-commit
+// hook must run ESLint on every file type a repo rule covers; every package tsconfig must take
+// in every TypeScript file of its package; the install hook must set up the git hooks in a
+// checkout and leave a linked worktree alone; and verify's docs drift gate must skip only
+// outside a git checkout, failing on any other git error. It runs the installed eslint,
+// turbo, typescript, and simple-git-hooks, so it needs the install that verify and CI run
+// first. The probes that need files write them to a temp directory only.
 const failures: string[] = []
 const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
@@ -225,9 +332,11 @@ function parseJson<T>(text: string): T | undefined {
   }
 }
 
-// CI restores turbo's cache from earlier runs, and turbo hashes no runtime of its own: unless
-// the file a workflow installs node from is a global dependency, a node bump replays the test
-// and typecheck results the old node produced.
+// CI restores turbo's cache from earlier runs, and turbo hashes no runtime of its own. So the
+// file a workflow installs node from is a global dependency, and a bump of it (the major, in
+// .node-version) misses the cache; and a workflow that caches .turbo keys that cache, restore
+// keys included, on the exact node setup-node reports. Otherwise a runner image that moves to a
+// newer node 24 replays the test and typecheck results the old node produced.
 const nodeVersionFiles = new Set<string>()
 for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f))) {
   for (const m of readFileSync(join(workflowsDir, file), 'utf8').matchAll(/^\s*node-version-file:\s*["']?([^\s"'#]+)/gm))
@@ -244,6 +353,72 @@ else {
     if (!(file in hashed))
       failures.push(`turbo.json globalDependencies lacks ${file}, which the workflows install node from, so a node bump replays cached results`)
   }
+}
+
+/**
+ * The 1-based lines of the steps that cache turbo (`actions/cache` over a `.turbo` path) under
+ * a key or a restore key that leaves out the exact node, the `steps.<id>.outputs.node-version`
+ * of a setup-node step in the same workflow.
+ */
+function nodeBlindTurboCaches(lines: string[]): number[] {
+  const nodeIds = new Set<string>()
+  lines.forEach((line, i) => {
+    if (!/\buses:\s*actions\/setup-node@/.test(line))
+      return
+    for (const l of stepAt(lines, i) ?? []) {
+      const id = /^\s*(?:- )?id:\s*["']?([\w-]+)/.exec(l)?.[1]
+      if (id)
+        nodeIds.add(id)
+    }
+  })
+  const exact = (key: string): boolean => [...key.matchAll(/\bsteps\.([\w-]+)\.outputs\.node-version\b/g)].some(k => nodeIds.has(k[1]!))
+  const found: number[] = []
+  lines.forEach((line, i) => {
+    const step = /\buses:\s*actions\/cache(?:\/restore)?@/.test(line) ? stepAt(lines, i) ?? [] : []
+    if (!step.some(l => /\.turbo\b/.test(l.replace(/\s#.*$/, ''))))
+      return
+    // Each key: the inline value of `key:` or `restore-keys:`, or each line of a block value.
+    const keys: string[] = []
+    step.forEach((l, j) => {
+      const m = /^(\s*)(?:key|restore-keys):(.*)$/.exec(l)
+      if (!m)
+        return
+      const inline = m[2]!.replace(/\s#.*$/, '').trim()
+      if (inline && !/^[|>][+-]?$/.test(inline)) {
+        keys.push(inline)
+        return
+      }
+      for (const next of step.slice(j + 1)) {
+        if (next.trim() !== '' && next.search(/\S/) <= m[1]!.length)
+          break
+        if (next.trim() !== '')
+          keys.push(next.trim())
+      }
+    })
+    if (keys.length === 0 || !keys.every(exact))
+      found.push(i + 1)
+  })
+  return found
+}
+
+// The reader, run first on a workflow of its own: a key on the runner and commit alone, a key
+// on the exact node with a restore key that is not, and one on the exact node throughout.
+{
+  const cacheProbe = (key: string, restore: string): string[] => ['    steps:', '      - uses: actions/setup-node@0 # v1.0.0', '        id: node', '      - uses: actions/cache@0 # v1.0.0', '        with:', '          path: .turbo/cache', `          key: ${key}`, '          restore-keys: |', `            ${restore}`]
+  const onOs = `turbo-\${{ runner.os }}-`
+  const onNode = `${onOs}node-\${{ steps.node.outputs.node-version }}-`
+  const sha = `\${{ github.sha }}`
+  const read = [
+    nodeBlindTurboCaches(cacheProbe(`${onOs}${sha}`, onOs)),
+    nodeBlindTurboCaches(cacheProbe(`${onNode}${sha}`, onOs)),
+    nodeBlindTurboCaches(cacheProbe(`${onNode}${sha}`, onNode)),
+  ]
+  if (read.map(r => r.join()).join('|') !== '4|4|')
+    failures.push(`the turbo cache key reader flagged lines [${read.map(r => r.join()).join('|')}] of its probes, want [4|4|]`)
+}
+for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f)).sort()) {
+  for (const at of nodeBlindTurboCaches(readFileSync(join(workflowsDir, file), 'utf8').split('\n')))
+    failures.push(`.github/workflows/${file}:${at} caches turbo under a key that leaves out the exact node, so a newer node on the runner replays cached results; give setup-node \`id: node\` and put \`\${{ steps.node.outputs.node-version }}\` in the key and in each restore key`)
 }
 
 // Each probe lists the lines where a rule must fire and fires nowhere else, so a rule that is
@@ -394,22 +569,32 @@ const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typeche
   }
 }
 
+// The git probes below run git and node with no GIT_ variable of the caller's, a git config of
+// their own, and `bin` first on PATH.
+const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH'
+writeFileSync(join(tmp, 'gitconfig'), '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n')
+/** The environment of a git probe: the caller's minus every GIT_ variable, with `bin` first on PATH. */
+function probeEnv(bin: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith('GIT_') && k !== 'SKIP_INSTALL_SIMPLE_GIT_HOOKS')),
+    [pathKey]: [bin, process.env[pathKey] ?? ''].join(delimiter),
+    GIT_CONFIG_GLOBAL: join(tmp, 'gitconfig'),
+    GIT_CONFIG_NOSYSTEM: '1',
+    ...extra,
+  }
+}
+/** Runs a command in `cwd` under `env`; its exit status and everything it printed. */
+function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: string[]): { status: number | null, out: string } {
+  const r = spawnSync(command, args, { cwd, env, encoding: 'utf8' })
+  return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error?.message ?? ''}` }
+}
+
 // The install hook, run the way `pnpm install` runs it (the installed binaries on PATH): in a
 // checkout it installs the git hooks; in a linked worktree, whose .git is a file, it leaves them
 // to the main checkout instead of letting simple-git-hooks fail on `.git/hooks`.
 {
-  const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH'
-  const env: NodeJS.ProcessEnv = {
-    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith('GIT_') && k !== 'SKIP_INSTALL_SIMPLE_GIT_HOOKS')),
-    [pathKey]: [join(root, 'node_modules', '.bin'), process.env[pathKey] ?? ''].join(delimiter),
-    GIT_CONFIG_GLOBAL: join(tmp, 'gitconfig'),
-    GIT_CONFIG_NOSYSTEM: '1',
-  }
-  writeFileSync(join(tmp, 'gitconfig'), '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n')
-  const inRepo = (cwd: string, command: string, ...args: string[]): { status: number | null, out: string } => {
-    const r = spawnSync(command, args, { cwd, env, encoding: 'utf8' })
-    return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error?.message ?? ''}` }
-  }
+  const env = probeEnv(join(root, 'node_modules', '.bin'))
+  const inRepo = (cwd: string, command: string, ...args: string[]): { status: number | null, out: string } => runIn(env, cwd, command, ...args)
   const repo = join(tmp, 'hooks-repo')
   mkdirSync(repo)
   writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ 'simple-git-hooks': { 'pre-commit': 'true' } })}\n`)
@@ -429,6 +614,38 @@ const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typeche
   }
 }
 
+// verify's docs drift gate, run as `verify --only docs:gen` with a pnpm on PATH that does
+// nothing: in a checkout it passes; outside one it skips with a note; and in a checkout git
+// refuses, as it refuses one another user owns (GIT_TEST_ASSUME_DIFFERENT_OWNER), it fails,
+// since a skip there would pass stale generated docs.
+{
+  const bin = join(tmp, 'noop-pnpm')
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'pnpm'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  writeFileSync(join(bin, 'pnpm.cmd'), '@exit /b 0\r\n')
+  const env = probeEnv(bin, { GIT_CEILING_DIRECTORIES: tmp })
+  const verify = join(root, 'scripts', 'verify.mts')
+  const outside = join(tmp, 'verify-outside')
+  const checkout = join(tmp, 'verify-checkout')
+  mkdirSync(outside)
+  mkdirSync(checkout)
+  const init = runIn(env, checkout, 'git', 'init', '-q')
+  if (init.status !== 0) {
+    failures.push(`could not set up the git repository for the verify probe: ${init.out.trim()}`)
+  }
+  else {
+    const clean = runIn(env, checkout, process.execPath, verify, '--only', 'docs:gen')
+    if (clean.status !== 0 || clean.out.includes('skipped'))
+      failures.push(`scripts/verify.mts --only docs:gen did not pass in a clean checkout (exit ${clean.status}): ${clean.out.trim()}`)
+    const away = runIn(env, outside, process.execPath, verify, '--only', 'docs:gen')
+    if (away.status !== 0 || !away.out.includes('drift check skipped: not a git checkout'))
+      failures.push(`scripts/verify.mts --only docs:gen did not skip the drift check outside a git checkout (exit ${away.status}): ${away.out.trim()}`)
+    const refused = runIn(probeEnv(bin, { GIT_CEILING_DIRECTORIES: tmp, GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' }), checkout, process.execPath, verify, '--only', 'docs:gen')
+    if (refused.status === 0 || !refused.out.includes('dubious ownership'))
+      failures.push(`scripts/verify.mts --only docs:gen did not fail on a checkout git calls of dubious ownership (exit ${refused.status}), so a git error passes stale generated docs: ${refused.out.trim()}`)
+  }
+}
+
 if (failures.length > 0) {
   console.error(`\n✖ gates — ${failures.length} rule(s) the gates do not hold:\n`)
   for (const f of failures)
@@ -436,4 +653,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout`)

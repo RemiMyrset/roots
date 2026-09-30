@@ -175,14 +175,14 @@ pnpm install
 | `pnpm test:hooks` | Agent guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm test:docs` | Docs checker fixtures (a clean tree and a broken one, node only) |
-| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps; the workflows pin actions by SHA and never cancel a run on `main`; ESLint rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version; lint-staged lints what CI lints; package tsconfigs take in every file; the install hook skips a linked worktree |
+| `pnpm test:gates` | Drift check: `pnpm verify`, the workflows, and the AGENTS.md Commands list name the same gates, and the rules the gates rely on hold ([what a workflow of your own must do](./docs/template/docs-toolchain.md#optional-ci-additions)) |
 | `pnpm docs:gen` | Regenerate the `.agents/skills` mirror and any automd region a page keeps |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:list` | Print the decisions table and the spec list, read from the files (`decisions` or `specs` prints one) |
 | `pnpm docs:internal:build` / `pnpm docs:public:build` | Site builds (CI-blocking) |
 | `pnpm docs:internal:dev` | Internal handbook (VitePress, team-only) |
 | `pnpm docs:public:dev` | Public docs site |
-| `pnpm sync:template` | Pull the template's mechanics: stages them, records the sync point, prints commits since and the follow-ups in `package.json`, `pnpm-workspace.yaml`, `.claude/settings.json`, and new template files (`--ref` pins a template tag or branch) |
+| `pnpm sync:template` | Pull the template's mechanics and stage them for review ([sync-template](./docs/template/sync-template.md#recipe)) |
 | `pnpm release` | changelogen: version, CHANGELOG, tag, push; human-run (agents are blocked) |
 
 ## Working with AI agents

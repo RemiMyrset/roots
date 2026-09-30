@@ -51,8 +51,9 @@ affect passes clean after your last edit. When unsure which apply, run
 - Test hooks: `pnpm test:hooks` (agent guard allow/deny fixtures)
 - Test sync: `pnpm test:sync` (template-sync fixtures)
 - Test docs: `pnpm test:docs` (docs checker fixtures)
-- Test gates: `pnpm test:gates` (verify and the workflows run the same steps; the rules
-  the gates rely on hold in the workflows, ESLint, lint-staged, turbo, and package tsconfigs)
+- Test gates: `pnpm test:gates` (verify, the workflows, and this list name the same gates;
+  the rules the gates rely on hold in the workflows, ESLint, lint-staged, turbo, package
+  tsconfigs, the install hook, and verify's drift gate)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)

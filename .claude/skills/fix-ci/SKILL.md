@@ -26,10 +26,11 @@ step has a local twin, and the fix is local.
    "template mechanics": `test:hooks`, `test:sync`, `test:docs`,
    `test:gates`), read which file the failure names. A file this repository
    owns is a local fix like any other: its own workflow (a `pnpm` step that is
-   deliberately not a gate ends its line with `# not a gate`),
-   `.claude/settings.json`, or `package.json`. A failure inside the synced
-   files themselves is not a child's to patch; say so and point at the
-   `sync-template` skill, or report it upstream.
+   deliberately not a gate ends its line with `# not a gate`), `AGENTS.md` (a
+   Commands list that leaves out a gate), `.claude/settings.json`, or
+   `package.json`. A failure inside the synced files themselves is not a
+   child's to patch; say so and point at the `sync-template` skill, or report
+   it upstream.
 5. Prove it. `pnpm verify` end to end, then commit with a Conventional subject
    (`fix(scope): what`, at most 50 chars) and push the same branch. Watch with
    `gh pr checks <n> --watch`; report the outcome and stop. In Claude Code the

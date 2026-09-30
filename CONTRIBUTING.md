@@ -20,6 +20,9 @@ following them is a matter of running the commands.
 5. **Commits.** Conventional Commits, `type(scope): subject`, subject at most 50
    characters; commitlint enforces it and the changelog is built from them. A
    change that requires downstream hand-edits carries a `BREAKING CHANGE` footer.
+   In the template, so does every edit to a file the sync never copies, marked
+   optional when a child may skip it
+   ([sync-template](./docs/template/sync-template.md#recipe)).
 6. **Behavior changes travel together.** Source, tests, and the spec change in
    the same PR; a load-bearing choice gets a decision record. The rules are in
    [spec-discipline](./docs/template/spec-discipline.md).
