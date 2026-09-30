@@ -39,9 +39,14 @@ calls. Ask before any step whose input you would otherwise have to invent.
 3. Done gate: `pnpm install && pnpm verify`. Red here is a template defect;
    stop and report it, never work around it.
 4. Rename, exact edits:
-   - `package.json`: `"name": "<slug>"`, `"description": "<pitch>"`, and
+   - `package.json`: `"name": "<slug>"`, `"description": "<pitch>"`,
      `repository.url` to this repository's URL (the public site's GitHub link
-     reads it).
+     reads it), and `"version": "0.0.0"`: a template release bumps the
+     version, and the `release` skill takes `0.0.0` with no tag and no
+     `CHANGELOG.md` as a first release.
+   - `CHANGELOG.md`, when present: delete it. It is the template's release
+     history, with links into the template's repository; the first
+     `pnpm release` writes this repository's own.
    - `README.md`: the H1 becomes `# <slug>` (or the title the user gives); the
      two paragraphs under it become one paragraph, the pitch. Delete the
      sections `## Who it is for, and not for` and `## What is in the box` and

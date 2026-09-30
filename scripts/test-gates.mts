@@ -234,10 +234,13 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // The second half holds the gates to what AGENTS.md says they enforce: ESLint must reject each
 // probe below, linted from stdin under a path that is never written; turbo's cache key must
 // cover the node version; the pre-commit hook must run ESLint on every file type a repo rule
-// covers; every package tsconfig must take in every TypeScript file of its package; and the
-// install hook must set up the git hooks in a checkout and leave a linked worktree alone. It
-// runs the installed eslint, turbo, typescript, and simple-git-hooks, so it needs the install
-// that verify and CI run first. The probes that need files write them to a temp directory only.
+// covers; every package tsconfig must take in every TypeScript file of its package; the
+// install hook must set up the git hooks in a checkout and leave a linked worktree alone; and
+// the release flow must keep the release skill's word: changelogen sends no commit author's
+// email out unless `changelog.excludeAuthors` lists names, and the release script refuses a
+// dirty tree. It runs the installed eslint, turbo, typescript, simple-git-hooks, and
+// changelogen, so it needs the install that verify and CI run first. The probes that need
+// files write them to a temp directory only.
 const failures: string[] = []
 const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
@@ -432,22 +435,28 @@ const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typeche
   }
 }
 
+// The probes below run git in throwaway repositories under tmp, with the installed binaries
+// first on PATH as under `pnpm install`, a git config of their own (no signing, no user hooks),
+// and none of the GIT_ variables a surrounding git hook sets, which would point git back at
+// this repository. FORCE_NODE_FETCH would route changelogen past the release probe's fetch stub.
+const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH'
+const gitEnv: NodeJS.ProcessEnv = {
+  ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith('GIT_') && !['SKIP_INSTALL_SIMPLE_GIT_HOOKS', 'FORCE_NODE_FETCH'].includes(k))),
+  [pathKey]: [join(root, 'node_modules', '.bin'), process.env[pathKey] ?? ''].join(delimiter),
+  GIT_CONFIG_GLOBAL: join(tmp, 'gitconfig'),
+  GIT_CONFIG_NOSYSTEM: '1',
+}
+writeFileSync(join(tmp, 'gitconfig'), '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[tag]\n\tgpgSign = false\n[init]\n\tdefaultBranch = main\n')
+/** Runs `command` in `cwd` under gitEnv; `out` is its stdout, stderr, and any spawn error. */
+function inRepo(cwd: string, command: string, ...args: string[]): { status: number | null, out: string } {
+  const r = spawnSync(command, args, { cwd, env: gitEnv, encoding: 'utf8' })
+  return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error?.message ?? ''}` }
+}
+
 // The install hook, run the way `pnpm install` runs it (the installed binaries on PATH): in a
 // checkout it installs the git hooks; in a linked worktree, whose .git is a file, it leaves them
 // to the main checkout instead of letting simple-git-hooks fail on `.git/hooks`.
 {
-  const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH'
-  const env: NodeJS.ProcessEnv = {
-    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith('GIT_') && k !== 'SKIP_INSTALL_SIMPLE_GIT_HOOKS')),
-    [pathKey]: [join(root, 'node_modules', '.bin'), process.env[pathKey] ?? ''].join(delimiter),
-    GIT_CONFIG_GLOBAL: join(tmp, 'gitconfig'),
-    GIT_CONFIG_NOSYSTEM: '1',
-  }
-  writeFileSync(join(tmp, 'gitconfig'), '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n')
-  const inRepo = (cwd: string, command: string, ...args: string[]): { status: number | null, out: string } => {
-    const r = spawnSync(command, args, { cwd, env, encoding: 'utf8' })
-    return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error?.message ?? ''}` }
-  }
   const repo = join(tmp, 'hooks-repo')
   mkdirSync(repo)
   writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ 'simple-git-hooks': { 'pre-commit': 'true' } })}\n`)
@@ -467,6 +476,112 @@ const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typeche
   }
 }
 
+// The release flow, run through the installed changelogen in a throwaway repository whose
+// package.json carries this one's `changelog` config, with fetch swapped for a stub that fails
+// and says so. Every changelogen run, the release skill's preview included, sends each commit
+// author's email to ungh.cc and prints the raw address when the lookup fails, unless
+// `changelog.excludeAuthors` matches the author; a list of names without "" keeps the lookup on
+// purpose for everyone it leaves out; any other value, such as none, [], null, or "", leaves it
+// on for everyone and fails. `--release` commits the whole index, so the release script, run
+// without its push or publish flags and with `--no-github`, must refuse a staged change and still
+// release a clean tree. Skipped when package.json declares no changelogen.
+let releaseChecked = 'changelogen is not declared'
+
+/**
+ * The probe's verdict on `changelog.excludeAuthors` once the preview has or has not sent a commit
+ * author's email: `set` when the value leaves the lookup on for everyone, `stale` when it holds ""
+ * and the lookup ran anyway, `pass` otherwise.
+ */
+function authorVerdict(excluded: unknown, sent: boolean): 'pass' | 'set' | 'stale' {
+  if (!sent)
+    return 'pass'
+  if (Array.isArray(excluded) && excluded.includes(''))
+    return 'stale'
+  return Array.isArray(excluded) && excluded.some(v => typeof v === 'string' && v !== '') ? 'pass' : 'set'
+}
+// changelogen skips the exclusion for a falsy value, and its config loader turns null into the
+// default [], so only a list holding a name counts as a choice to keep the lookup.
+const verdictCases: [unknown, boolean, ReturnType<typeof authorVerdict>][] = [
+  [undefined, true, 'set'],
+  [[], true, 'set'],
+  [null, true, 'set'],
+  ['', true, 'set'],
+  [false, true, 'set'],
+  [[null], true, 'set'],
+  [[''], true, 'stale'],
+  [['', 'bot'], true, 'stale'],
+  [['bot'], true, 'pass'],
+  [undefined, false, 'pass'],
+]
+for (const [excluded, sent, want] of verdictCases) {
+  const got = authorVerdict(excluded, sent)
+  if (got !== want)
+    failures.push(`scripts/test-gates.mts: the release probe takes \`changelog.excludeAuthors\` ${JSON.stringify(excluded) ?? 'absent'}, with an email ${sent ? 'sent' : 'not sent'}, as ${got}, not ${want}; only a list holding a name and no "" may keep the lookup on`)
+}
+{
+  interface Manifest {
+    scripts?: { release?: string }
+    dependencies?: { changelogen?: string }
+    devDependencies?: { changelogen?: string }
+    changelog?: { excludeAuthors?: unknown }
+  }
+  const manifest = parseJson<Manifest>(readFileSync(join(root, 'package.json'), 'utf8')) ?? {}
+  const cliManifest = join(root, 'node_modules', 'changelogen', 'package.json')
+  const bin = existsSync(cliManifest) ? parseJson<{ bin?: string | { changelogen?: string } }>(readFileSync(cliManifest, 'utf8'))?.bin : undefined
+  const cli = typeof bin === 'string' ? bin : bin?.changelogen
+  const declared = manifest.devDependencies?.changelogen ?? manifest.dependencies?.changelogen
+  if (declared !== undefined && !cli)
+    failures.push('package.json declares changelogen, but node_modules/changelogen names no bin to run; run `pnpm install`')
+  if (declared !== undefined && cli) {
+    const repo = join(tmp, 'release-repo')
+    const EMAIL = 'probe@example.invalid'
+    const stub = 'globalThis.fetch = async url => { process.stderr.write("[fetch] " + url + "\\n"); throw new TypeError("fetch failed") }'
+    const changelogen = (...args: string[]): { status: number | null, out: string } =>
+      inRepo(repo, process.execPath, '--import', `data:text/javascript,${encodeURIComponent(stub)}`, join(root, 'node_modules', 'changelogen', cli), ...args)
+    const commit = (subject: string): { status: number | null, out: string } =>
+      inRepo(repo, 'git', '-c', 'user.name=Probe Author', '-c', `user.email=${EMAIL}`, 'commit', '-q', '-m', subject)
+    mkdirSync(repo)
+    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ name: 'release-probe', version: '0.0.0', private: true, changelog: manifest.changelog })}\n`)
+    const broken = [inRepo(repo, 'git', 'init', '-q'), inRepo(repo, 'git', 'add', '-A'), commit('feat: probe the release flow')].find(r => r.status !== 0)
+    const preview = broken ?? changelogen()
+    const sent = preview.out.includes('[fetch] ') || preview.out.includes(EMAIL)
+    const verdict = authorVerdict(manifest.changelog?.excludeAuthors, sent)
+    if (preview.status !== 0 || !preview.out.includes('the release flow'))
+      failures.push(`the changelogen preview printed no changelog in a probe repository (exit ${preview.status}): ${preview.out.trim()}`)
+    else if (verdict === 'stale')
+      failures.push(`package.json \`changelog.excludeAuthors\` holds "", yet the installed changelogen still sent or printed a commit author's email; find what stops its author lookup now, then update package.json, the release skill, and this probe`)
+    else if (verdict === 'set')
+      failures.push(`changelogen sent a commit author's email to ungh.cc (and printed it when no option hid it); every run does, the release skill's preview included. Set \`"changelog": { "excludeAuthors": [""] }\` in package.json: the empty string matches every author, while \`noAuthors\` and \`hideAuthorEmail\` leave the lookup on, and a value that is not a list of names excludes no one`)
+    releaseChecked = sent ? 'changelogen looks up only the authors changelog.excludeAuthors leaves in' : 'changelogen sends no author email'
+
+    const words = (manifest.scripts?.release ?? '').split(/&&|\|\||[;|]/).map(part => part.trim().split(/\s+/))
+    const isChangelogen = (word: string): boolean => basename(word).replace(/@[^@]*$/, '') === 'changelogen'
+    const command = words.find(part => part.some(isChangelogen)) ?? []
+    // `--no-github` last: a script without it, in a repository whose `changelog.repo` names
+    // GitHub, would have the probe call the release API and open a browser on its failure.
+    const args = [...command.slice(command.findIndex(isChangelogen) + 1).filter(arg => !/^--(?:push|publish)/.test(arg)), '--no-github']
+    if (preview.status === 0 && args.includes('--release')) {
+      const script = `\`${manifest.scripts?.release}\``
+      const head = (): string => inRepo(repo, 'git', 'rev-parse', 'HEAD').out.trim()
+      const tags = (): string => inRepo(repo, 'git', 'tag', '-l').out.trim()
+      const before = head()
+      writeFileSync(join(repo, 'staged.txt'), 'staged before the release\n')
+      inRepo(repo, 'git', 'add', 'staged.txt')
+      const dirty = changelogen(...args)
+      if (dirty.status === 0 || head() !== before || tags() !== '') {
+        failures.push(`package.json scripts.release (${script}) put a change staged before it ran into the release commit, which it pushes to the default branch past review; add \`--clean\`, which refuses a working tree with any change`)
+      }
+      else {
+        const staged = commit('fix: commit the staged file')
+        const clean = staged.status === 0 ? changelogen(...args) : staged
+        if (clean.status !== 0 || tags() === '')
+          failures.push(`package.json scripts.release (${script}), run without its push, released nothing from a clean tree (exit ${clean.status}): ${clean.out.trim()}`)
+      }
+      releaseChecked += ', and the release script refuses a dirty tree'
+    }
+  }
+}
+
 if (failures.length > 0) {
   console.error(`\n✖ gates — ${failures.length} rule(s) the gates do not hold:\n`)
   for (const f of failures)
@@ -474,4 +589,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; ${releaseChecked}`)

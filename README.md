@@ -93,8 +93,10 @@ flowchart LR
    anything. **(skill)**
 2. **Name it.** **(skill; it asks for the pitch, the licence and its holder,
    the owners it cannot derive, and the security and conduct contacts)**
-   - `package.json`: `name` (your repo slug), `description`, and
-     `repository.url`.
+   - `package.json`: `name` (your repo slug), `description`,
+     `repository.url`, and `version` back to `0.0.0`.
+   - `CHANGELOG.md`, when present: delete it. It is the template's release
+     history; your first `pnpm release` writes your own.
    - This file: the H1, and your pitch in place of the two paragraphs under
      it; delete "Who it is for, and not for", "What is in the box", and the
      diagram under Layout, which describe the template. Under "Where things
@@ -184,7 +186,7 @@ pnpm install
 | `pnpm test:hooks` | Agent guard fixtures (allow/deny cases, node only) |
 | `pnpm test:sync` | Template-sync fixtures (throwaway template + child repos, node only) |
 | `pnpm test:docs` | Docs checker fixtures (a clean tree and a broken one, node only) |
-| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps; the workflows pin actions by SHA and never cancel a run on `main`; ESLint rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version; lint-staged lints what CI lints; package tsconfigs take in every file; the install hook skips a linked worktree |
+| `pnpm test:gates` | Drift check: `pnpm verify` and the workflows run the same steps; the workflows pin actions by SHA and never cancel a run on `main`; ESLint rejects `.js` files and imports and a bare trust exclusion; turbo hashes the node version; lint-staged lints what CI lints; package tsconfigs take in every file; the install hook skips a linked worktree; changelogen sends no commit author's email out unless `changelog.excludeAuthors` lists names, and the release script refuses a dirty tree |
 | `pnpm docs:gen` | Regenerate the `.agents/skills` mirror and any automd region a page keeps |
 | `pnpm docs:check` / `pnpm docs:portability` | Docs structure + portability gates |
 | `pnpm docs:list` | Print the decisions table and the spec list, read from the files (`decisions` or `specs` prints one) |
@@ -192,7 +194,7 @@ pnpm install
 | `pnpm docs:internal:dev` | Internal handbook (VitePress, team-only) |
 | `pnpm docs:public:dev` | Public docs site |
 | `pnpm sync:template` | Pull the template's mechanics: stages them, records the sync point, prints commits since and the follow-ups in `package.json`, `pnpm-workspace.yaml`, `.claude/settings.json`, and new template files (`--ref` pins a template tag or branch) |
-| `pnpm release` | changelogen: version, CHANGELOG, tag, push; human-run (agents are blocked) |
+| `pnpm release` | changelogen: refuses a dirty tree, then version, CHANGELOG, tag, push; human-run (agents are blocked) |
 
 ## Working with AI agents
 
