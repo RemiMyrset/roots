@@ -51,33 +51,72 @@ Gemini also loses `AGENTS.md` and the skills. Claude Code still reads the root
 `CLAUDE.md` from a subdirectory, so the rulebook looks active while the guards
 are off; Codex reads `.codex/` from the project root down and is unaffected.
 
-The Codex and Gemini registrations run `pnpm -w --silent run guards`, a
-workspace-root script, so the command resolves from any subdirectory on Linux,
-macOS, and Windows with no shell-specific syntax. `--silent` keeps pnpm's own
-lines off stdout, which Gemini parses as JSON. Claude Code calls the
-dispatcher directly with node through `${CLAUDE_PROJECT_DIR}`, braced because
-Claude Code 2.1.198 and later rewrite only that spelling for PowerShell, which
-reads a bare `$CLAUDE_PROJECT_DIR` as empty and would leave the hook failing
-open.
+The Codex and Gemini registrations run the workspace-root script `guards`
+through pnpm, so the command resolves from any subdirectory. Codex's
+`command`, which it runs off Windows, is:
+
+```text
+sh -c 'pnpm -w --silent --config.verify-deps-before-run=false run guards || exit 2'
+```
+
+Gemini's `command` and Codex's `commandWindows` share one that ends in an exit
+tail instead:
+
+```text
+pnpm -w --silent --config.verify-deps-before-run=false run guards ; exit $((2*!!($true-$?)))
+```
+
+`--silent` keeps pnpm's own lines off stdout, which Gemini parses as JSON.
+`--config.verify-deps-before-run=false` stops pnpm 11 from running
+`pnpm install` first whenever the workspace state is missing or stale, as after
+a fresh clone or a lockfile change. That install runs lifecycle scripts, can
+outlast Gemini's 10-second hook timeout, and exits 1 when it fails; Gemini lets
+the call through after either, and Codex after the exit 1.
+
+Claude Code calls the dispatcher directly with node through
+`${CLAUDE_PROJECT_DIR}`, braced because Claude Code 2.1.198 and later rewrite
+only that spelling for PowerShell, which reads a bare `$CLAUDE_PROJECT_DIR` as
+empty and would leave the hook failing open.
 
 Claude Code and Codex block only on exit 2, and Gemini on any exit but 0 and 1,
-so both commands turn a dispatcher that cannot start into exit 2. The script
-ends in `|| exit 2`, which pnpm's shell emulator runs on every OS. The Claude
-Code command ends in `; exit $((2*!!($true-$?)))`, which bash reads as
-arithmetic and PowerShell as a subexpression: 0 after a clean run, 2 after
-anything else.
+so every guard command maps any other failure to 2. The script ends in
+`|| exit 2`, which pnpm's shell emulator runs on every OS, for a dispatcher
+that cannot start. Each registered command maps the failures around the script
+too: pnpm's exit 1 when it fails before the script, and a shell's 127 when pnpm
+is missing.
+
+Codex's `command` hands sh a command that does that with `|| exit 2` and no
+exit tail, so any shell that can run `sh -c '…'` runs it the same way: sh,
+bash, zsh, and login shells such as fish, which cannot parse the tail, and
+nushell, which has no `||`. The tail, `exit $((2*!!($true-$?)))`, reads as
+arithmetic in bash and as a subexpression in PowerShell: 0 after a clean run,
+2 after anything else.
 
 PowerShell needs that tail even for an ordinary deny: it exits 1 whenever its
-last command failed, whatever the code. `|| exit 2` cannot replace it, because
-PowerShell 7 runs an `exit` after `||` as a program name and Windows
+last command failed, whatever the code. `|| exit 2` cannot replace it there,
+because PowerShell 7 runs an `exit` after `||` as a program name and Windows
 PowerShell 5.1 has no `||`.
 
-A missing pnpm never reaches the script's `|| exit 2`. Gemini on Linux and
-macOS still blocks on the shell's exit 127, but Codex lets the call through,
-and so does Gemini on Windows, whose own
-`; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }` suffix exits 0 after a
-command that was not found. Which shell Codex runs a hook in on Windows is
-unverified; if it is PowerShell, an ordinary deny exits 1 there and passes too.
+Codex 0.154 runs a hook in the session's shell: sh, bash, or zsh with `-c` on
+Linux and macOS, and PowerShell with `-NoProfile -Command` on Windows, where it
+reads `commandWindows` in place of `command`. Gemini 0.60 runs `bash -c` on
+Linux and macOS, and PowerShell on Windows with
+`; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }` appended, which the tail's
+own `exit` never reaches. Both facts come from the tools' source; neither
+tool has been run against these registrations on Windows.
+
+Codex also has fallbacks, neither of which has been run. With no single local
+environment it runs a hook through `%COMSPEC% /C` on Windows and `$SHELL -lc`
+elsewhere, and on a Windows machine with no PowerShell it uses cmd.exe.
+
+cmd.exe runs neither `;` nor the tail, and PowerShell as the login shell takes
+no `-lc`: PowerShell 7.5 exits 64 without running the command.
+[guards](./guards.md#registration) lists what fails open as a result.
+
+The space before `;` keeps a deny working under cmd.exe. pnpm receives `;` and
+the tail as extra words and passes them to the script after `|| exit 2`, where
+they change nothing; written `guards;`, the word names no script, pnpm exits 1,
+and every call passes.
 
 ## Skills mirror
 
@@ -94,9 +133,11 @@ arguments to the skill either way.
 
 One file loads at every session start in all three tools. Claude Code carries
 it as its output style, part of the system prompt and re-reminded during the
-session. Codex and Gemini run `pnpm -w --silent run session` at SessionStart,
-and the session hook `session-start.mts` prints the file, frontmatter
-stripped, as `additionalContext`.
+session. Codex and Gemini run
+`pnpm -w --silent --config.verify-deps-before-run=false run session` at
+SessionStart, with the guards' no-install flag and no exit tail, and the
+session hook `session-start.mts` prints the file, frontmatter stripped, as
+`additionalContext`.
 
 The session hook ignores its payload, always exits 0, and prints nothing when
 the file is missing, so it can never block a session. Claude Code does not

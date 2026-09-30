@@ -2,14 +2,15 @@ import type { GuardContext, Verdict } from '../.claude/hooks/_lexer.mts'
 /**
  * Regression suite for the .claude/hooks agent guards and the session-start hook. Calls each
  * guard's verdict() in-process with a crafted command and context and asserts deny or allow;
- * pipes crafted tool-call JSON to the dispatcher that Claude Code actually registers and
- * asserts the exit code (2 = deny, 0 = allow); pipes session payloads to the session-start
- * hook and asserts the context it prints. Runs in CI via `pnpm test:hooks` so a
+ * pipes crafted tool-call JSON to the dispatcher and asserts the exit code (2 = deny, 0 =
+ * allow), both directly and through the command each registration holds, run the way its tool
+ * runs it; pipes session payloads to the session-start hook and asserts the context it
+ * prints. Runs in CI via `pnpm test:hooks` so a
  * guard bypass can never ship silently again — every case below is a line an agent might
  * plausibly type. Node builtins only; no deps. Node 24 runs this `.mts` natively.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import process from 'node:process'
@@ -934,13 +935,32 @@ function sessionProblems(c: SessionCase, status: number | null, stdout: string, 
 // and the read-only `pnpm docs:list`, the two commands the docs send agents to most, run without
 // a prompt in Claude Code; any other allow rule is the repository's own choice. Gemini's
 // `context.fileName` names GEMINI.md too, or each developer's ~/.gemini/GEMINI.md stops loading.
+// The Codex and Gemini commands run through pnpm, which exits 1 when it fails before the script
+// runs and, unless told not to, first runs `pnpm install` on a stale workspace. So each command
+// carries the no-install flag, and each guard command maps any failure to 2. Codex's `command`
+// runs off Windows only, under sh, bash, zsh, or a `$SHELL -lc` fallback whose login shell may be
+// fish, which cannot parse the exit tail, or nushell, which has no `||`, so it hands sh a command
+// that ends in `|| exit 2`. Codex's `commandWindows` and Gemini's `command` may run under
+// PowerShell, which needs the tail, and the space before the tail's `;` matters under cmd.exe,
+// which would hand pnpm `guards;` as the script name. A session command must exit 0, so it has
+// no tail.
 const REPO = join(HOOKS, '..', '..')
-interface Registration { matcher?: string, hooks?: { command?: string }[] }
+interface Handler { command?: string, commandWindows?: string }
+interface Registration { matcher?: string, hooks?: Handler[] }
 interface Hooks { SessionStart?: Registration[], BeforeTool?: Registration[], PreToolUse?: Registration[] }
 const gemini = JSON.parse(readFileSync(join(REPO, '.gemini', 'settings.json'), 'utf8')) as { context?: { fileName?: string | string[] }, hooks?: Hooks, tools?: { allowed?: string[] } }
 const codex = JSON.parse(readFileSync(join(REPO, '.codex', 'hooks.json'), 'utf8')) as { hooks?: Hooks }
 const claude = JSON.parse(readFileSync(join(HOOKS, '..', 'settings.json'), 'utf8')) as { permissions?: { allow?: string[], deny?: string[] }, hooks?: Hooks }
-const scriptNames = Object.keys((JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }).scripts ?? {})
+const rootPackage = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts?: { guards?: string, session?: string } }
+const scriptNames = Object.keys(rootPackage.scripts ?? {})
+const handlers = (entries: Registration[] | undefined): Handler[] => (entries ?? []).flatMap(e => e.hooks ?? [])
+const codexGuards = handlers(codex.hooks?.PreToolUse)
+const geminiGuards = handlers(gemini.hooks?.BeforeTool)
+const codexSessions = handlers(codex.hooks?.SessionStart)
+const geminiSessions = handlers(gemini.hooks?.SessionStart)
+const NO_INSTALL = '--config.verify-deps-before-run=false'
+const EXIT_TAIL = 'exit $((2*!!($true-$?)))'
+const OR_EXIT = '|| exit 2'
 const CODEX_SOURCES: readonly string[] = ['startup', 'resume', 'clear', 'compact']
 const SHELL_TOOLS: readonly string[] = ['Bash', 'PowerShell', 'Monitor']
 // The credentials a developer machine holds in the home directory, outside any repository.
@@ -973,6 +993,38 @@ for (const e of codex.hooks?.SessionStart ?? []) {
 for (const e of codex.hooks?.PreToolUse ?? []) {
   if (e.matcher !== 'Bash')
     structural.push(`.codex/hooks.json: PreToolUse matcher "${e.matcher ?? ''}" is not Bash`)
+}
+for (const h of codexGuards) {
+  if (h.commandWindows === undefined)
+    structural.push('.codex/hooks.json: PreToolUse handler has no commandWindows, the command Codex runs in PowerShell on Windows')
+  const inner = /^sh -c '([^']*)'$/.exec(h.command ?? '')?.[1]
+  if (inner === undefined)
+    structural.push(`.codex/hooks.json: guard command ${h.command ?? '(none)'} is not one single-quoted sh -c command, so a login shell such as nushell, which has no ||, or fish, which cannot parse the exit tail, lets every call through`)
+  else if (!inner.endsWith(` ${OR_EXIT}`))
+    structural.push(`.codex/hooks.json: guard command ${h.command ?? '(none)'} hands sh a command that does not end in " ${OR_EXIT}", so a pnpm failure lets the call through`)
+}
+function commandsIn(file: string, list: Handler[]): { file: string, command: string }[] {
+  return list.flatMap(h => [h.command, h.commandWindows]).filter(c => c !== undefined).map(command => ({ file, command }))
+}
+for (const { file, command } of [...commandsIn('.codex/hooks.json', codexGuards), ...commandsIn('.gemini/settings.json', geminiGuards)]) {
+  if (!command.includes(NO_INSTALL))
+    structural.push(`${file}: guard command ${command} lacks ${NO_INSTALL}, so pnpm installs first on a stale workspace`)
+}
+const tailed = [
+  ...codexGuards.flatMap(h => h.commandWindows ?? []).map(command => ({ file: '.codex/hooks.json', command })),
+  ...commandsIn('.gemini/settings.json', geminiGuards),
+]
+for (const { file, command } of tailed) {
+  if (!command.endsWith(`; ${EXIT_TAIL}`))
+    structural.push(`${file}: guard command ${command} does not end in "; ${EXIT_TAIL}", so a pnpm failure or PowerShell's exit 1 lets the call through`)
+  else if (!command.endsWith(` ; ${EXIT_TAIL}`))
+    structural.push(`${file}: guard command ${command} has no space before the tail's ";", so cmd.exe hands pnpm a script name ending in ";" and every call passes`)
+}
+for (const { file, command } of [...commandsIn('.codex/hooks.json', codexSessions), ...commandsIn('.gemini/settings.json', geminiSessions)]) {
+  if (!command.includes(NO_INSTALL))
+    structural.push(`${file}: session command ${command} lacks ${NO_INSTALL}, so pnpm installs first on a stale workspace`)
+  if (/\bexit\b/.test(command))
+    structural.push(`${file}: session command ${command} carries an exit tail; a session hook must exit 0`)
 }
 for (const e of claude.hooks?.PreToolUse ?? []) {
   for (const tool of SHELL_TOOLS) {
@@ -1065,13 +1117,12 @@ for (const c of CASES) {
 }
 
 // A dispatcher that cannot start must still deny: no harness blocks on exit 1, and Claude Code
-// and Codex block only on exit 2, so any other failure runs the tool call. Node told not to strip types fails the way a node too old
-// for .mts does, an empty project directory stands in for a missing file, and a PATH without
-// node for a missing node. Each registration runs the way its harness runs it: Claude Code hands
-// its command to sh, or to PowerShell when Git Bash is missing, after putting the project path
-// in for the placeholder; Codex and Gemini run the root script through pnpm from a
-// subdirectory, and Gemini parses stdout, so it stays empty. A shell or a pnpm this machine
-// lacks is skipped and named in the summary.
+// and Codex block only on exit 2, so any other failure runs the tool call. Node told not to strip
+// types fails the way a node too old for .mts does, an empty project directory stands in for a
+// missing file, and a PATH without node for a missing node. Each registration runs the way its
+// harness runs it: Claude Code hands its command to sh, or to PowerShell when Git Bash is missing,
+// after putting the project path in for the placeholder. A shell or a pnpm this machine lacks is
+// skipped and named in the summary.
 interface LaunchCase { name: string, cmd: string, expect: 0 | 2, env?: Record<string, string>, project?: string }
 const EMPTY_PROJECT = join(tmp, 'empty-project')
 mkdirSync(EMPTY_PROJECT)
@@ -1094,20 +1145,21 @@ function launched(where: string, c: LaunchCase, status: number | null, stdout = 
   if (stdout !== '')
     fails.push(`[launch] ${where}, ${c.name}: stdout should be empty, got ${stdout.slice(0, 80)}`)
 }
+const SHELLS = ['sh', 'pwsh', 'powershell'].filter((shell) => {
+  const ok = shell === 'sh' ? runs('sh', ['-c', 'exit 0']) : runs(shell, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])
+  if (!ok)
+    launchSkipped.push(shell)
+  return ok
+})
+const shellArgs = (shell: string, command: string): string[] => shell === 'sh' ? ['-c', command] : ['-NoProfile', '-NonInteractive', '-Command', command]
 if (claudeCommands.length === 0)
   fails.push('[launch] .claude/settings.json registers no PreToolUse command that runs dispatch.mts')
-for (const shell of ['sh', 'pwsh', 'powershell']) {
-  const ok = shell === 'sh' ? runs('sh', ['-c', 'exit 0']) : runs(shell, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])
-  if (!ok) {
-    launchSkipped.push(shell)
-    continue
-  }
+for (const shell of SHELLS) {
   for (const command of claudeCommands) {
     for (const c of LAUNCH_CASES) {
       const project = c.project ?? REPO
       const env = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env, CLAUDE_PROJECT_DIR: project }
-      const args = shell === 'sh' ? ['-c', command] : ['-NoProfile', '-NonInteractive', '-Command', command.replaceAll(PLACEHOLDER, project)]
-      launched(`Claude Code under ${shell}`, c, spawnSync(shell, args, { input: payload(c.cmd), env, timeout: 20_000 }).status)
+      launched(`Claude Code under ${shell}`, c, spawnSync(shell, shellArgs(shell, shell === 'sh' ? command : command.replaceAll(PLACEHOLDER, project)), { input: payload(c.cmd), env, timeout: 20_000 }).status)
     }
     if (shell === 'sh' && process.platform !== 'win32') {
       const c: LaunchCase = { name: 'node not installed', cmd: 'pnpm install', expect: D }
@@ -1116,11 +1168,143 @@ for (const shell of ['sh', 'pwsh', 'powershell']) {
     }
   }
 }
+
+// Codex and Gemini run the commands in their registrations from wherever the session sits, here a
+// subdirectory. Codex uses the session's shell: sh, bash, or zsh with -c, and on Windows
+// PowerShell with commandWindows in place of command. Gemini uses bash -c (here sh where bash is
+// missing and on Windows), or PowerShell with its own exit suffix appended; Gemini parses stdout,
+// so a guard run leaves it empty. `pnpm run` sets pnpm_config_verify_deps_before_run=false for
+// the scripts it starts, this suite included, which would hide a registration that lets pnpm
+// install first, so the spawned env drops it. Two directories must answer fast and install
+// nothing: one outside any workspace, where pnpm exits 1 before the script and the command must
+// deny, and a workspace never installed, with no reachable registry, where pnpm without the flag
+// installs first and exits 1, so its deny and allow payloads must still give 2 and 0.
+interface PnpmCase extends LaunchCase { cwd: string, root?: string }
+const STALE = join(tmp, 'stale-workspace')
+mkdirSync(join(STALE, 'sub'), { recursive: true })
+cpSync(join(HOOKS, '..'), join(STALE, '.claude'), { recursive: true })
+writeFileSync(join(STALE, 'package.json'), `${JSON.stringify({ name: 'stale', private: true, scripts: { guards: rootPackage.scripts?.guards, session: rootPackage.scripts?.session }, devDependencies: { 'is-number': '7.0.0' } })}\n`)
+writeFileSync(join(STALE, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n')
+const OFFLINE = { pnpm_config_registry: 'http://127.0.0.1:9/', pnpm_config_fetch_retries: '0', pnpm_config_store_dir: join(tmp, 'pnpm-store') }
+const PNPM_DENY: PnpmCase = { name: 'deny', cmd: 'npm install', expect: D, cwd: HOOKS }
+const PNPM_ALLOW: PnpmCase = { name: 'allow', cmd: 'pnpm install', expect: A, cwd: HOOKS }
+const PNPM_CASES: PnpmCase[] = [
+  PNPM_DENY,
+  PNPM_ALLOW,
+  { name: 'node cannot load .mts', cmd: 'pnpm install', expect: D, cwd: HOOKS, env: { NODE_OPTIONS: '--no-experimental-strip-types' } },
+  { name: 'pnpm fails before the script', cmd: 'pnpm install', expect: D, cwd: EMPTY_PROJECT, root: EMPTY_PROJECT },
+  { name: 'workspace never installed, deny', cmd: 'npm install', expect: D, cwd: join(STALE, 'sub'), env: OFFLINE, root: STALE },
+  { name: 'workspace never installed, allow', cmd: 'pnpm install', expect: A, cwd: join(STALE, 'sub'), env: OFFLINE, root: STALE },
+]
+const SESSION_LAUNCHES: PnpmCase[] = [
+  { name: 'installed workspace', cmd: '', expect: A, cwd: HOOKS },
+  { name: 'workspace never installed', cmd: '', expect: A, cwd: join(STALE, 'sub'), env: OFFLINE, root: STALE },
+]
+const GEMINI_POWERSHELL_SUFFIX = '; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'
+function pnpmEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env, PROTECTED_BRANCHES: 'main', ...extra }
+  for (const name of Object.keys(env)) {
+    if (/^p?npm_config_verify_deps_before_run$/i.test(name))
+      delete env[name]
+  }
+  return env
+}
+/** The absolute path of `bin`, so a run with PATH emptied still starts it; '' when missing, and always on Windows. */
+function shellPath(bin: string): string {
+  if (process.platform === 'win32')
+    return ''
+  return (spawnSync('/bin/sh', ['-c', `command -v ${bin}`], { encoding: 'utf8', timeout: 20_000 }).stdout ?? '').trim()
+}
+/** Runs `argv` from the case's `cwd`; for a case with a `root`, also checks it is fast and installs nothing. */
+function pnpmRun(where: string, c: PnpmCase, argv: string[], opts: { env?: Record<string, string | undefined>, shell?: boolean } = {}): { status: number | null, stdout: string, stderr: string } {
+  const started = performance.now()
+  const r = spawnSync(argv[0] ?? '', argv.slice(1), { cwd: c.cwd, input: payload(c.cmd), env: opts.env ?? pnpmEnv(c.env), encoding: 'utf8', timeout: 20_000, shell: opts.shell ?? false })
+  const took = performance.now() - started
+  if (c.root !== undefined && took > 5000)
+    fails.push(`[launch] ${where}, ${c.name}: took ${Math.round(took)} ms, want under 5000`)
+  if (c.root !== undefined && existsSync(join(c.root, 'node_modules'))) {
+    fails.push(`[launch] ${where}, ${c.name}: pnpm installed into ${c.root}`)
+    rmSync(join(c.root, 'node_modules'), { recursive: true, force: true })
+  }
+  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
+}
 if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 }).status === 0) {
-  for (const c of LAUNCH_CASES.filter(l => l.project === undefined)) {
-    const env = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env }
-    const r = spawnSync('pnpm -w --silent run guards', { shell: true, cwd: HOOKS, input: payload(c.cmd), env, encoding: 'utf8', timeout: 30_000 })
-    launched('Codex and Gemini through pnpm', c, r.status, r.stdout)
+  if (codexGuards.length === 0 || geminiGuards.length === 0 || codexSessions.length === 0 || geminiSessions.length === 0)
+    fails.push('[launch] .codex/hooks.json and .gemini/settings.json must each register a guard and a session command')
+  const BASH = shellPath('bash')
+  const CODEX_POSIX = { name: 'sh', bin: process.platform === 'win32' ? 'sh' : '/bin/sh' }
+  const GEMINI_POSIX = BASH === '' ? CODEX_POSIX : { name: 'bash', bin: BASH }
+  const hosts = [
+    ...codexGuards.map(h => ({ where: 'Codex', posix: CODEX_POSIX, sh: h.command ?? '', powershell: h.commandWindows ?? h.command ?? '' })),
+    ...geminiGuards.map(h => ({ where: 'Gemini', posix: GEMINI_POSIX, sh: h.command ?? '', powershell: `${h.command ?? ''}${GEMINI_POWERSHELL_SUFFIX}` })),
+  ]
+  const sessionHosts = [
+    ...codexSessions.map(h => ({ where: 'Codex session', posix: CODEX_POSIX, sh: h.command ?? '', powershell: h.commandWindows ?? h.command ?? '' })),
+    ...geminiSessions.map(h => ({ where: 'Gemini session', posix: GEMINI_POSIX, sh: h.command ?? '', powershell: `${h.command ?? ''}${GEMINI_POWERSHELL_SUFFIX}` })),
+  ]
+  // A missing pnpm is a PATH that holds only sh, which Codex's `command` hands the pnpm call to,
+  // with each shell started by its absolute path. Off Windows only, where the suite can build that
+  // PATH from nothing but the machine's /bin/sh.
+  const PNPM_MISSING: PnpmCase = { name: 'pnpm not installed', cmd: 'pnpm install', expect: D, cwd: HOOKS }
+  const ONLY_SH = join(tmp, 'only-sh')
+  mkdirSync(ONLY_SH)
+  if (process.platform !== 'win32')
+    symlinkSync('/bin/sh', join(ONLY_SH, 'sh'))
+  const noPnpm = { env: { ...pnpmEnv(), PATH: ONLY_SH } }
+  for (const shell of SHELLS) {
+    const powershellPath = shell === 'sh' ? '' : shellPath(shell)
+    for (const host of hosts) {
+      const where = `${host.where} under ${shell === 'sh' ? host.posix.name : shell}`
+      const argv = shell === 'sh' ? [host.posix.bin, '-c', host.sh] : [shell, ...shellArgs(shell, host.powershell)]
+      for (const c of PNPM_CASES) {
+        const r = pnpmRun(where, c, argv)
+        launched(where, c, r.status, r.stdout)
+      }
+      if (shell === 'sh' && process.platform !== 'win32')
+        launched(where, PNPM_MISSING, pnpmRun(where, PNPM_MISSING, argv, noPnpm).status)
+      else if (powershellPath !== '')
+        launched(where, PNPM_MISSING, pnpmRun(where, PNPM_MISSING, [powershellPath, ...shellArgs(shell, host.powershell)], noPnpm).status)
+    }
+    // A session command exits 0 with the writing rules, in a workspace never installed too.
+    for (const host of sessionHosts) {
+      const where = `${host.where} under ${shell === 'sh' ? host.posix.name : shell}`
+      for (const c of SESSION_LAUNCHES) {
+        launchRuns++
+        const r = pnpmRun(where, c, shell === 'sh' ? [host.posix.bin, '-c', host.sh] : [shell, ...shellArgs(shell, host.powershell)])
+        for (const p of sessionProblems({ name: c.name, raw: '', context: true }, r.status, r.stdout, r.stderr))
+          fails.push(`[launch] ${where}, ${c.name}: ${p}`)
+      }
+    }
+  }
+  // With no single local environment, Codex runs a hook through `$SHELL -lc` off Windows, and that
+  // login shell may be fish, which cannot parse the exit tail, or nushell, which has no `||`. So
+  // Codex's `command` runs under both too, without the user's config, which could put pnpm back
+  // on the PATH that leaves it out.
+  for (const login of [{ name: 'fish', noConfig: '--no-config' }, { name: 'nu', noConfig: '--no-config-file' }]) {
+    const bin = shellPath(login.name)
+    const loginRuns = bin !== '' && runs(bin, [login.noConfig, '-c', 'exit 0'])
+    if (process.platform !== 'win32' && !loginRuns)
+      launchSkipped.push(login.name)
+    for (const h of loginRuns ? codexGuards : []) {
+      const where = `Codex under ${login.name}`
+      const argv = [bin, login.noConfig, '-c', h.command ?? '']
+      for (const c of PNPM_CASES) {
+        const r = pnpmRun(where, c, argv)
+        launched(where, c, r.status, r.stdout)
+      }
+      launched(where, PNPM_MISSING, pnpmRun(where, PNPM_MISSING, argv, noPnpm).status)
+    }
+  }
+  // With no PowerShell, or no single local environment, Codex on Windows runs the command through
+  // cmd.exe /C, which reads neither `;` nor the tail and hands them to pnpm as words; pnpm passes
+  // them on to the script after `|| exit 2`, so a deny still exits 2. Off Windows, the suite hands
+  // pnpm the same words directly.
+  for (const h of codexGuards) {
+    const command = h.commandWindows ?? h.command ?? ''
+    for (const c of [PNPM_DENY, PNPM_ALLOW]) {
+      const r = process.platform === 'win32' ? pnpmRun('Codex under cmd.exe', c, [command], { shell: true }) : pnpmRun('Codex under cmd.exe', c, command.split(' '))
+      launched('Codex under cmd.exe', c, r.status, r.stdout)
+    }
   }
 }
 else {

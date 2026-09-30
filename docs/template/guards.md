@@ -52,7 +52,8 @@ Gemini CLI BeforeTool hook (`.gemini/settings.json`). Monitor is on the list
 because it runs a shell command under the Bash allow rules. All three deliver
 the command as `tool_input.command` and treat exit 2 with a reason on stderr as
 a block, so the guards are shared verbatim; the fixture suite pipes each tool's
-payload shape through the dispatcher.
+payload shape through the dispatcher and runs each registration's command the
+way its tool does.
 
 The dispatcher imports every `deny-*.mts` in the directory and runs its
 `verdict(cmd, ctx)` in the same process; the first reason returned denies the
@@ -60,15 +61,27 @@ call, and a guard that throws or exports no verdict denies too. It also denies
 when the hook input is not a payload with a string `tool_input.command`
 (malformed JSON, a missing or null field) and when stdin never closes within
 five seconds. A dispatcher that cannot start (node missing or too old to run
-`.mts`, a file that fails to load) denies as well, because each registration
-maps that failure to exit 2
+`.mts`, a file that fails to load) denies as well, and so does a pnpm that
+fails or is missing under Codex or Gemini, whose registrations run through it:
+each registration maps any failure to exit 2
 ([agent-surfaces](./agent-surfaces.md#trust-and-registration) shows how). A
-missing pnpm still fails open under Codex, and under Gemini on Windows, whose
-registrations run through it. The one shape without a command that passes is a
-Monitor call that opens a WebSocket (`tool_input.ws`), which runs no shell and
-has its own approval prompt. One process, not one per guard, keeps a shell call's overhead
-near node's own startup. Node builtins only, so the guards work
-before `pnpm install` and in any repo they are synced into.
+pnpm whose version differs from the `packageManager` pin and that cannot fetch
+the pinned one exits 1, which each registration maps to a deny, but only after
+pnpm's fetch retries, about 70 seconds per call offline. Codex then denies the
+call with pnpm's error as the reason; Gemini has run it by then (below).
+
+Three cases still fail open. Under Codex, a fallback to cmd.exe on Windows lets
+the call through when pnpm fails or is missing, and a fallback to `$SHELL -lc`
+lets every call through when the login shell is PowerShell, which takes no
+`-lc`. Gemini runs the call when a hook outlasts its 10-second timeout; the
+registrations stop pnpm from installing first, but the offline fetch of a
+pinned pnpm above still outlasts it.
+
+The one shape without a command that passes is a Monitor call that opens a
+WebSocket (`tool_input.ws`), which runs no shell and has its own approval
+prompt. One process, not one per guard, keeps a shell call's overhead near
+node's own startup. Node builtins only, so the guards work before
+`pnpm install` and in any repo they are synced into.
 
 Folder trust, the per-hook trust prompts, and the command each registration
 runs are in [agent-surfaces](./agent-surfaces.md). `session-start.mts`, beside

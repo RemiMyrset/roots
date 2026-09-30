@@ -7,13 +7,15 @@
  * returns the deny reason or null, and the first reason denies the call (exit 2). Guards are
  * discovered by filename, so adding one needs no registration edit; a guard that exports no
  * verdict or throws denies too. A failure to start this file (node missing or unable to run
- * .mts, a file that fails to load) never reaches that logic; each registration maps it to exit 2
- * (docs/template/agent-surfaces.md). One process rather than one per guard: node's startup plus
- * type stripping cost about 0.15 s per spawn, and six spawns made every shell call wait a
- * second. Node builtins only (node 24 runs .mts natively), so the guards work before
- * `pnpm install` and in any repo they are synced into. A harness that opens stdin and never
- * closes it would hang the tool call, so the dispatcher denies after 5s — far above any real
- * payload, under the 10s timeout the Gemini registration sets (Gemini's own default is 60s).
+ * .mts, a file that fails to load, or under Codex and Gemini a pnpm that fails first) never
+ * reaches that logic; each registration maps it to exit 2 (docs/template/agent-surfaces.md).
+ * One process rather than one per guard: node's startup plus type stripping cost about 0.15 s
+ * per spawn, and six spawns made every shell call wait a second. Node builtins only (node 24
+ * runs .mts natively), so the guards work before `pnpm install`, which the Codex and Gemini
+ * registrations stop pnpm from running first, and in any repo they are synced into. A harness
+ * that opens stdin and never closes it would hang the tool call, so the dispatcher denies after
+ * 5s — far above any real payload, under the 10s timeout the Gemini registration sets, past
+ * which Gemini runs the call (Gemini's own default is 60s).
  *
  * Exit codes are set through process.exitCode and the loop is left to drain rather than
  * forced with process.exit(): on Windows, stdio pipes are asynchronous, and exiting from
