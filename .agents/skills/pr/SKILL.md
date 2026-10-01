@@ -10,7 +10,8 @@ In Claude Code the push flow runs unattended: `git push` and the read-only
 `deny-push-protected` guard keeps every push off a protected branch. What
 counts as protected, and what else the guard denies, is
 under "Push protection" in `docs/template/guards.md`. Merging is a human
-decision; `gh pr merge` always prompts, and this skill never runs it.
+decision; `gh pr merge` is not allow-listed, so it prompts unless the session
+auto-approves, and this skill never runs it.
 
 1. Branch check. `git branch --show-current` must not match a protected
    pattern. If it does, stop and suggest a branch: `feat/`, `fix/`, `docs/`,
@@ -19,18 +20,20 @@ decision; `gh pr merge` always prompts, and this skill never runs it.
    out) and continue.
 2. Clean tree. `git status --porcelain` must be empty; commit pending work
    first with a Conventional Commit (`type(scope): subject`, subject at most 50
-   chars). Never `--no-verify`; the hooks are the gate, and a guard denies it.
+   chars). Never `--no-verify`: fix what the git hooks report (a guard denies
+   the flag anyway).
 3. Verify. `pnpm verify` must pass. Fix at the source; never open a PR over a
    red gate.
 4. Push. `git push -u origin <branch>` with the name spelled out, or
    `git push -u origin HEAD`; the guard denies a target held in a shell
    variable (`"$BRANCH"`). Add `--force-with-lease` only if the branch was
    rebased and the user knows.
-5. Body. Read `.github/PULL_REQUEST_TEMPLATE.md` and fill it: a two-sentence
-   Summary, the three-place-sync boxes ticked only for what this PR did (source
-   and tests, spec, decision record, or N/A), the docs-hygiene boxes ticked only
-   after the commands ran, reviewer notes for risks and follow-ups. If an issue
-   number was given, add `Closes #<n>` under Summary.
+5. Body. Read `.github/PULL_REQUEST_TEMPLATE.md` and fill it: a one- or
+   two-sentence Summary of what changed and why, the three-place-sync boxes
+   ticked only for what this PR did (source and tests, spec, decision record, or
+   N/A), the docs-hygiene boxes ticked only after the commands ran, and reviewer
+   notes covering how it was checked (the gate commands that ran), risks, and
+   follow-ups. If an issue number was given, add `Closes #<n>` under Summary.
 6. Create. `gh pr create --base <default branch> --title "<conventional subject>"
    --body-file <the filled body>`. The title is the branch's headline commit
    subject, or a Conventional Commit summary of the set.

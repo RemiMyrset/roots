@@ -75,6 +75,20 @@ function plantSkill(dir: string, tree: typeof SKILLS_SOURCE | typeof SKILLS_TARG
   writeFileSync(join(dir, tree, name, 'SKILL.md'), content)
 }
 
+/** A SKILL.md whose frontmatter docs:check accepts: its directory's name and a plain description. */
+function skillFile(name: string): string {
+  return `---\nname: ${name}\ndescription: Say what ${name} does and when to use it.\n---\n\n# ${name}\n`
+}
+
+/** Unquoted descriptions YAML reads as a boolean, a number, null, or a YAML 1.1 merge or value key, each planted as its own skill. */
+const NON_STRINGS = [['bool', 'true'], ['number', '123'], ['null-word', 'null'], ['tilde', '~'], ['yes-word', 'yes'], ['infinity', '.inf'], ['merge-key', '<<'], ['value-key', '=']] as const
+
+/** One skill planted in the source and, byte for byte, in the mirror, so only its frontmatter is judged. */
+function plantMirrored(dir: string, name: string, content: string): void {
+  plantSkill(dir, SKILLS_SOURCE, name, content)
+  plantSkill(dir, SKILLS_TARGET, name, content)
+}
+
 interface Run { status: number | null, out: string }
 function run(checker: Checker, cwd: string, env: NodeJS.ProcessEnv = process.env, args: string[] = []): Run {
   const r = spawnSync(process.execPath, [CHECKERS[checker], ...args], { cwd, env, encoding: 'utf8' })
@@ -137,8 +151,41 @@ function runAutomd(cwd: string): Run {
     const file = join(dir, page)
     writeFileSync(file, readFileSync(file, 'utf8').replace('2026-09-07', today))
   }
-  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
-  plantSkill(dir, SKILLS_TARGET, 'x', '# x\n')
+  plantMirrored(dir, 'x', skillFile('x'))
+  // Frontmatter that parses as YAML unchanged: a quoted or folded value may hold ": " and " #",
+  // a plain one "a:b", "a#b", an apostrophe, and a continuation line; comments, blank lines,
+  // other keys, and CRLF endings pass, and a directory without a SKILL.md is no skill.
+  plantMirrored(dir, 'quoted', '---\nname: "quoted"\ndescription: "Use when: the user says \\"go\\" # twice."\n---\n')
+  plantMirrored(dir, 'folded', '---\nname: folded\ndescription: >\n  Folded: a colon here is text,\n\n  and so is # this.\n---\n')
+  plantMirrored(dir, 'plain', '---\n# a comment line\nname: plain\ndescription: Checks a:b and a#b, the user\'s words,\n  and a second line.\n\nallowed-tools: Read, Grep\n---\n')
+  plantMirrored(dir, 'crlf', '---\r\nname: crlf\r\ndescription: Written on Windows.\r\n---\r\n\r\n# crlf\r\n')
+  // A key holding a nested map or list, as Codex's own skill-creator (metadata) and Claude Code
+  // plugins (allowed-tools, hooks) write them, a list at its key's indent included; '' inside
+  // single quotes, a comment after a closing quote, and an indented comment under a plain value.
+  plantMirrored(dir, 'metadata', '---\nname: metadata\ndescription: Holds a map.\nmetadata:\n  short-description: Short text\n---\n')
+  plantMirrored(dir, 'tool-list', '---\nname: tool-list\ndescription: Holds a list.\nallowed-tools:\n  - Read\n  - Grep\n---\n')
+  plantMirrored(dir, 'tool-list-at-key', '---\nname: tool-list-at-key\ndescription: Holds a list at its key\'s indent.\nallowed-tools:\n- Read\n- Grep\n---\n')
+  plantMirrored(dir, 'hooks', '---\nname: hooks\ndescription: Holds a nested map.\nhooks:\n  PreToolUse:\n    - matcher: Bash\n---\n')
+  plantMirrored(dir, 'doubled-apostrophe', '---\nname: doubled-apostrophe\ndescription: \'It\'\'s fine: really\'\n---\n')
+  plantMirrored(dir, 'quoted-comment', '---\nname: "quoted-comment" # c\ndescription: Fine.\n---\n')
+  plantMirrored(dir, 'indented-comment', '---\nname: indented-comment\ndescription: Fine,\n  on two lines.\n  # an indented comment\n---\n')
+  // A nested key holding a space or a "#"; flow collections that close at the value's end, with
+  // a comment after one, quoted items holding ": " and '', and brackets inside quotes or a comment;
+  // a block scalar whose indent digit lets a later line sit less indented than the first, one
+  // ended by a less-indented comment, and one whose header comment holds a digit that is no
+  // indent digit; \u and \U escapes either side of the surrogates, up to the last character.
+  plantMirrored(dir, 'spaced-key', '---\nname: spaced-key\ndescription: Fine.\nmetadata:\n  short description: x\n  a#b: y\n---\n')
+  plantMirrored(dir, 'flow-comment', '---\nname: flow-comment\ndescription: Fine.\nargument-hint: [message] # c\n---\n')
+  plantMirrored(dir, 'flow-quoted', '---\nname: flow-quoted\ndescription: Fine.\nallowed-tools: [Read, "Bash(git: x)", \'it\'\'s\']\n---\n')
+  plantMirrored(dir, 'flow-lines', '---\nname: flow-lines\ndescription: Fine.\nx: {a: "b]", c: [d, # ]\n  e]}\n---\n')
+  plantMirrored(dir, 'block-digit', '---\nname: block-digit\ndescription: |2\n    text\n  more\n---\n')
+  plantMirrored(dir, 'block-header-digit', '---\nname: block-header-digit\ndescription: > # 4 lines\n  text\n---\n')
+  plantMirrored(dir, 'escapes', '---\nname: escapes\ndescription: "Use \\uD7FF \\uE000 \\U00000041 \\U0001F600 \\U0010FFFF."\n---\n')
+  plantMirrored(dir, 'block-comment', '---\nname: block-comment\ndescription: >\n  text\n # a comment\n---\n')
+  for (const tree of [SKILLS_SOURCE, SKILLS_TARGET]) {
+    mkdirSync(join(dir, tree, 'notes'), { recursive: true })
+    writeFileSync(join(dir, tree, 'notes', 'README.md'), '# Notes\n')
+  }
   const c = run('docs:check', dir, withoutCi)
   check('clean docs:check exits 0', c.status === 0, c.out)
   check('clean docs:check counts records', c.out.includes('✔ docs:check — 4 decision(s)'), c.out)
@@ -152,10 +199,98 @@ function runAutomd(cwd: string): Run {
 // in all three forms: a source without a copy, a copy that differs, a copy without a source.
 {
   const dir = fixture('broken')
-  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
-  plantSkill(dir, SKILLS_SOURCE, 'y', '# y\n')
-  plantSkill(dir, SKILLS_TARGET, 'x', '# x edited\n')
-  plantSkill(dir, SKILLS_TARGET, 'z', '# z\n')
+  plantSkill(dir, SKILLS_SOURCE, 'x', skillFile('x'))
+  plantSkill(dir, SKILLS_SOURCE, 'y', skillFile('y'))
+  plantSkill(dir, SKILLS_TARGET, 'x', `${skillFile('x')}edited\n`)
+  plantSkill(dir, SKILLS_TARGET, 'z', skillFile('z'))
+  // Skill frontmatter Codex would skip or read differently. The first is new-adr's
+  // description as it shipped: "yourself: adding" made the whole block invalid YAML.
+  plantMirrored(dir, 'colon-space', '---\nname: colon-space\ndescription: Also use unprompted immediately after making a load-bearing choice yourself: adding or swapping a dependency.\n---\n')
+  plantMirrored(dir, 'hash', '---\nname: hash\ndescription: Run the gate #now.\n---\n')
+  plantMirrored(dir, 'trailing-colon', '---\nname: trailing-colon\ndescription: Use it for:\n---\n')
+  plantMirrored(dir, 'continued', '---\nname: continued\ndescription: The first line is fine,\n  but the second: is not.\n---\n')
+  plantMirrored(dir, 'backtick', '---\nname: backtick\ndescription: `pnpm verify` runs the gate.\n---\n')
+  plantMirrored(dir, 'no-frontmatter', '# No frontmatter\n')
+  plantMirrored(dir, 'unclosed', '---\nname: unclosed\ndescription: Never closed.\n\n# Unclosed\n')
+  plantMirrored(dir, 'wrong-name', '---\nname: other-name\ndescription: Named for another directory.\n---\n')
+  plantMirrored(dir, 'no-name', '---\ndescription: Has no name.\n---\n')
+  plantMirrored(dir, 'empty-description', '---\nname: empty-description\ndescription:\n---\n')
+  plantMirrored(dir, 'empty-folded', '---\nname: empty-folded\ndescription: >\n\n---\n')
+  plantMirrored(dir, 'stray-line', '---\nname: stray-line\ndescription: Fine.\nnot a key\n---\n')
+  plantMirrored(dir, 'twice', '---\nname: twice\nname: twice\ndescription: Named twice.\n---\n')
+  // A description YAML reads as a map or a list, not a string.
+  plantMirrored(dir, 'usage-map', '---\nname: usage-map\ndescription:\n  Usage: now\n---\n')
+  plantMirrored(dir, 'flow-list', '---\nname: flow-list\ndescription: [a, b]\n---\n')
+  plantMirrored(dir, 'nested-name', '---\nname:\n  a: b\ndescription: Fine.\n---\n')
+  // Quoted values YAML rejects: an apostrophe that closes single quotes early, text after the
+  // closing quote, a quote never closed, and a backslash that is no YAML escape.
+  plantMirrored(dir, 'apostrophe', '---\nname: apostrophe\ndescription: \'Use when the user\'s words say so\'\n---\n')
+  plantMirrored(dir, 'quote-trail', '---\nname: quote-trail\ndescription: "Quoted" and more\n---\n')
+  plantMirrored(dir, 'quote-open', '---\nname: quote-open\ndescription: "Never closed\n---\n')
+  plantMirrored(dir, 'bad-escape', '---\nname: bad-escape\ndescription: "C:\\Users\\q"\n---\n')
+  // Other unquoted shapes YAML rejects: text after a comment line, text after a block
+  // indicator, a tab as indentation, a leading "]", and a list item under a plain value.
+  plantMirrored(dir, 'comment-then-text', '---\nname: comment-then-text\ndescription: The first line,\n  # a comment\n  then more.\n---\n')
+  plantMirrored(dir, 'block-header', '---\nname: block-header\ndescription: > inline text\n---\n')
+  plantMirrored(dir, 'tab-indent', '---\nname: tab-indent\ndescription: The first line,\n\tthen a tab.\n---\n')
+  plantMirrored(dir, 'bracket', '---\nname: bracket\ndescription: ] opens it.\n---\n')
+  plantMirrored(dir, 'list-after-plain', '---\nname: list-after-plain\ndescription: Text,\n- then an item\n---\n')
+  // A whitespace-only line opening with a tab, which libyaml rejects too.
+  plantMirrored(dir, 'tab-blank', '---\nname: tab-blank\ndescription: Text,\n\t\n  then more.\n---\n')
+  // A tab after leading spaces, which libyaml rejects as well: the value's first line under an
+  // empty key, a blank line inside a block scalar, a blank line above a list, and a line inside a
+  // block scalar with text after it.
+  plantMirrored(dir, 'tab-after-space', '---\nname: tab-after-space\ndescription:\n \tUse it when the user asks.\n---\n')
+  plantMirrored(dir, 'block-tab-blank', '---\nname: block-tab-blank\ndescription: >\n    Use it.\n  \t\n    More.\n---\n')
+  plantMirrored(dir, 'list-tab-blank', '---\nname: list-tab-blank\ndescription: Fine.\nallowed-tools:\n \t\n  - Read\n---\n')
+  plantMirrored(dir, 'block-tab-line', '---\nname: block-tab-line\ndescription: >\n  a\n \tb\n  c\n---\n')
+  // A space YAML reads as text where JavaScript's \s takes it as indentation: a no-break space
+  // opening a value's first line, U+3000 alone on a blank line, a no-break space after a block
+  // scalar's indicator, and one after a column-0 "-".
+  plantMirrored(dir, 'nbsp-indent', '---\nname: nbsp-indent\ndescription:\n\u00A0\u00A0Use it when the user asks.\n---\n')
+  plantMirrored(dir, 'ideo-blank', '---\nname: ideo-blank\ndescription: Use it\n\u3000\n  when the user asks.\n---\n')
+  plantMirrored(dir, 'nbsp-header', '---\nname: nbsp-header\ndescription: >\u00A0# c\n  Use it.\n---\n')
+  plantMirrored(dir, 'nbsp-dash', '---\nname: nbsp-dash\ndescription: Fine.\nx:\n-\u00A0y\n---\n')
+  // Such a space at a value's end, which YAML keeps as text, unlike JavaScript's trim(): after a
+  // closing quote, a block indicator, or a closing bracket, where YAML rejects it, and after a
+  // name, which it changes. A "#" after one inside a flow collection is text too, so the "}"
+  // after it is no comment, and it mismatches the "[".
+  plantMirrored(dir, 'nbsp-after-quote', '---\nname: nbsp-after-quote\ndescription: "Use it."\u00A0\n---\n')
+  plantMirrored(dir, 'nbsp-after-folded', '---\nname: nbsp-after-folded\ndescription: >\u3000\n  Use it.\n---\n')
+  plantMirrored(dir, 'nbsp-after-flow', '---\nname: nbsp-after-flow\ndescription: Fine.\nx: [a]\uFEFF\n---\n')
+  plantMirrored(dir, 'name-nbsp', '---\nname: name-nbsp\u00A0\ndescription: Fine.\n---\n')
+  plantMirrored(dir, 'flow-nbsp-hash', '---\nname: flow-nbsp-hash\ndescription: Fine.\nx: [a\u00A0#}\n  ]\n---\n')
+  // Escapes libyaml rejects though YAML's grammar has them: a surrogate, and one past U+10FFFF.
+  plantMirrored(dir, 'surrogate-escape', '---\nname: surrogate-escape\ndescription: "Use \\uD800 it."\n---\n')
+  plantMirrored(dir, 'past-unicode-escape', '---\nname: past-unicode-escape\ndescription: "Use \\U00110000 it."\n---\n')
+  // Characters libyaml rejects, or reads as a line break: ESC from pasted colored text, NEL, and
+  // U+2028, which also ends the line a key opens.
+  plantMirrored(dir, 'esc-char', '---\nname: esc-char\ndescription: Use it \x1B[1mnow\x1B[0m.\n---\n')
+  plantMirrored(dir, 'nel-char', '---\nname: nel-char\ndescription: Use it\x85now.\n---\n')
+  plantMirrored(dir, 'ls-char', '---\nname: ls-char\ndescription: Use it\u2028now.\n---\n')
+  // Flow collections that do not close at the value's end: Claude Code's documented
+  // argument-hint shape, text after a closed map, a list never closed, and a list closed by "}".
+  plantMirrored(dir, 'hint-lists', '---\nname: hint-lists\ndescription: Fine.\nargument-hint: [pr-number] [priority] [assignee]\n---\n')
+  plantMirrored(dir, 'map-then-text', '---\nname: map-then-text\ndescription: Fine.\nallowed-tools: {Read} extra\n---\n')
+  plantMirrored(dir, 'flow-open', '---\nname: flow-open\ndescription: Fine.\nargument-hint: [a, b\n---\n')
+  plantMirrored(dir, 'flow-mismatch', '---\nname: flow-mismatch\ndescription: Fine.\nx: [a}\n---\n')
+  // Block scalars with a line indented less than the first, which ends the block; a blank line
+  // above the text holding more spaces than it; and text after the comment that ended a block.
+  plantMirrored(dir, 'folded-dedent', '---\nname: folded-dedent\ndescription: >\n    text\n  more\n---\n')
+  plantMirrored(dir, 'literal-dedent', '---\nname: literal-dedent\ndescription: |\n    text\n  more\n---\n')
+  plantMirrored(dir, 'folded-one-space', '---\nname: folded-one-space\ndescription: >\n  text\n more\n---\n')
+  plantMirrored(dir, 'block-blank-top', '---\nname: block-blank-top\ndescription: >\n     \n  text\n---\n')
+  plantMirrored(dir, 'block-after-comment', '---\nname: block-after-comment\ndescription: >\n   text\n  # c\n   more\n---\n')
+  // A block scalar whose header comment holds a digit, which sets no indentation; and a name in a
+  // block scalar, whose line breaks and spaces YAML keeps: the break that ends it, a blank line
+  // above its text, and, though "-" strips the break, a name in one is refused alike.
+  plantMirrored(dir, 'block-header-dedent', '---\nname: block-header-dedent\ndescription: > # 2 lines\n    text\n  more\n---\n')
+  plantMirrored(dir, 'block-name-blank', '---\nname: >-\n\n  block-name-blank\ndescription: Fine.\n---\n')
+  plantMirrored(dir, 'block-name', '---\nname: |-\n  block-name\ndescription: Fine.\n---\n')
+  plantMirrored(dir, 'block-name-clip', '---\nname: |\n  block-name-clip\ndescription: Fine.\n---\n')
+  // A description YAML reads as a boolean, a number, null, or a merge or value key.
+  for (const [skill, value] of NON_STRINGS)
+    plantMirrored(dir, skill, `---\nname: ${skill}\ndescription: ${value}\n---\n`)
   const c = run('docs:check', dir, withoutCi)
   check('broken docs:check exits 1', c.status === 1, `status ${c.status}`)
   expectAll('broken docs:check', c.out, [
@@ -224,9 +359,76 @@ function runAutomd(cwd: string): Run {
     '.agents/skills/y/SKILL.md: missing — run `pnpm docs:gen` to mirror .claude/skills',
     '.agents/skills/x/SKILL.md: differs from .claude/skills/x/SKILL.md — never hand-edit the mirror',
     '.agents/skills/z/SKILL.md: has no source under .claude/skills — run `pnpm docs:gen` to remove it',
+    '.claude/skills/colon-space/SKILL.md: description is an unquoted value holding ": ", " #", or a colon at a line end, which YAML rejects or cuts short, and then Codex skips the skill; reword it (a comma where the colon was), or quote the whole value',
+    '.claude/skills/hash/SKILL.md: description is an unquoted value holding',
+    '.claude/skills/trailing-colon/SKILL.md: description is an unquoted value holding',
+    '.claude/skills/continued/SKILL.md: description is an unquoted value holding',
+    '.claude/skills/backtick/SKILL.md: description opens with "`", which YAML reserves at the start of an unquoted value; reword the start, or quote the whole value',
+    '.claude/skills/no-frontmatter/SKILL.md: no frontmatter — open the file with a --- line, then `name: no-frontmatter` and `description: ...`, then a closing --- line',
+    '.claude/skills/unclosed/SKILL.md: no frontmatter',
+    '.claude/skills/wrong-name/SKILL.md: name "other-name" must be the directory\'s name, "wrong-name"',
+    '.claude/skills/no-name/SKILL.md: frontmatter has no name — add `name: no-name`, the directory\'s name',
+    '.claude/skills/empty-description/SKILL.md: frontmatter has no description, or an empty one — say what the skill does and when to use it',
+    '.claude/skills/empty-folded/SKILL.md: frontmatter has no description, or an empty one',
+    '.claude/skills/stray-line/SKILL.md: line 4, in the frontmatter, is not a top-level `key: value` line, so YAML fails to parse the block',
+    '.claude/skills/twice/SKILL.md: line 3 sets name a second time, which YAML rejects; keep one',
+    '.claude/skills/usage-map/SKILL.md: description must be a string, not a nested map or list',
+    '.claude/skills/flow-list/SKILL.md: description must be a string, not a nested map or list',
+    '.claude/skills/nested-name/SKILL.md: name must be a string, not a nested map or list',
+    '.claude/skills/apostrophe/SKILL.md: description is a quoted value YAML rejects: it must close at its end, with an apostrophe written \'\' inside single quotes and only YAML escapes inside double quotes',
+    '.claude/skills/quote-trail/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/quote-open/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/bad-escape/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/comment-then-text/SKILL.md: description continues after a comment line, which ends an unquoted value',
+    '.claude/skills/block-header/SKILL.md: description opens a block scalar with "> inline text", which YAML rejects',
+    '.claude/skills/tab-indent/SKILL.md: line 4, in the frontmatter, holds a tab in its indentation, which YAML rejects; indent it with spaces only',
+    '.claude/skills/bracket/SKILL.md: description opens with "]", which YAML reserves at the start of an unquoted value',
+    '.claude/skills/list-after-plain/SKILL.md: line 4, in the frontmatter, is not a top-level `key: value` line',
+    '.claude/skills/tab-blank/SKILL.md: line 4, in the frontmatter, is blank but holds a tab, which YAML rejects; empty the line',
+    '.claude/skills/tab-after-space/SKILL.md: line 4, in the frontmatter, holds a tab in its indentation, which YAML rejects; indent it with spaces only',
+    '.claude/skills/block-tab-blank/SKILL.md: line 5, in the frontmatter, is blank but holds a tab, which YAML rejects; empty the line',
+    '.claude/skills/list-tab-blank/SKILL.md: line 5, in the frontmatter, is blank but holds a tab',
+    '.claude/skills/block-tab-line/SKILL.md: line 5, in the frontmatter, holds a tab in its indentation',
+    '.claude/skills/nbsp-indent/SKILL.md: line 4, in the frontmatter, holds U+00A0 (a space YAML reads as text) in its indentation, which YAML rejects; indent it with spaces only',
+    '.claude/skills/ideo-blank/SKILL.md: line 4, in the frontmatter, is blank but holds U+3000 (a space YAML reads as text), which YAML rejects; empty the line',
+    '.claude/skills/nbsp-header/SKILL.md: description opens a block scalar with ">\u00A0# c", which YAML rejects',
+    '.claude/skills/nbsp-dash/SKILL.md: line 5, in the frontmatter, is not a top-level `key: value` line',
+    '.claude/skills/nbsp-after-quote/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/nbsp-after-folded/SKILL.md: description opens a block scalar with ">　", which YAML rejects',
+    '.claude/skills/nbsp-after-flow/SKILL.md: x opens a flow collection with "[" that does not close at the end of the value',
+    '.claude/skills/name-nbsp/SKILL.md: name "name-nbsp " must be the directory\'s name, "name-nbsp"',
+    '.claude/skills/flow-nbsp-hash/SKILL.md: x opens a flow collection with "[" that does not close at the end of the value',
+    '.claude/skills/surrogate-escape/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/past-unicode-escape/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/esc-char/SKILL.md: line 3, in the frontmatter, holds U+001B, a character YAML rejects or reads as a line break; remove it',
+    '.claude/skills/nel-char/SKILL.md: line 3, in the frontmatter, holds U+0085, a character YAML rejects or reads as a line break; remove it',
+    '.claude/skills/ls-char/SKILL.md: line 3, in the frontmatter, holds U+2028',
+    '.claude/skills/hint-lists/SKILL.md: argument-hint opens a flow collection with "[" that does not close at the end of the value, which YAML rejects; close it there, or quote the whole value',
+    '.claude/skills/map-then-text/SKILL.md: allowed-tools opens a flow collection with "{" that does not close at the end of the value',
+    '.claude/skills/flow-open/SKILL.md: argument-hint opens a flow collection with "[" that does not close at the end of the value',
+    '.claude/skills/flow-mismatch/SKILL.md: x opens a flow collection with "[" that does not close at the end of the value',
+    '.claude/skills/folded-dedent/SKILL.md: description is a block scalar with a line indented less than its first text line, which ends the block, so YAML rejects the line; indent every line at least as far',
+    '.claude/skills/literal-dedent/SKILL.md: description is a block scalar with a line indented less than its first text line',
+    '.claude/skills/folded-one-space/SKILL.md: description is a block scalar with a line indented less than its first text line',
+    '.claude/skills/block-blank-top/SKILL.md: description is a block scalar with a blank line above its first text line that holds more spaces than that line, which YAML rejects; empty the blank line',
+    '.claude/skills/block-after-comment/SKILL.md: description is a block scalar with text after a comment indented less than the block, which ends it, so YAML rejects the text; indent the comment with the text, or drop it',
+    '.claude/skills/block-header-dedent/SKILL.md: description is a block scalar with a line indented less than its first text line',
+    '.claude/skills/block-name-clip/SKILL.md: name is a block scalar, whose line breaks and spaces YAML keeps, so it can differ from the directory\'s name; write `name: block-name-clip` on one line',
+    '.claude/skills/block-name-blank/SKILL.md: name is a block scalar, whose line breaks and spaces YAML keeps',
+    '.claude/skills/block-name/SKILL.md: name is a block scalar, whose line breaks and spaces YAML keeps',
+    ...NON_STRINGS.map(([skill]) => `.claude/skills/${skill}/SKILL.md: description is an unquoted value YAML reads as other than a string (null, a boolean, a number, a date, \`<<\`, or \`=\`); reword it, or quote it`),
   ])
   check('a path inside a comment that wraps is not checked', !c.out.includes('src/ignored.ts'), c.out)
   check('a template page\'s stale warning does not ask a child to re-verify it', !c.out.includes('docs/template/aged.md: last reviewed 2020-01-01 (> 180 days ago) — re-verify against the source'), c.out)
+  check('a skill with valid frontmatter raises no frontmatter error', !c.out.includes('.claude/skills/x/SKILL.md: ') && !c.out.includes('.claude/skills/y/SKILL.md: '), c.out)
+  check('a skill frontmatter break is reported once', c.out.split('.claude/skills/colon-space/SKILL.md: ').length === 2, c.out)
+  check('a name that is no string is not also reported missing', c.out.split('.claude/skills/nested-name/SKILL.md: ').length === 2, c.out)
+  check('a description that is no string is not also reported empty', c.out.split('.claude/skills/null-word/SKILL.md: ').length === 2, c.out)
+  check('a blank line opening with a tab is reported once', c.out.split('.claude/skills/tab-blank/SKILL.md: ').length === 2, c.out)
+  // Each break is reported once: a line with a tab stands for the value it continues, so that is
+  // not also an empty description, nor the line after it a stray one.
+  for (const skill of ['tab-after-space', 'block-tab-blank', 'list-tab-blank', 'block-tab-line', 'esc-char', 'nel-char', 'ls-char', 'block-name-clip', 'nbsp-indent', 'ideo-blank', 'name-nbsp', 'block-name'])
+    check(`a ${skill} break is reported once`, c.out.split(`.claude/skills/${skill}/SKILL.md: `).length === 2, c.out)
   check('a "(pending)" inside a comment is not a pending bullet', !c.out.includes('template-copy.md: Source is (pending)') && !c.out.includes('template-copy.md: Tests is (pending)'), c.out)
   check('an index page without a region is not an error', !c.out.includes('missing <!-- automd:'), c.out)
   check('a bad filename date is reported once, not also per bullet', c.out.split('20260230-not-a-date.md').length === 2, c.out)
@@ -493,8 +695,7 @@ function runAutomd(cwd: string): Run {
   writeFileSync(spec, original.replace('2026-09-07', local))
   const contract = join(dir, 'docs/template/contract.md')
   writeFileSync(contract, readFileSync(contract, 'utf8').replace('2026-09-07', local))
-  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
-  plantSkill(dir, SKILLS_TARGET, 'x', '# x\n')
+  plantMirrored(dir, 'x', skillFile('x'))
   const ok = run('docs:check', dir, withoutCi)
   check('local today is not in the future', ok.status === 0 && !ok.out.includes('in the future'), ok.out)
   writeFileSync(spec, original.replace('2026-09-07', inTwoDays))
@@ -654,10 +855,10 @@ function runAutomd(cwd: string): Run {
 // and exits 0, and docs:check passes with neither tree present.
 {
   const dir = fixture('clean')
-  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
+  plantSkill(dir, SKILLS_SOURCE, 'x', skillFile('x'))
   const g = run('gen-skills', dir, withoutCi)
   check('gen-skills mirrors the source', g.status === 0 && g.out.includes('.agents/skills (1 files) mirrored from .claude/skills'), g.out)
-  check('mirror is byte-identical', readFileSync(join(dir, SKILLS_TARGET, 'x/SKILL.md'), 'utf8') === '# x\n')
+  check('mirror is byte-identical', readFileSync(join(dir, SKILLS_TARGET, 'x/SKILL.md'), 'utf8') === skillFile('x'))
   const c = run('docs:check', dir, withoutCi)
   check('generated mirror passes docs:check', c.status === 0, c.out)
 

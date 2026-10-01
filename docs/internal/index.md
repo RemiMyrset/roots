@@ -8,7 +8,7 @@ them on GitHub.
 
 ## Start here
 
-1. `/README.md`, commands and quickstart. It lives at the repo root, outside
+1. `/README.md`, setup and commands. It lives at the repo root, outside
    this site.
 2. `/AGENTS.md`, the agent rulebook and canonical-source map.
 3. `docs/template/spec-discipline.md`, one fact, one home, three-place sync.

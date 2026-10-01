@@ -36,7 +36,7 @@
     "docs:public:dev": "vitepress dev docs/public",
     "docs:public:build": "vitepress build docs/public",
     "sync:template": "node scripts/sync-template.mts",
-    "release": "changelogen --release --push --no-github",
+    "release": "changelogen --release --clean --push --no-github",
     "prepare": "node scripts/prepare.mts"
   },
   "devDependencies": {
@@ -82,5 +82,10 @@
         50
       ]
     }
+  },
+  "changelog": {
+    "excludeAuthors": [
+      ""
+    ]
   }
 }

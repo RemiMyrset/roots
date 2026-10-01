@@ -1,7 +1,7 @@
 # Template sync
 
 - **Source:** `scripts/sync-template.mts`
-- **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
+- **Tests:** `scripts/test-sync.mts` (`pnpm test:sync`)
 - **Last reviewed:** 2026-10-01
 
 The contract for `pnpm sync:template`. The tests pin behaviors 1 to 27; the

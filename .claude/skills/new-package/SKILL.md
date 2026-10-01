@@ -9,7 +9,7 @@ Scaffold under `packages/<name>` (shared library) or `apps/<name>` (deployable
 app or service). Placement alone registers it; the workspace globs cover both.
 
 1. Directory is kebab-case; the package name takes the scope the existing
-   workspace packages use (`@repo/` out of the box): `@repo/<name>`.
+   workspace packages use: `@<scope>/<name>` (`@repo/<name>` out of the box).
 2. Create `package.json` in this exact shape, every version `catalog:`:
 
    ```json
@@ -68,13 +68,25 @@ app or service). Placement alone registers it; the workspace globs cover both.
    error. If this replaces `packages/example-package` or `apps/example-app`
    (which depends on the package), delete or rename the sample in the same
    change and fix the other's dependency.
-6. Add one line to the AGENTS.md "Monorepo map": path — purpose. Update the
-   map line of anything you replaced. If the package needs its own conventions,
-   write `<package>/AGENTS.md` and `<package>/CLAUDE.md` containing only
-   `@AGENTS.md`: the pairing is how Claude Code finds a nested rulebook; Codex
-   and Gemini read the nested `AGENTS.md` directly.
+6. Add one line to the AGENTS.md "Monorepo map": the path, then its purpose
+   after a colon, as the existing lines do. When this replaces a sample,
+   rewrite every line that names it: its map line, the README Layout line
+   (`example-app consumes example-package`), and the README Commands row that
+   starts the sample app. Once neither sample is left, also rewrite the
+   README sentence under "Where things live" that says the samples show the
+   house shape; the step 7 check below cannot see it. If the package needs
+   its own conventions, write `<package>/AGENTS.md` and `<package>/CLAUDE.md`
+   containing only `@AGENTS.md`: the pairing is how Claude Code finds a
+   nested rulebook; when Codex and Gemini load the nested `AGENTS.md` is
+   under "Nested rulebooks" in `docs/template/agent-surfaces.md`.
 7. Run `pnpm install` (CI installs with a frozen lockfile and fails if it misses
-   the new member), then `pnpm verify`. If the package adds externally
+   the new member). When this replaced a sample,
+   `git grep -n --untracked -e <sample> -- . ':!.claude/skills' ':!.agents/skills' ':!docs/internal/decisions' ':!CHANGELOG.md'`
+   must then print nothing for each sample replaced (`example-package`,
+   `example-app`) but lines in the README's First run section while it
+   stands; the install has already rewritten `pnpm-lock.yaml`. The decision
+   records and `CHANGELOG.md` hold history, so a sample they name stays as
+   written. Then run `pnpm verify`. If the package adds externally
    observable behavior, spec it (new-spec skill).
 
 If the request names the package and its placement, use them.

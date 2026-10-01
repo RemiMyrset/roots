@@ -26,7 +26,8 @@
  * (`@<sha> # v1.2.3`), the form the update-deps skill refreshes and GitHub's required SHA
  * pinning accepts. And while the shared VitePress config sets `lastUpdated`, a workflow that
  * builds a docs site checks out full history (`fetch-depth: 0`): a shallow clone stamps every
- * page, and the sitemap, with the checkout commit's date.
+ * page, and the sitemap, with the checkout commit's date. The docs workflow's spec-discipline
+ * nudge counts an edit under docs/template/ as a spec or decision edit.
  * Node builtins only in this first half.
  */
 import { spawnSync } from 'node:child_process'
@@ -244,6 +245,43 @@ for (const [script, runs] of onPush) {
 for (const [where, scripts] of dropped)
   problems.push(`${scripts.join(', ')} run on push only in a concurrency group shared across pushes (${where}): GitHub keeps one run pending per group and cancels the pending one before it, so a commit merged right behind another gets no verdict; give push runs a group of their own commit in one of those workflows: \`group: <name>-\${{ github.event_name == 'pull_request' && github.ref || github.sha }}\``)
 
+// The docs workflow's advisory spec-discipline nudge warns on a pull request that changes files
+// outside docs/ with no spec or decision edit. The roots template keeps its contracts and its
+// rationale under docs/template/, so an edit there counts, or every template pull request that
+// does it right is warned. The step's own grep patterns run over sample change lists; a
+// repository that dropped the step skips this, and one whose patterns this check cannot read
+// fails, so a rewrite of the step cannot turn the check off unseen.
+{
+  const docsWorkflow = join(workflowsDir, 'docs.yml')
+  const text = existsSync(docsWorkflow) ? readFileSync(docsWorkflow, 'utf8') : ''
+  // A line's patterns, or none when any grep on it is in a form this check cannot read.
+  const patterns = (name: string): RegExp[] => {
+    const line = new RegExp(`^\\s*${name}=.*$`, 'm').exec(text)?.[0] ?? ''
+    const read = [...line.matchAll(/grep (?:-v )?-E '([^']+)'/g)].map(m => new RegExp(m[1]!))
+    return read.length === line.match(/\bgrep\b/g)?.length ? read : []
+  }
+  const outside = patterns('nondocs')
+  const synced = patterns('docsync')
+  if (text.includes('Spec-discipline nudge') && (outside.length === 0 || synced.length === 0))
+    problems.push('.github/workflows/docs.yml: the spec-discipline nudge step is present but its nondocs= and docsync= lines hold no `grep -E` / `grep -v -E` pattern this check can read; keep that form or update scripts/test-gates.mts')
+  if (outside.length > 0 && synced.length > 0) {
+    const warns = (changed: string[]): boolean =>
+      changed.some(f => outside.every(re => !re.test(f))) && !changed.some(f => synced.some(re => re.test(f)))
+    const cases: [string[], boolean][] = [
+      [['packages/a/src/a.ts'], true],
+      [['packages/a/src/a.ts', 'docs/public/index.md'], true],
+      [['packages/a/src/a.ts', 'docs/internal/specs/cli/a.md'], false],
+      [['packages/a/src/a.ts', 'docs/internal/decisions/20260101-a.md'], false],
+      [['scripts/sync-template.mts', 'docs/template/sync-template.md'], false],
+      [['docs/template/conventions.md', 'README.md'], false],
+    ]
+    for (const [changed, want] of cases) {
+      if (warns(changed) !== want)
+        problems.push(`.github/workflows/docs.yml: the spec-discipline nudge ${want ? 'stays silent' : 'warns'} on a pull request that changes ${changed.join(' and ')}; it warns only when files outside docs/ change with no edit under docs/internal/specs, docs/internal/decisions, or docs/template`)
+    }
+  }
+}
+
 for (const step of steps) {
   if (step.scoped !== undefined)
     problems.push(`${step.where} runs \`${step.scoped}\`, which runs no root script the way scripts/verify.mts does, so it is never a gate; end that line with \`# not a gate\`, or run the gate as \`pnpm <script>\` from the root`)
@@ -305,10 +343,13 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // in every TypeScript file of its package; the install hook must set up the git hooks in a
 // checkout and leave a linked worktree alone; verify's docs drift gate must skip only
 // outside a git checkout, failing on any other git error; the secret scan must fail on a
-// force-added `.env` and pass an untracked one; and .gitignore must ignore every env-file name
-// the secret-read guard denies. It runs the installed eslint, turbo, typescript,
-// simple-git-hooks, and secretlint, so it needs the install that verify and CI run first. The
-// probes that need files write them to a temp directory only.
+// force-added `.env` and pass an untracked one; .gitignore must ignore every env-file name
+// the secret-read guard denies; the release flow must keep the release skill's word:
+// changelogen sends no commit author's email out unless `changelog.excludeAuthors` lists
+// names, and the release script refuses a dirty tree; and a devcontainer's `mounts` must share
+// no volume with another repository's container. It runs the installed eslint, turbo,
+// typescript, simple-git-hooks, secretlint, and changelogen, so it needs the install that
+// verify and CI run first. The probes that need files write them to a temp directory only.
 const failures: string[] = []
 const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
@@ -571,19 +612,27 @@ const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typeche
   }
 }
 
-// The git probes below run git and node with no GIT_ variable of the caller's, a git config of
-// their own, and `bin` first on PATH.
+// The git probes below run git and node in throwaway repositories under tmp, with a git config
+// of their own (no signing, no user hooks), `bin` first on PATH, and none of the GIT_ variables
+// a surrounding git hook sets, which would point git back at this repository.
+// FORCE_NODE_FETCH would route changelogen past the release probe's fetch stub.
 const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH'
-writeFileSync(join(tmp, 'gitconfig'), '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n')
-/** The environment of a git probe: the caller's minus every GIT_ variable, with `bin` first on PATH. */
+writeFileSync(join(tmp, 'gitconfig'), '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[tag]\n\tgpgSign = false\n[init]\n\tdefaultBranch = main\n')
+/** The environment of a git probe: the caller's minus every GIT_ variable and FORCE_NODE_FETCH, with `bin` first on PATH. */
 function probeEnv(bin: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
-    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith('GIT_') && k !== 'SKIP_INSTALL_SIMPLE_GIT_HOOKS')),
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith('GIT_') && !['SKIP_INSTALL_SIMPLE_GIT_HOOKS', 'FORCE_NODE_FETCH'].includes(k))),
     [pathKey]: [bin, process.env[pathKey] ?? ''].join(delimiter),
     GIT_CONFIG_GLOBAL: join(tmp, 'gitconfig'),
     GIT_CONFIG_NOSYSTEM: '1',
     ...extra,
   }
+}
+/** The environment of a probe that runs the installed binaries, as under `pnpm install`. */
+const gitEnv = probeEnv(join(root, 'node_modules', '.bin'))
+/** Runs `command` in `cwd` under gitEnv; its exit status and everything it printed. */
+function inRepo(cwd: string, command: string, ...args: string[]): { status: number | null, out: string } {
+  return runIn(gitEnv, cwd, command, ...args)
 }
 /** Runs a command in `cwd` under `env`; its exit status and everything it printed. */
 function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: string[]): { status: number | null, out: string } {
@@ -595,8 +644,6 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
 // checkout it installs the git hooks; in a linked worktree, whose .git is a file, it leaves them
 // to the main checkout instead of letting simple-git-hooks fail on `.git/hooks`.
 {
-  const env = probeEnv(join(root, 'node_modules', '.bin'))
-  const inRepo = (cwd: string, command: string, ...args: string[]): { status: number | null, out: string } => runIn(env, cwd, command, ...args)
   const repo = join(tmp, 'hooks-repo')
   mkdirSync(repo)
   writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ 'simple-git-hooks': { 'pre-commit': 'true' } })}\n`)
@@ -725,6 +772,167 @@ const READABLE_ENV_NAMES = ['.env.example', '.environment']
   }
 }
 
+// The release flow, run through the installed changelogen in a throwaway repository whose
+// package.json carries this one's `changelog` config, with fetch swapped for a stub that fails
+// and says so. Every changelogen run, the release skill's preview included, sends each commit
+// author's email to ungh.cc and prints the raw address when the lookup fails, unless
+// `changelog.excludeAuthors` matches the author; a list of names without "" keeps the lookup on
+// purpose for everyone it leaves out; any other value, such as none, [], null, or "", leaves it
+// on for everyone and fails. `--release` commits the whole index, so the release script, run
+// without its push or publish flags and with `--no-github`, must refuse a staged change and still
+// release a clean tree. Skipped when package.json declares no changelogen.
+let releaseChecked = 'changelogen is not declared'
+
+/**
+ * The probe's verdict on `changelog.excludeAuthors` once the preview has or has not sent a commit
+ * author's email: `set` when the value leaves the lookup on for everyone, `stale` when it holds ""
+ * and the lookup ran anyway, `pass` otherwise.
+ */
+function authorVerdict(excluded: unknown, sent: boolean): 'pass' | 'set' | 'stale' {
+  if (!sent)
+    return 'pass'
+  if (Array.isArray(excluded) && excluded.includes(''))
+    return 'stale'
+  return Array.isArray(excluded) && excluded.some(v => typeof v === 'string' && v !== '') ? 'pass' : 'set'
+}
+// changelogen skips the exclusion for a falsy value, and its config loader turns null into the
+// default [], so only a list holding a name counts as a choice to keep the lookup.
+const verdictCases: [unknown, boolean, ReturnType<typeof authorVerdict>][] = [
+  [undefined, true, 'set'],
+  [[], true, 'set'],
+  [null, true, 'set'],
+  ['', true, 'set'],
+  [false, true, 'set'],
+  [[null], true, 'set'],
+  [[''], true, 'stale'],
+  [['', 'bot'], true, 'stale'],
+  [['bot'], true, 'pass'],
+  [undefined, false, 'pass'],
+]
+for (const [excluded, sent, want] of verdictCases) {
+  const got = authorVerdict(excluded, sent)
+  if (got !== want)
+    failures.push(`scripts/test-gates.mts: the release probe takes \`changelog.excludeAuthors\` ${JSON.stringify(excluded) ?? 'absent'}, with an email ${sent ? 'sent' : 'not sent'}, as ${got}, not ${want}; only a list holding a name and no "" may keep the lookup on`)
+}
+{
+  interface Manifest {
+    scripts?: { release?: string }
+    dependencies?: { changelogen?: string }
+    devDependencies?: { changelogen?: string }
+    changelog?: { excludeAuthors?: unknown }
+  }
+  const manifest = parseJson<Manifest>(readFileSync(join(root, 'package.json'), 'utf8')) ?? {}
+  const cliManifest = join(root, 'node_modules', 'changelogen', 'package.json')
+  const bin = existsSync(cliManifest) ? parseJson<{ bin?: string | { changelogen?: string } }>(readFileSync(cliManifest, 'utf8'))?.bin : undefined
+  const cli = typeof bin === 'string' ? bin : bin?.changelogen
+  const declared = manifest.devDependencies?.changelogen ?? manifest.dependencies?.changelogen
+  if (declared !== undefined && !cli)
+    failures.push('package.json declares changelogen, but node_modules/changelogen names no bin to run; run `pnpm install`')
+  if (declared !== undefined && cli) {
+    const repo = join(tmp, 'release-repo')
+    const EMAIL = 'probe@example.invalid'
+    const stub = 'globalThis.fetch = async url => { process.stderr.write("[fetch] " + url + "\\n"); throw new TypeError("fetch failed") }'
+    const changelogen = (...args: string[]): { status: number | null, out: string } =>
+      inRepo(repo, process.execPath, '--import', `data:text/javascript,${encodeURIComponent(stub)}`, join(root, 'node_modules', 'changelogen', cli), ...args)
+    const commit = (subject: string): { status: number | null, out: string } =>
+      inRepo(repo, 'git', '-c', 'user.name=Probe Author', '-c', `user.email=${EMAIL}`, 'commit', '-q', '-m', subject)
+    mkdirSync(repo)
+    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ name: 'release-probe', version: '0.0.0', private: true, changelog: manifest.changelog })}\n`)
+    const broken = [inRepo(repo, 'git', 'init', '-q'), inRepo(repo, 'git', 'add', '-A'), commit('feat: probe the release flow')].find(r => r.status !== 0)
+    const preview = broken ?? changelogen()
+    const sent = preview.out.includes('[fetch] ') || preview.out.includes(EMAIL)
+    const verdict = authorVerdict(manifest.changelog?.excludeAuthors, sent)
+    if (preview.status !== 0 || !preview.out.includes('the release flow'))
+      failures.push(`the changelogen preview printed no changelog in a probe repository (exit ${preview.status}): ${preview.out.trim()}`)
+    else if (verdict === 'stale')
+      failures.push(`package.json \`changelog.excludeAuthors\` holds "", yet the installed changelogen still sent or printed a commit author's email; find what stops its author lookup now, then update package.json, the release skill, and this probe`)
+    else if (verdict === 'set')
+      failures.push(`changelogen sent a commit author's email to ungh.cc (and printed it when no option hid it); every run does, the release skill's preview included. Set \`"changelog": { "excludeAuthors": [""] }\` in package.json: the empty string matches every author, while \`noAuthors\` and \`hideAuthorEmail\` leave the lookup on, and a value that is not a list of names excludes no one`)
+    releaseChecked = sent ? 'changelogen looks up only the authors changelog.excludeAuthors leaves in' : 'changelogen sends no author email'
+
+    const words = (manifest.scripts?.release ?? '').split(/&&|\|\||[;|]/).map(part => part.trim().split(/\s+/))
+    const isChangelogen = (word: string): boolean => basename(word).replace(/@[^@]*$/, '') === 'changelogen'
+    const command = words.find(part => part.some(isChangelogen)) ?? []
+    // `--no-github` last: a script without it, in a repository whose `changelog.repo` names
+    // GitHub, would have the probe call the release API and open a browser on its failure.
+    const args = [...command.slice(command.findIndex(isChangelogen) + 1).filter(arg => !/^--(?:push|publish)/.test(arg)), '--no-github']
+    if (preview.status === 0 && args.includes('--release')) {
+      const script = `\`${manifest.scripts?.release}\``
+      const head = (): string => inRepo(repo, 'git', 'rev-parse', 'HEAD').out.trim()
+      const tags = (): string => inRepo(repo, 'git', 'tag', '-l').out.trim()
+      const before = head()
+      writeFileSync(join(repo, 'staged.txt'), 'staged before the release\n')
+      inRepo(repo, 'git', 'add', 'staged.txt')
+      const dirty = changelogen(...args)
+      if (dirty.status === 0 || head() !== before || tags() !== '') {
+        failures.push(`package.json scripts.release (${script}) put a change staged before it ran into the release commit, which it pushes to the default branch past review; add \`--clean\`, which refuses a working tree with any change`)
+      }
+      else {
+        const staged = commit('fix: commit the staged file')
+        const clean = staged.status === 0 ? changelogen(...args) : staged
+        if (clean.status !== 0 || tags() === '')
+          failures.push(`package.json scripts.release (${script}), run without its push, released nothing from a clean tree (exit ${clean.status}): ${clean.out.trim()}`)
+      }
+      releaseChecked += ', and the release script refuses a dirty tree'
+    }
+  }
+}
+
+// Docker shares a named volume with every container on the host that names it, so a volume a
+// devcontainer config mounts under a fixed name, such as the pnpm home and the pnpm binary it
+// holds, is writable from every other repository whose config names it too. `${devcontainerId}`
+// is derived from the checkout's path, so a name that carries it is one container's alone and
+// survives a rebuild. A mount string follows `docker run --mount`, which lowercases its keys and
+// its type, takes `src` for `source` with the later of the two winning, and defaults the type to
+// volume; a volume with no source is anonymous and already per-container. The object form has
+// `source` only. Every place the Dev Container spec looks for a config is read, and a repository
+// with none passes. Only `mounts` is read: a volume passed through `runArgs` or a compose file
+// goes unchecked.
+let devcontainerChecked = 'no devcontainer config'
+{
+  const ID = `\${devcontainerId}`
+  // The source of each named volume in a config's `mounts`, string and object forms alike.
+  const namedVolumes = (mounts: unknown): string[] => (Array.isArray(mounts) ? mounts as unknown[] : []).flatMap((mount) => {
+    const fields: { type?: unknown, source?: unknown } = typeof mount === 'string'
+      ? Object.fromEntries(mount.split(',').map((pair) => {
+          const key = pair.split('=')[0]!.trim().toLowerCase()
+          return [key === 'src' ? 'source' : key, pair.slice(pair.indexOf('=') + 1).trim()]
+        }))
+      : typeof mount === 'object' && mount !== null ? mount : {}
+    const { source } = fields
+    return String(fields.type ?? 'volume').toLowerCase() === 'volume' && typeof source === 'string' && source !== '' ? [source] : []
+  })
+  const sample = namedVolumes(['source=shared,target=/a,type=volume', 'src=bare,dst=/b', { source: 'object', target: '/c', type: 'volume' }, `source=own-${ID},target=/d,type=volume`, 'type=bind,source=/home,target=/e', 'type=volume,target=/f', 'Source=upper,target=/g', 'type=Volume,source=caps,target=/h', 'Type=BIND,source=/tmp,target=/i', `source=early-${ID},src=late,target=/j`, `src=early,source=late-${ID},target=/k`])
+  const want = ['shared', 'bare', 'object', `own-${ID}`, 'upper', 'caps', 'late', `late-${ID}`]
+  if (sample.join(' ') !== want.join(' '))
+    failures.push(`the devcontainer probe misreads mounts: it found the named volumes [${sample.join(', ')}], want [${want.join(', ')}]`)
+
+  const dir = join(root, '.devcontainer')
+  const configs = [
+    join(root, '.devcontainer.json'),
+    join(dir, 'devcontainer.json'),
+    ...(existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => join(dir, e.name, 'devcontainer.json')) : []),
+  ].filter(file => existsSync(file))
+  if (configs.length > 0) {
+    const ts = (await import('typescript')).default
+    let volumes = 0
+    for (const file of configs) {
+      const where = relative(root, file).replaceAll('\\', '/')
+      const { config, error } = ts.parseConfigFileTextToJson(file, readFileSync(file, 'utf8')) as { config?: { mounts?: unknown }, error?: unknown }
+      if (error || typeof config !== 'object' || config === null) {
+        failures.push(`${where} could not be read as JSON with comments`)
+        continue
+      }
+      for (const source of namedVolumes(config.mounts)) {
+        volumes++
+        if (!source.includes(ID))
+          failures.push(`${where} mounts the volume "${source}", which every container that names it shares, so an agent in one repository can plant code another repository's container runs; put ${ID} in the name, as in pnpm-home-${ID}, which is this container's alone and survives a rebuild`)
+      }
+    }
+    devcontainerChecked = `${volumes} devcontainer volume(s) are this container's alone`
+  }
+}
+
 if (failures.length > 0) {
   console.error(`\n✖ gates — ${failures.length} rule(s) the gates do not hold:\n`)
   for (const f of failures)
@@ -732,4 +940,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets fails a force-added .env and passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets fails a force-added .env and passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}`)

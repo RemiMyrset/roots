@@ -78,7 +78,7 @@ jobs:
         run: |
           changed=$(git diff --name-only "origin/$BASE_REF"...HEAD)
           nondocs=$(echo "$changed" | grep -v -E '^(docs/|\.github/|\.claude/)' | grep -v -E '^[^/]+\.md$' || true)
-          docsync=$(echo "$changed" | grep -E '^docs/internal/(specs|decisions)/' || true)
+          docsync=$(echo "$changed" | grep -E '^docs/(internal/(specs|decisions)|template)/' || true)
           if [ -n "$nondocs" ] && [ -z "$docsync" ]; then
-            echo "::warning::Files outside docs/ changed with no matching specs or decisions edit. If behavior changed, source + tests + spec move in the same PR."
+            echo "::warning::Files outside docs/ changed with no edit under docs/internal/specs, docs/internal/decisions, or docs/template. If behavior changed, source + tests + spec move in the same PR (in the roots template itself, the spec or rationale is under docs/template/)."
           fi
