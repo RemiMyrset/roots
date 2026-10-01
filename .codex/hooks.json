@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "sh -c 'pnpm -w --silent --config.verify-deps-before-run=false run guards || exit 2'",
-            "commandWindows": "pnpm -w --silent --config.verify-deps-before-run=false run guards ; exit $((2*!!($true-$?)))",
+            "commandWindows": "pnpm -w --silent --config.verify-deps-before-run=false run guards ; exit 2-2*$?",
             "statusMessage": "guards"
           }
         ]

@@ -1712,6 +1712,9 @@ const rootPackage = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8'))
 const scriptNames = Object.keys(rootPackage.scripts ?? {})
 const NO_INSTALL = '--config.verify-deps-before-run=false'
 const EXIT_TAIL = 'exit $((2*!!($true-$?)))'
+// Codex's commandWindows also runs under cmd.exe, where pnpm.cmd expands its arguments inside a
+// parenthesized block, so its tail does the same arithmetic without a parenthesis.
+const CODEX_WINDOWS_TAIL = 'exit 2-2*$?'
 const OR_EXIT = '|| exit 2'
 const CODEX_SOURCES: readonly string[] = ['startup', 'resume', 'clear', 'compact']
 const SHELL_TOOLS: readonly string[] = ['Bash', 'PowerShell', 'Monitor']
@@ -1803,9 +1806,12 @@ function registrationProblems(f: RegistrationFiles): string[] {
     ...commandsIn('.gemini/settings.json', t.geminiGuard.handlers),
   ]
   for (const { file, command } of tailed) {
-    if (!command.endsWith(`; ${EXIT_TAIL}`))
-      structural.push(`${file}: guard command ${command} does not end in "; ${EXIT_TAIL}", so a pnpm failure or PowerShell's exit 1 lets the call through`)
-    else if (!command.endsWith(` ; ${EXIT_TAIL}`))
+    const tail = file === '.codex/hooks.json' ? CODEX_WINDOWS_TAIL : EXIT_TAIL
+    if (file === '.codex/hooks.json' && /[()]/.test(command))
+      structural.push(`${file}: commandWindows ${command} holds a parenthesis, which ends pnpm.cmd's block under cmd.exe, so cmd exits 255 and every call passes`)
+    if (!command.endsWith(`; ${tail}`))
+      structural.push(`${file}: guard command ${command} does not end in "; ${tail}", so a pnpm failure or PowerShell's exit 1 lets the call through`)
+    else if (!command.endsWith(` ; ${tail}`))
       structural.push(`${file}: guard command ${command} has no space before the tail's ";", so cmd.exe hands pnpm a script name ending in ";" and every call passes`)
   }
   for (const { file, command } of [...commandsIn('.codex/hooks.json', t.codexSession.handlers), ...commandsIn('.gemini/settings.json', t.geminiSession.handlers)]) {

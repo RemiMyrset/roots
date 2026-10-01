@@ -68,11 +68,12 @@ through pnpm, so the command resolves from any subdirectory. Codex's
 sh -c 'pnpm -w --silent --config.verify-deps-before-run=false run guards || exit 2'
 ```
 
-Gemini's `command` and Codex's `commandWindows` share one that ends in an exit
-tail instead:
+Gemini's `command` ends in an exit tail instead, and Codex's `commandWindows`
+in a variant of it with no parenthesis (below):
 
 ```text
 pnpm -w --silent --config.verify-deps-before-run=false run guards ; exit $((2*!!($true-$?)))
+pnpm -w --silent --config.verify-deps-before-run=false run guards ; exit 2-2*$?
 ```
 
 `--silent` keeps pnpm's own lines off stdout, which Gemini parses as JSON.
@@ -105,6 +106,11 @@ PowerShell needs that tail even for an ordinary deny: it exits 1 whenever its
 last command failed, whatever the code. `|| exit 2` cannot replace it there,
 because PowerShell 7 runs an `exit` after `||` as a program name and Windows
 PowerShell 5.1 has no `||`.
+
+Codex's `commandWindows` ends in `exit 2-2*$?` instead, the same arithmetic
+with no parenthesis. Under cmd.exe, pnpm's `pnpm.cmd` launcher expands its
+arguments inside a parenthesized block, so a `)` in them ends the block early,
+cmd exits 255, and every call passes.
 
 Codex 0.154 runs a hook in the session's shell: sh, bash, or zsh with `-c` on
 Linux and macOS, and PowerShell with `-NoProfile -Command` on Windows, where it
