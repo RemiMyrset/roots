@@ -13,20 +13,27 @@ files the template added outside the synced paths, and the
 `.claude/settings.json` entries the template has and this repo lacks. The synced paths, the recipe,
 and the contract are in `docs/template/sync-template.md`.
 
-1. Bootstrap if needed. If `scripts/sync-template.mts` is missing, or there is
-   no `.template-sync.json` yet (an older copy of the script that never recorded
-   a sync point), fetch a fresh copy with plain git and continue with step 2.
-   Overwrite it; behavior 7 says why. The `sync:template` script shows up as a
-   missing follow-up on a first run:
+1. Bootstrap only a missing or old script. If `scripts/sync-template.mts` is
+   missing, or predates the state file
+   (`grep -q template-sync.json scripts/sync-template.mts` fails), overwrite it
+   with a current copy fetched with plain git (behavior 7 says why) from the
+   template this repository tracks: `url` and `ref` in `.template-sync.json`,
+   else the `template` remote, in place of the roots URL and `main` below.
+   Otherwise skip this step: that copy records the sync point and updates
+   itself, and no `.template-sync.json` only means it has never synced. The
+   `sync:template` script shows up as a missing follow-up on a first run:
    `mkdir -p scripts && git fetch --no-tags https://github.com/RemiMyrset/roots.git main && git show FETCH_HEAD:scripts/sync-template.mts > scripts/sync-template.mts`
-2. Start clean. The script refuses uncommitted changes under the synced paths
-   and in `.template-sync.json`; commit or stash them first, never discard
-   them. Commit an edited `.template-sync.json`, never stash it: the sync would
-   run without its `exclude` and `include`.
+2. Start clean. The script refuses uncommitted changes under the synced paths,
+   and an untracked `.template-sync.json` or one with unstaged edits; commit
+   them first, never discard them. Never stash them: linked worktrees share
+   one stash list (`docs/template/agent-surfaces.md`, Permission prompts), and
+   with `.template-sync.json` stashed the sync runs without its `exclude` and
+   `include`.
 3. Run `pnpm sync:template`, or `node scripts/sync-template.mts` while
    `package.json` has no `sync:template` script (add the fork URL if this repo
    tracks a fork, or `--ref <branch|tag>` to pin a template branch or tag; both
-   are remembered). Claude Code runs it without a prompt; Codex and Gemini ask.
+   are remembered). Claude Code runs the `pnpm` form without a prompt and asks
+   before the `node` one; Codex and Gemini ask.
    If it stops on an invalid `.template-sync.json`, fix the field it names;
    deleting the file drops its `exclude` and `include`.
    Read the output top to bottom. On a first sync, the `Baseline:` line says how
@@ -43,8 +50,10 @@ and the contract are in `docs/template/sync-template.md`.
    `.claude/settings.json` entry, a devDependency, an orphan file to delete.
    Apply each one, or tell the user why not. When a hand-edit takes the
    template's text for a file the sync does not stage, the sync has fetched
-   it: `git show template/<ref>:<path>` prints it (a pinned tag is
-   `refs/template-tags/<tag>:<path>`).
+   it: `git show <sha>:<path>` prints it, where `<sha>` is the one after `at`
+   on the `Fetched` line (the `commit` now in `.template-sync.json`), never
+   the older sync point in parentheses. Never read `template/<ref>` instead;
+   Edge cases in `docs/template/sync-template.md` say why.
 5. Review the staged diff with `git diff --cached`. Deliberate local divergence
    in a synced file is normal: discard that path with
    `git restore --staged --worktree <path>`. A file of your own at a path the
@@ -55,6 +64,11 @@ and the contract are in `docs/template/sync-template.md`.
    `Kept` block lists files that stayed but may be the template's: each is
    yours or one the template retired; `git rm` the template's. A `Skipped`
    block means a checkout failed; fix the path and re-run.
+   A skill is two synced paths, `.claude/skills/<name>/` and its generated
+   mirror `.agents/skills/<name>/`: discard, keep, or `git rm` both. After
+   discarding under `.claude/skills` alone, run
+   `pnpm docs:gen && git add .agents/skills`; a template mirror left staged
+   fails the `docs:gen` drift gate.
 6. Apply the follow-ups. `Follow-ups` lines are `package.json` edits and
    `Workspace` lines are `pnpm-workspace.yaml` edits: "missing here" and
    "changed on the template" entries are edits to make; "differs" (first sync)
@@ -65,10 +79,16 @@ and the contract are in `docs/template/sync-template.md`.
    `allowBuilds.*` line: `AGENTS.md` leaves each one to a human, so hand them
    over.
    A `devDependencies` entry of `catalog:` needs its `catalog.*` entry too.
+   Never apply a "changed on both sides" entry either: this repository
+   changed that value on purpose too (a `packageManager` raised with
+   `corepack use`, say), so list it with its `base:`, `template:`, and
+   `yours:` values and edit only what the user confirms. An entry with a
+   "which this sync deletes" note needs a fix even when it is customized:
+   drop the deleted file from the value, or discard that file's `D` line.
    `Files` lines are template files outside the synced paths: run the printed
    `git restore` for each one this repo needs, such as a config a synced gate
-   reads, and skip the rest. `Settings` lines are
-   `.claude/settings.json` edits: add each rule, output style, and hook
+   reads, and skip the rest; it writes and stages the file. `Settings` lines
+   are `.claude/settings.json` edits: add each rule, output style, and hook
    registration marked "missing here", beside your own hooks. For a hook that
    "differs", the `yours:` lines are registrations the template replaced:
    remove them and add the `template:` one, unless you changed that matcher
@@ -78,7 +98,14 @@ and the contract are in `docs/template/sync-template.md`.
    changed, then `pnpm verify`; it
    stops at the first failure and names it. Fix at the source; never loosen a
    synced checker.
-8. Hand off: summarize what came in, what was discarded and why, which
+8. Stage the follow-ups. The sync stages only its own paths and
+   `.template-sync.json`, so `git add` every file edited in steps 4, 6, and 7
+   (`package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`,
+   `.claude/settings.json`, any file a footer named) and `git rm` every
+   orphan a footer said to delete. Then `git status --porcelain` must show
+   nothing the new mechanics need as unstaged or untracked; a commit without
+   them passes locally and fails in CI.
+9. Hand off: summarize what came in, what was discarded and why, which
    follow-ups were applied, and propose
-   `git commit -m "chore: sync mechanics from template"` including
-   `.template-sync.json`. Do not commit or push unless asked.
+   `git commit -m "chore: sync mechanics from template"`. Do not commit or
+   push unless asked.

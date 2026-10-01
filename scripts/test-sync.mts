@@ -134,14 +134,15 @@ const T1 = commit(template, 'chore: t1', T1_AT)
 git(template, 'tag', 'v9.9.9')
 
 // Consumers made from T1 with no git history in common, dated after T1 and before T2:
-// `child` customizes package.json (so only the root-time inference can place it) and adds
-// files of its own: a skill under a synced directory, a page the glob `x[1].md` matches,
-// a directory an `include` names, and configs the glob `*.config.ts` matches.
-// `copy` is pristine (its root tree equals T1's tree exactly).
+// `child` customizes package.json (so only the root-time inference can place it), two of its
+// scripts naming a file T2 retires, and adds files of its own: a skill under a synced
+// directory, a page the glob `x[1].md` matches, a directory an `include` names, and configs
+// the glob `*.config.ts` matches. `copy` is pristine (its root tree equals T1's tree exactly).
 const child = join(tmp, 'child')
 copyTree(template, child)
 git(child, 'init', '-q', '-b', 'main')
-write(child, 'package.json', pkg({ ...T1_SCRIPTS, lint: 'eslint .', dev: 'vite' }))
+const CHECK_LLMS = 'node scripts/docs/check-docs.mts && node scripts/docs/gen-llms.mts --check'
+write(child, 'package.json', pkg({ ...T1_SCRIPTS, 'docs:check': CHECK_LLMS, 'lint': 'eslint .', 'dev': 'vite', 'llms': 'node scripts/docs/gen-llms.mts' }))
 write(child, '.claude/skills/own/SKILL.md', '# own\n')
 write(child, 'docs/template/x1.md', '# own page\n')
 write(child, 'config/lint.json', '{}\n')
@@ -170,13 +171,14 @@ write(template, 'src/index.ts', 'export const v = 2\n')
 const T2 = commit(template, 'refactor(docs)!: drop gen-llms\n\nBREAKING CHANGE: docs:gen is now automd only; delete docs/llms.txt.\n', T2_AT)
 const URL = pathToFileURL(template).href
 
-// A fork shares history with the template (merge-base is T2); its origin must not look
-// like the template, or the self-guard refuses.
+// A fork shares history with the template (merge-base is T2) and customizes its lint script;
+// its origin must not look like the template, or the self-guard refuses.
 const fork = join(tmp, 'fork')
 git(tmp, 'clone', '-q', template, fork)
 git(fork, 'remote', 'set-url', 'origin', 'file:///example/fork')
 write(fork, 'src/app.ts', 'export const app = true\n')
 write(fork, '.claude/skills/fork-own/SKILL.md', '# fork own\n')
+write(fork, 'package.json', pkg({ ...T2_SCRIPTS, lint: 'eslint --cache .' }))
 commit(fork, 'feat: own work')
 
 // 1. Not a git repository.
@@ -213,12 +215,22 @@ commit(fork, 'feat: own work')
   check('docs:gen follow-up listed', r.stdout.includes('scripts.docs:gen  changed on the template since the baseline'))
   check('docs:gen shows both values', r.stdout.includes('template: automd') && r.stdout.includes('yours:    automd && node scripts/docs/gen-llms.mts'))
   check('docs:gen notes the deleted file', r.stdout.includes('references scripts/docs/gen-llms.mts, which this sync deletes'))
+  // A customized value, and an entry the template never had, still get the note: the file
+  // they name is gone after this sync whoever owns the value.
+  check('customized value naming a deleted file is listed with the note', r.stdout.includes(`  scripts.docs:check  customized locally\n    template: node scripts/docs/check-docs.mts\n    yours:    ${CHECK_LLMS}\n    note: yours references scripts/docs/gen-llms.mts, which this sync deletes\n`), r.stdout)
+  check('own entry naming a deleted file is listed with the note', r.stdout.includes('  scripts.llms  customized locally\n    template: (not on the template)\n    yours:    node scripts/docs/gen-llms.mts\n    note: yours references scripts/docs/gen-llms.mts, which this sync deletes\n'), r.stdout)
+  check('customized value with the note is not listed twice', !/Customized locally[^\n]*docs:check/.test(r.stdout), r.stdout)
+  // `(not on the template)` is only for the entry the template lacks: a template key naming the
+  // deleted file has its one block already.
+  check('a template key with the note gets one block, never "not on the template"', r.stdout.split('template: (not on the template)').length === 2 && r.stdout.split('  scripts.docs:check  ').length === 2 && r.stdout.split('  scripts.docs:gen  ').length === 2, r.stdout)
   check('test:sync reported missing', r.stdout.includes('scripts.test:sync') && r.stdout.includes('missing here'))
   check('customized lint listed compactly on first sync', r.stdout.includes('Customized locally') && r.stdout.includes('scripts.lint') && !r.stdout.includes('scripts.lint  '))
   check('child-only script never mentioned', !r.stdout.includes('scripts.dev'))
   check('settings equal on first sync', r.stdout.includes('Settings: none new.'), r.stdout)
   check('no template tags imported', gitSafe(child, 'tag', '-l').trim() === '', gitSafe(child, 'tag', '-l'))
   check('remote has no-tags set', gitSafe(child, 'config', 'remote.template.tagOpt').trim() === '--no-tags')
+  // A skill is two synced paths; discarding one leaves the other staged and the drift gate red.
+  check('a staged skill path adds the mirror line to Next', r.stdout.includes('\n  pnpm docs:gen && git add .agents/skills '), r.stdout)
 }
 
 // 2b. First sync of a pristine copy: the root commit's tree is a template tree.
@@ -230,8 +242,9 @@ commit(fork, 'feat: own work')
   check('pristine copy records the head', readState(copy).commit === T2)
 }
 
-// 2c. A copy of the template head: the first sync stages only the state file, and a second
-// run before the commit meets that staged file and must not refuse its own work.
+// 2c. A copy of the template head: the baseline is the head, so no commit is listed; the first
+// sync stages only the state file, and a second run before the commit meets that staged file
+// and must not refuse its own work.
 {
   const current = join(tmp, 'copy-head')
   copyTree(template, current)
@@ -239,8 +252,12 @@ commit(fork, 'feat: own work')
   commit(current, 'Initial commit')
   const first = run(current, URL)
   check('head copy exits 0', first.status === 0, first.detail)
+  check('head copy has no commits since the baseline', first.stdout.includes(`Baseline: ${T2.slice(0, 7)} (root tree)`) && first.stdout.includes('\nNo template commits since the baseline.\n') && !first.stdout.includes('Full log'), first.stdout)
   check('head copy stages only the state file', staged(current).join(',') === `A ${STATE}`, staged(current).join(', '))
   check('head copy prints a Next block', first.stdout.includes('Next:'), first.stdout)
+  // The sync stages only its own paths; the commit also needs every file a follow-up edited.
+  check('Next says to stage the hand edits before the commit', /\n {2}git add <path> +# [^\n]+\n {2}git commit /.test(first.stdout), first.stdout)
+  check('no staged skill path, no mirror line', !first.stdout.includes('pnpm docs:gen'), first.stdout)
   const again = run(current, URL)
   check('rerun before commit exits 0', again.status === 0, again.detail)
   check('rerun before commit reports unchanged', again.stdout.includes('unchanged since last sync'), again.stdout)
@@ -279,8 +296,12 @@ const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.cla
   const r = run(child)
   check('commits-since exits 0', r.status === 0, r.detail)
   check('commits-since counts one', r.stdout.includes('1 commit since last sync'))
+  // The sync-template skill reads a hand-edit's template text at the sha after `at`, the one
+  // recorded, never at the older sync point in parentheses.
+  check('Fetched line names the new sync point after at, the last one in parentheses', r.stdout.includes(`\nFetched template/main at ${T3.slice(0, 7)} — 1 commit since last sync (${T2.slice(0, 7)}):\n`), r.stdout)
   check('breaking commit marked', r.stdout.includes('! ') && r.stdout.includes('feat(docs)!: strict docs:check'))
   check('breaking paragraph printed', r.stdout.includes('BREAKING CHANGE: docs:check now fails on stale review dates.'))
+  check('commit list ends with the full log range', r.stdout.includes(`\n  Full log: git log ${T2.slice(0, 7)}..${T3.slice(0, 7)}\n`), r.stdout)
   const s = staged(child)
   for (const want of ['A .github/labels.yml', 'M scripts/docs/check-docs.mts', 'D docs/template/x.md', 'A docs/template/y.md', `M ${STATE}`])
     check(`commits-since stages ${want}`, s.includes(want), s.join(', '))
@@ -296,12 +317,14 @@ const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.cla
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
-// 4b. A fork: shared history gives an exact baseline, and its own files are untouched.
+// 4b. A fork: shared history gives an exact baseline to compare the follow-ups three-way
+// against, and its own files are untouched.
 {
   const r = run(fork, URL)
   check('fork exits 0', r.status === 0, r.detail)
   check('shared-history baseline inferred', r.stdout.includes(`Baseline: ${T2.slice(0, 7)} (shared history)`), r.stdout)
   check('fork lists the commit since', r.stdout.includes('1 commit since the baseline'))
+  check('fork follow-ups are three-way', r.stdout.includes('  scripts.docs:check  changed on the template since the baseline\n') && /Customized locally[^\n]*scripts\.lint/.test(r.stdout), r.stdout)
   const s = staged(fork)
   for (const want of ['A .github/labels.yml', 'M scripts/docs/check-docs.mts', `A ${STATE}`])
     check(`fork stages ${want}`, s.includes(want), s.join(', '))
@@ -334,14 +357,21 @@ function refused(name: string, body: string, why: string): void {
   gitSafe(child, 'reset', '-q', '--hard')
 }
 refused('corrupt state', '{not json\n', 'not valid JSON')
+refused('array state', json([VALID]), 'not a JSON object')
 refused('string exclude', json({ ...VALID, exclude: '.github/workflows/docs.yml' }), '"exclude"')
+refused('number in exclude', json({ ...VALID, exclude: [1] }), '"exclude" must be an array of path strings')
 refused('glob include', json({ ...VALID, include: ['*.config.ts'] }), '*.config.ts')
 check('glob include deletes nothing', existsSync(join(child, 'eslint.config.ts')) && existsSync(join(child, 'packages/a/vitest.config.ts')))
 refused('dot include', json({ ...VALID, include: ['.'] }), '"."')
 refused('parent include', json({ ...VALID, include: ['../x'] }), '"../x"')
+refused('absolute include', json({ ...VALID, include: ['/abs/path'] }), 'not a repo-relative path')
 refused('magic exclude', json({ ...VALID, exclude: [':(glob)**'] }), ':(glob)**')
 refused('invalid url', json({ ...VALID, url: 'not a url' }), '"url"')
+refused('invalid repo', json({ ...VALID, repo: 'not a url' }), '"repo"')
 refused('invalid ref', json({ ...VALID, ref: '-x' }), '"ref"')
+refused('dot-dot ref', json({ ...VALID, ref: 'a..b' }), '"ref"')
+refused('backslash exclude', json({ ...VALID, exclude: ['.github\\workflows'] }), 'forward slashes')
+refused('drive include', json({ ...VALID, include: ['C:/x'] }), 'forward slashes')
 
 // 6b. A byte-order mark (Windows editors write one) is not an error in the state file,
 // package.json, or .claude/settings.json.
@@ -363,11 +393,11 @@ refused('invalid ref', json({ ...VALID, ref: '-x' }), '"ref"')
   commit(child, 'chore: drop byte-order marks')
 }
 
-// 6c. An invalid commit alone is a first sync that keeps the url and both lists; an
-// exclude entry that names no synced path is warned about.
+// 6c. An invalid commit alone is a first sync that keeps the url and both lists, a trailing
+// slash dropped; an exclude entry that names no synced path is warned about.
 {
   write(child, '.gemini/settings.json', '{ "own": true }\n')
-  write(child, STATE, json({ url: URL, commit: 'nope', exclude: ['.gemini/settings.json', '.claude/skills/x'], include: ['config'] }))
+  write(child, STATE, json({ url: URL, commit: 'nope', exclude: ['.gemini/settings.json', '.claude/skills/x'], include: ['config/'] }))
   commit(child, 'chore: invalid commit')
   const r = run(child)
   check('invalid commit exits 0', r.status === 0, r.detail)
@@ -385,21 +415,87 @@ refused('invalid ref', json({ ...VALID, ref: '-x' }), '"ref"')
   commit(child, 'chore: back to the plain state')
 }
 
-// 7. Dirty synced path refused, before any remote or fetch happens.
+// 7. Dirty synced path refused, before any remote or fetch happens: a modified file, a staged
+// rename, an untracked one, a worktree edit to the state file, and an untracked state file.
 {
   write(child, '.claude/skills/x/SKILL.md', '# x edited\n')
   const r = run(child)
   check('dirty path exits 1', r.status === 1, `status ${r.status}`)
   check('dirty path named', r.stderr.includes('Uncommitted changes') && r.stderr.includes('.claude/skills/x/SKILL.md'))
+  // Linked worktrees share one stash list, so the refusal must never send anyone to stash.
+  check('dirty path says commit, never stash', r.stderr.includes('commit first') && !/stash/i.test(r.stderr), r.stderr)
   check('failures carry the mark', r.stderr.startsWith('✖ '))
+  const moved = run(child, 'file:///elsewhere/roots')
+  check('dirty path with another URL exits 1', moved.status === 1, moved.detail)
+  check('dirty path leaves the template remote alone', gitSafe(child, 'remote', 'get-url', 'template').trim() === URL, gitSafe(child, 'remote', '-v'))
   gitSafe(child, 'checkout', '--', '.')
 }
+{
+  // git lists a rename's old path after its entry; that path is part of the entry, not one more.
+  git(child, 'mv', '.claude/skills/x/SKILL.md', '.claude/skills/x/RENAMED.md')
+  const r = run(child)
+  const listed = r.stderr.slice(r.stderr.indexOf('\n\n') + 2).trimEnd().split('\n')
+  check('staged rename is refused as one entry, by its new path', r.status === 1 && JSON.stringify(listed) === '["R  .claude/skills/x/RENAMED.md"]', r.detail)
+  git(child, 'reset', '-q', '--hard')
+}
+{
+  // A state file deleted from the worktree would turn the run into a first sync with its lists
+  // gone, so the deletion is refused like an edit.
+  rmSync(join(child, STATE))
+  const r = run(child)
+  check('deleted state file exits 1', r.status === 1 && r.stderr.includes(` D ${STATE}`) && staged(child).length === 0, r.detail)
+  gitSafe(child, 'checkout', '--', STATE)
+}
+{
+  // Never committed, so git has no copy: the checkout would overwrite it with the template's
+  // file. A repository that hides untracked files from `git status` must not turn that off,
+  // and a file in an untracked directory is named by its own path, not the directory's.
+  const LABELS = '.github/labels.yml'
+  const OWN_LABELS = '# own labels, never committed\n'
+  const DRAFT = '.claude/skills/draft/SKILL.md'
+  git(child, 'rm', '-q', '--cached', '--', LABELS)
+  git(child, 'commit', '-q', '-m', 'chore: untrack the labels')
+  write(child, LABELS, OWN_LABELS)
+  write(child, DRAFT, '# a skill in progress, never committed\n')
+  for (const hidden of [false, true]) {
+    if (hidden)
+      git(child, 'config', 'status.showUntrackedFiles', 'no')
+    const how = hidden ? 'untracked file hidden from status' : 'untracked file'
+    const r = run(child)
+    check(`${how} exits 1`, r.status === 1 && r.stderr.includes(`?? ${LABELS}`), r.detail)
+    check(`${how} in an untracked directory is named by its own path`, r.stderr.includes(`?? ${DRAFT}\n`), r.stderr)
+    check(`${how} is left unchanged`, readFileSync(join(child, LABELS), 'utf8') === OWN_LABELS)
+    check(`${how} stages nothing`, staged(child).length === 0, staged(child).join(', '))
+  }
+  gitSafe(child, 'config', '--unset', 'status.showUntrackedFiles')
+  rmSync(join(child, LABELS))
+  rmSync(join(child, '.claude/skills/draft'), { recursive: true })
+  git(child, 'reset', '-q', '--hard', 'HEAD~1')
+}
+{
+  // The lists steer the run, so a state file with unstaged edits is refused like any synced path.
+  write(child, STATE, json({ ...VALID, exclude: ['.gemini/settings.json'] }))
+  const r = run(child)
+  check('edited state file exits 1', r.status === 1 && r.stderr.includes('Uncommitted changes') && r.stderr.includes(STATE), r.detail)
+  gitSafe(child, 'checkout', '--', STATE)
+}
+{
+  // An untracked state file steers the run as well, and git has no copy of it.
+  git(child, 'rm', '-q', '--cached', '--', STATE)
+  git(child, 'commit', '-q', '-m', 'chore: untrack the state file')
+  const r = run(child)
+  check('untracked state file exits 1', r.status === 1 && r.stderr.includes(`?? ${STATE}`), r.detail)
+  rmSync(join(child, STATE))
+  git(child, 'reset', '-q', '--hard', 'HEAD~1')
+}
 
-// 8. Bootstrap: a repo without the script runs an untracked copy of it; no baseline can be inferred.
+// 8. Bootstrap: a repo without the script runs an untracked copy of it; no baseline can be
+// inferred. Its origin, a path with a space, fails the URL pattern, so it is never recorded.
 {
   const fresh = join(tmp, 'fresh')
   mkdirSync(fresh)
   git(fresh, 'init', '-q', '-b', 'main')
+  git(fresh, 'remote', 'add', 'origin', 'file:///example/my app')
   write(fresh, 'package.json', pkg({ build: 'tsc', lint: 'eslint .' }))
   commit(fresh, 'chore: init')
   write(fresh, 'scripts/sync-template.mts', REAL_SCRIPT)
@@ -407,6 +503,7 @@ refused('invalid ref', json({ ...VALID, ref: '-x' }), '"ref"')
   check('bootstrap exits 0', r.status === 0, r.detail)
   check('bootstrap has no baseline', r.stdout.includes('Baseline: none'))
   check('bootstrap stages the script itself', staged(fresh).includes('A scripts/sync-template.mts'), staged(fresh).join(', '))
+  check('an origin that fails the URL pattern is never recorded', readState(fresh).repo === undefined && !r.stdout.includes('Recorded this repository'), `${JSON.stringify(readState(fresh))}; ${r.stdout}`)
   check('bootstrap lists sync:template as missing', r.stdout.includes('scripts.sync:template') && r.stdout.includes('missing here'))
   check('two-way mode says differs for lint', r.stdout.includes('scripts.lint  differs'))
   check('no settings file skips the settings block', r.stdout.includes('Settings: skipped — no .claude/settings.json here.'), r.stdout)
@@ -475,9 +572,33 @@ const T4 = commit(template, 'chore: turbo', T4_AT)
   check('pre-sync config exits 0', r.status === 0, r.detail)
   check('pre-sync config warns nothing', r.stderr === '', r.stderr)
   check('pre-sync config url beats a stale remote', r.stdout.startsWith(`Template: ${URL}\n`), r.stdout)
+  check('pre-sync config disables tags on the stale remote', gitSafe(pre, 'config', 'remote.template.tagOpt').trim() === '--no-tags', gitSafe(pre, 'config', '--get-regexp', 'remote.template'))
   check('pre-sync config exclusion holds', !staged(pre).some(l => l.endsWith('.gemini/settings.json')) && readFileSync(join(pre, '.gemini/settings.json'), 'utf8').includes('own'), staged(pre).join(', '))
   const st = readState(pre)
   check('pre-sync config keeps the exclusion and records the head', JSON.stringify(st.exclude) === '[".gemini/settings.json"]' && st.commit === T4, JSON.stringify(st))
+}
+
+// 12c. `.agents` is the generated mirror of `.claude/skills`: excluding one of the two alone
+// stages a mirror that disagrees with its source on every sync, so it draws a warning.
+{
+  const half = join(tmp, 'half-excluded')
+  copyTree(template, half)
+  git(half, 'init', '-q', '-b', 'main')
+  write(half, STATE, json({ url: URL, exclude: ['.claude/skills'] }))
+  commit(half, 'chore: init')
+  const r = run(half)
+  check('one-sided skill exclude exits 0', r.status === 0, r.detail)
+  check('one-sided skill exclude warned', r.stderr.includes('".claude/skills" without ".agents"') && r.stderr.includes('exclude both or neither'), r.stderr)
+  gitSafe(half, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(half, STATE, json({ ...readState(half), exclude: ['.agents'] }))
+  commit(half, 'chore: exclude the mirror only')
+  const mirror = run(half)
+  check('one-sided mirror exclude warned', mirror.status === 0 && mirror.stderr.includes('".agents" without ".claude/skills"'), mirror.detail)
+  gitSafe(half, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(half, STATE, json({ ...readState(half), exclude: ['.agents', '.claude/skills'] }))
+  commit(half, 'chore: exclude the mirror too')
+  const both = run(half)
+  check('skill exclude of both sides warns nothing', both.status === 0 && both.stderr === '', both.detail)
 }
 
 // 13. Nothing to pull from a repo that is not a roots template.
@@ -501,6 +622,8 @@ git(template, 'tag', '-a', 'v1.0.0', '-m', 'v1.0.0', T2)
   check('tag pin exits 0', r.status === 0, r.detail)
   check('tag pin labels the ref', r.stdout.includes('template/v1.0.0 (tag)'))
   check('tag pin explains syncing back', r.stdout.includes('is ahead of it'))
+  // A sync point ahead of the head cannot tell a file the template added from one it removed.
+  check('tag pin skips the files', r.stdout.includes('Files: skipped — '), r.stdout)
   const s = staged(child)
   for (const want of ['D .github/labels.yml', 'M scripts/docs/check-docs.mts'])
     check(`tag pin stages ${want}`, s.includes(want), s.join(', '))
@@ -547,6 +670,12 @@ git(template, 'tag', '-a', 'v1.0.0', '-m', 'v1.0.0', T2)
   check('unknown ref fails to fetch', nope.status === 1 && nope.stderr.includes('Could not fetch'), nope.stderr)
   const bogus = run(child, '--bogus')
   check('unknown option refused', bogus.status === 1 && bogus.stderr.includes('Unknown option'), bogus.stderr)
+  const joined = run(child, '--ref=-x')
+  check('suspicious ref refused in the --ref= spelling', joined.status === 1 && joined.stderr.includes('Refusing suspicious ref: -x'), joined.stderr)
+  const twice = run(child, URL, URL)
+  check('second bare argument refused', twice.status === 1 && twice.stderr.includes('Unexpected argument'), twice.detail)
+  const odd = run(child, 'not a url')
+  check('suspicious URL refused', odd.status === 1 && odd.stderr.includes('Refusing suspicious template URL'), odd.detail)
   check('refused input leaves state alone', readFileSync(join(child, STATE), 'utf8') === before)
 }
 
@@ -556,6 +685,18 @@ git(template, 'tag', '-a', 'v1.0.0', '-m', 'v1.0.0', T2)
   const r = run(template, URL)
   check('template self-guard exits 1', r.status === 1, `status ${r.status}`)
   check('template self-guard explained', r.stderr.includes('template itself'))
+  // Compared by host and path: letter case, the scheme, and a `.git` suffix aside. A throwaway
+  // checkout, so a guard that misses fails on the fetch instead of syncing the template.
+  const self = join(tmp, 'self-variants')
+  mkdirSync(self)
+  git(self, 'init', '-q', '-b', 'main')
+  write(self, 'scripts/sync-template.mts', REAL_SCRIPT)
+  git(self, 'remote', 'add', 'origin', 'file:///example/acme/roots')
+  const variant = run(self, 'file:///example/Acme/Roots')
+  check('template self-guard ignores letter case', variant.status === 1 && variant.stderr.includes('template itself'), variant.detail)
+  git(self, 'remote', 'set-url', 'origin', '/example/Acme/Roots.git')
+  const suffixed = run(self, 'file:///example/Acme/Roots')
+  check('template self-guard ignores the scheme and a .git suffix', suffixed.status === 1 && suffixed.stderr.includes('template itself'), suffixed.detail)
 }
 
 // 17 and 18. A checkout git aborts (behavior 23, the abort case). A required smudge filter
@@ -617,7 +758,7 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 
 // 19. Settings follow-ups compare every hook registration, matcher included, and the
 // output style: a child hook registered ahead of the template's is no difference, and a
-// matcher-only change is one.
+// matcher-only change is one. A registration with no matcher prints `matcher (none)`.
 {
   const hook = (matcher: string, command: string): unknown => ({ matcher, hooks: [{ type: 'command', command }] })
   const permissions = { allow: ['Bash(git status:*)'], deny: ['Read(**/.env)', 'Read(**/.pgpass)'] }
@@ -625,13 +766,16 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   commit(child, 'chore: own hook first')
   const same = run(child)
   check('own hook ahead of the template\'s is no difference', same.status === 0 && same.stdout.includes('Settings: none new.'), same.stdout)
-  write(template, '.claude/settings.json', json({ outputStyle: 'writing', permissions, hooks: { PreToolUse: [hook('Bash|PowerShell', 'node hooks.mts --strict'), hook('Write', 'node write-guard.mts')] } }))
+  // A Stop registration takes no matcher.
+  const stop = { hooks: [{ type: 'command', command: 'node stop-check.mts' }] }
+  write(template, '.claude/settings.json', json({ outputStyle: 'writing', permissions, hooks: { PreToolUse: [hook('Bash|PowerShell', 'node hooks.mts --strict'), hook('Write', 'node write-guard.mts')], Stop: [stop] } }))
   commit(template, 'fix(hooks): guard powershell and writes')
   const r = run(child)
   check('settings change exits 0', r.status === 0, r.detail)
   check('output style missing here', r.stdout.includes('  outputStyle writing  missing here'), r.stdout)
   check('matcher-only change differs', r.stdout.includes('  hooks.PreToolUse  differs\n    template: matcher Bash|PowerShell, command node hooks.mts --strict\n    yours:    matcher Bash|Monitor, command node hooks.mts --strict\n'), r.stdout)
   check('second template hook missing here', r.stdout.includes('  hooks.PreToolUse  missing here\n    template: matcher Write, command node write-guard.mts\n'), r.stdout)
+  check('a registration with no matcher reads (none)', r.stdout.includes('  hooks.Stop  missing here\n    template: matcher (none), command node stop-check.mts\n'), r.stdout)
   check('own hook never mentioned', !r.stdout.includes('fmt-hook'), r.stdout)
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
@@ -695,10 +839,11 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   gitSafe(child, 'commit', '-q', '-m', 'chore: sync mechanics from template')
 }
 
-// 22. The recorded commit is gone from the template (a force-push; here a URL for a copy that
-// never had it): nothing the template may have shipped is deleted, not even a file of the
-// repository's own at a path the template retired long before, and every file under a synced
-// path that the template does not ship is listed as kept.
+// 22. The recorded commit is lost: this clone lacks it and git cannot fetch it (a force-push
+// once the host prunes it; here a fresh clone and a URL for a copy that never had it): nothing
+// the template may have shipped is deleted, not even a file of the repository's own at a path
+// the template retired long before, and every file under a synced path that the template does
+// not ship is listed as kept.
 {
   git(template, 'branch', 'before')
   write(template, 'docs/template/experimental.md', '# experimental\n')
@@ -769,7 +914,9 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 // 24. A template file that got here by another route than the sync point (an older copy of
 // the script that recorded none, a sync while its path was excluded) is still the template's:
 // a byte-identical copy is retired once the template retires it, an edited copy stays and is
-// listed as kept, and the repository's own skill stays unmentioned.
+// listed as kept, and the repository's own skill stays unmentioned. A file in the tree at the
+// exact sync point (here a root-tree baseline) is retired even when edited here. A file the
+// template adds under an excluded path is never offered under Files.
 {
   const routeTemplate = join(tmp, 'route-template')
   mkdirSync(routeTemplate)
@@ -793,14 +940,17 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   git(kid, 'checkout', 'FETCH_HEAD', '--', '.claude/rules', '.claude/hooks', 'docs/template')
   write(kid, 'docs/template/new.md', '# new page, edited here\n')
   commit(kid, 'chore: sync mechanics from template (older script)')
-  git(routeTemplate, 'rm', '-q', '.claude/rules/legacy.md', '.claude/hooks/deny-old.mts', 'docs/template/new.md')
-  commit(routeTemplate, 'refactor!: retire the rule, the guard, and the page', T3_AT)
+  write(kid, '.claude/rules/tpl.md', '# tpl rule, edited here\n')
+  commit(kid, 'docs: edit the template rule')
+  git(routeTemplate, 'rm', '-q', '.claude/rules/legacy.md', '.claude/rules/tpl.md', '.claude/hooks/deny-old.mts', 'docs/template/new.md')
+  commit(routeTemplate, 'refactor!: retire two rules, the guard, and the page', T3_AT)
   const r = run(kid, routeUrl)
   check('older-script copy exits 0', r.status === 0, r.detail)
   check('older-script copy has a root-tree baseline', r.stdout.includes('(root tree)'), r.stdout)
   const s = staged(kid)
   for (const want of ['D .claude/rules/legacy.md', 'D .claude/hooks/deny-old.mts'])
     check(`older-script copy stages ${want}`, s.includes(want), s.join(', '))
+  check('edited file in the sync point\'s tree is retired', s.includes('D .claude/rules/tpl.md') && !r.stdout.includes('\n  .claude/rules/tpl.md\n'), `${s.join(', ')}; ${r.stdout}`)
   check('edited copy of a retired page stays', !s.some(l => l.endsWith('docs/template/new.md')) && existsSync(join(kid, 'docs/template/new.md')), s.join(', '))
   check('edited copy of a retired page is listed as kept', r.stdout.includes('\nKept (') && r.stdout.includes('\n  docs/template/new.md\n'), r.stdout)
   check('own skill stays unmentioned', !s.some(l => l.endsWith('.claude/skills/own/SKILL.md')) && existsSync(join(kid, '.claude/skills/own/SKILL.md')) && !r.stdout.includes('.claude/skills/own'), r.stdout)
@@ -813,9 +963,11 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   write(kid, STATE, json({ url: routeUrl, commit: readState(kid).commit, exclude: ['.claude/rules'] }))
   commit(kid, 'chore: exclude the rules')
   git(routeTemplate, 'rm', '-q', '.claude/rules/extra.md')
-  commit(routeTemplate, 'refactor: retire the extra rule')
+  write(routeTemplate, '.claude/rules/added.md', '# a rule added while excluded here\n')
+  commit(routeTemplate, 'refactor: retire the extra rule, add another')
   const excluded = run(kid)
   check('excluded path keeps the rule the template retired', excluded.status === 0 && !staged(kid).some(l => l.endsWith('.claude/rules/extra.md')), excluded.detail)
+  check('a file the template added under an excluded path is not listed under Files', excluded.stdout.includes('Files: none new.'), excluded.stdout)
   gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
   write(routeTemplate, 'docs/template/a.md', '# a v2\n')
   commit(routeTemplate, 'docs: a v2')
@@ -829,8 +981,9 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 // 25. A fork used as a template: its state file records its own sync from upstream, and "Use
 // this template" copies that file into each repository made from it. There it came with the
 // first commit and names another repository as its writer, so the sync takes the fork as the
-// template, as a first sync, instead of reverting the fork's customizations from upstream. A
-// clone with another origin, or a history squashed into one commit, is not a copy.
+// template, as a first sync without the fork's lists, instead of reverting the fork's
+// customizations from upstream. A clone with another origin, or a history squashed into one
+// commit, is not a copy.
 {
   const upstream = join(tmp, 'fork-upstream')
   mkdirSync(upstream)
@@ -845,6 +998,12 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   git(acme, 'remote', 'set-url', 'origin', ACME_URL)
   write(acme, '.claude/skills/x/SKILL.md', '# x, the acme way\n')
   commit(acme, 'feat: acme skill')
+  // Made from the fork before the fork's own first sync, so it syncs later with no state file.
+  const early = join(tmp, 'acme-early')
+  copyTree(acme, early)
+  git(early, 'init', '-q', '-b', 'main')
+  commit(early, 'Initial commit')
+  git(early, 'remote', 'add', 'origin', 'file:///example/acme-early')
   const synced = run(acme, UPSTREAM)
   check('fork syncs from upstream', synced.status === 0, synced.detail)
   gitSafe(acme, 'restore', '--staged', '--worktree', '--', '.claude/skills/x/SKILL.md')
@@ -852,7 +1011,19 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   const forkState = readState(acme)
   check('fork records itself as the writer', forkState.url === UPSTREAM && forkState.repo === ACME_URL, JSON.stringify(forkState))
   check('fork says which URL it recorded as itself', synced.stdout.includes(`Recorded this repository as ${ACME_URL} ("repo" in ${STATE})`), synced.stdout)
+  // The fork's lists configure its own sync from upstream, not a sync from the fork.
+  write(acme, STATE, json({ ...forkState, exclude: ['.gemini/settings.json'] }))
+  commit(acme, 'chore: keep the acme gemini settings')
   const acmeHead = git(acme, 'rev-parse', 'HEAD').trim()
+
+  // The fork's state file is its sync point with upstream, never a file to restore here: taking
+  // it would point this repository's next sync at upstream.
+  const fromEarly = run(early, ACME_URL)
+  check('copy made before the fork synced exits 0', fromEarly.status === 0 && fromEarly.stdout.includes('(root tree)'), fromEarly.detail)
+  check('the fork\'s state file is never a file to restore', !fromEarly.stdout.includes(`  ${STATE}  missing here`), fromEarly.stdout)
+  check('copy made before the fork synced lists no file', fromEarly.stdout.includes('Files: none new.'), fromEarly.stdout)
+  const earlyState = readState(early)
+  check('copy made before the fork synced records the fork and itself', earlyState.url === ACME_URL && earlyState.commit === acmeHead && earlyState.repo === 'file:///example/acme-early', JSON.stringify(earlyState))
 
   const app = join(tmp, 'acme-app')
   copyTree(acme, app)
@@ -867,6 +1038,7 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('copy of a fork keeps the fork\'s customization', !staged(app).some(l => l.includes('skills/x/SKILL.md')) && readFileSync(join(app, '.claude/skills/x/SKILL.md'), 'utf8') === '# x, the acme way\n', staged(app).join(', '))
   const own = readState(app)
   check('copy of a fork records the fork and itself', own.url === ACME_URL && own.commit === acmeHead && own.repo === 'file:///example/acme-app', JSON.stringify(own))
+  check('copy of a fork drops the fork\'s lists', own.exclude === undefined, JSON.stringify(own))
   check('copy of a fork says which URL it recorded as itself', r.stdout.includes('Recorded this repository as file:///example/acme-app'), r.stdout)
   const again = run(app)
   check('copy of a fork rerun before commit is its own', again.status === 0 && again.stderr === '' && again.stdout.includes('unchanged since last sync'), again.detail)
@@ -884,6 +1056,7 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   const older = run(clone)
   check('state file with no writer records this origin once, credentials dropped', older.status === 0 && older.stdout.includes('unchanged since last sync') && staged(clone).includes(`M ${STATE}`) && readState(clone).repo === 'https://example.com/acme/app.git', `${older.detail}; ${JSON.stringify(readState(clone))}`)
   check('the writer taken from a contributor\'s origin is announced for review', older.stdout.includes('Recorded this repository as https://example.com/acme/app.git') && older.stdout.includes('personal fork'), older.stdout)
+  check('a first writer at the recorded commit stages only the state file', staged(clone).join(',') === `M ${STATE}` && !older.stdout.includes('Already up to date'), `${staged(clone).join(', ')}; ${older.stdout}`)
 
   const squashed = join(tmp, 'acme-app-squashed')
   copyTree(app, squashed)
@@ -909,17 +1082,19 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 }
 
 // 26. What a synced gate needs beyond the synced paths is reported three-way like the scripts:
-// packageManager and the devDependencies, lint-staged, and simple-git-hooks blocks of
-// package.json, the top-level settings of pnpm-workspace.yaml (catalog, allowBuilds,
-// trustPolicyExclude, scalars), and a file the template added outside the synced paths. The
-// template's own records, samples, and synced files are never listed, nor is the repository's
-// own entry, its package globs, or a flow-style value.
+// packageManager and the devDependencies, lint-staged, simple-git-hooks, commitlint, and engines
+// blocks of package.json, the top-level settings of pnpm-workspace.yaml (catalog, allowBuilds,
+// trustPolicyExclude, scalars), and a file the template added outside the synced paths. A value
+// changed on both sides is labelled so, with the baseline's value. The template's own records,
+// release history, samples, and synced files are never listed, nor is the repository's own
+// entry, its package globs, a flow-style value, or a deeper level (a named catalog). A quoted
+// value is read without its quotes, and a key followed only by a comment still opens its block.
 {
   const depsTemplate = join(tmp, 'deps-template')
   mkdirSync(depsTemplate)
   git(depsTemplate, 'init', '-q', '-b', 'main')
-  const manifest = (devDependencies: Record<string, string>, preCommit: string, lintStaged: Record<string, unknown>, packageManager = 'pnpm@11.0.0'): string =>
-    json({ 'name': 'fixture', packageManager, 'engines': { node: '>=24' }, 'scripts': { lint: 'eslint .' }, devDependencies, 'simple-git-hooks': { 'pre-commit': preCommit }, 'lint-staged': lintStaged })
+  const manifest = (devDependencies: Record<string, string>, preCommit: string, lintStaged: Record<string, unknown>, packageManager = 'pnpm@11.0.0', scripts: Record<string, string> = { lint: 'eslint .' }, extra: Record<string, unknown> = {}): string =>
+    json({ 'name': 'fixture', packageManager, 'engines': { node: '>=24' }, scripts, devDependencies, 'simple-git-hooks': { 'pre-commit': preCommit }, 'lint-staged': lintStaged, ...extra })
   const T1_SETTINGS = 'allowBuilds:\n  esbuild: true\n\nminimumReleaseAge: 2880\n\ntrustPolicyExclude:\n  - vite@5.4.21\n'
   const workspace = (catalog: Record<string, string>, settings = T1_SETTINGS): string =>
     `${settings}packages:\n  - packages/*\n\n# Catalog-first: every version lives here once.\ncatalog:\n${Object.entries(catalog).map(([name, range]) => `  ${name.startsWith('@') ? `'${name}'` : name}: ${range}\n`).join('')}`
@@ -933,16 +1108,23 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   copyTree(depsTemplate, kid)
   git(kid, 'init', '-q', '-b', 'main')
   commit(kid, 'Initial commit', COPY_AT)
-  write(kid, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'zod': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }))
+  // Its own pnpm (`corepack use pnpm@latest`), and its own secrets scan before the template has one.
+  write(kid, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'zod': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }, 'pnpm@11.5.0', { 'lint': 'eslint .', 'lint:secrets': 'secretlint .' }))
   write(kid, 'pnpm-workspace.yaml', `${workspace({ '@types/node': '^24.0.0', 'eslint': '^9.1.0', 'lint-staged': '^16.0.0' }, T1_SETTINGS.replace('2880', '1440'))}  zod: ^3.0.0 # own\n`)
   commit(kid, 'chore: own dependencies')
-  write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'secretlint': 'catalog:', 'vitepress': 'catalog:' }, 'CI=1 pnpm lint-staged', { '*.ts': 'eslint --fix', '*': ['secretlint --no-glob'] }, 'pnpm@11.9.0'))
+  const commitlint = { extends: ['@commitlint/config-conventional'], rules: { 'subject-max-length': [2, 'always', 50] } }
+  write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'secretlint': 'catalog:', 'vitepress': 'catalog:' }, 'CI=1 pnpm lint-staged', { '*.ts': 'eslint --fix', '*': ['secretlint --no-glob'] }, 'pnpm@11.9.0', { 'lint': 'eslint .', 'lint:secrets': 'secretlint --maskSecrets .' }, { engines: { node: '>=24.5.0' }, commitlint }))
   const T2_SETTINGS = 'allowBuilds:\n  \'@parcel/watcher\': false\n  esbuild: true\n\nminimumReleaseAge: 2880\nonlyBuiltDependencies: [esbuild]\nshellEmulator: true # scripts run alike on Windows\n\ntrustPolicyExclude:\n  - vite@5.4.21\n  - vite@5.4.22 # the next one\n'
-  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.5.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'secretlint': '^13.0.0', 'vitepress': '^1.6.0' }, T2_SETTINGS))
+    + 'nodeLinker: \'isolated\'\noverrides: # pinned for a CVE\n  lodash: ^4.17.21\npackageExtensions:\n  react-redux@1: { peerDependencies: { react-dom: \'*\' } }\n\ncatalogs:\n  react17:\n    react: ^17.0.2\n'
+  // A package glob the template adds is the workspace's own business, never a follow-up.
+  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.5.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'secretlint': '^13.0.0', 'vitepress': '^1.6.0' }, T2_SETTINGS).replace('  - packages/*\n', '  - packages/*\n  - apps/*\n'))
   write(depsTemplate, '.secretlintrc.json', '{ "rules": [] }\n')
+  // Beside the synced `scripts/docs`, not under it.
+  write(depsTemplate, 'scripts/docs-preview.mts', '// preview\n')
   write(depsTemplate, '.claude/rules/secrets.md', '# secrets rule\n')
   write(depsTemplate, 'docs/internal/decisions/20260102-secretlint.md', '# Scan for secrets\n')
   write(depsTemplate, 'packages/example/src/secret.ts', 'export const s = 1\n')
+  write(depsTemplate, 'CHANGELOG.md', '# Changelog\n')
   const added = commit(depsTemplate, 'feat(lint): scan for secrets', T2_AT)
   const r = run(kid, depsUrl)
   check('gate needs exit 0', r.status === 0, r.detail)
@@ -950,24 +1132,33 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('devDependency the template added is missing here', r.stdout.includes('  devDependencies.secretlint  missing here\n    template: catalog:\n'), r.stdout)
   check('lint-staged entry the template added is missing here', r.stdout.includes('  lint-staged.*  missing here\n    template: ["secretlint --no-glob"]\n'), r.stdout)
   check('git hook the template changed is listed with both values', r.stdout.includes('  simple-git-hooks.pre-commit  changed on the template since the baseline\n    template: CI=1 pnpm lint-staged\n    yours:    pnpm lint-staged\n'), r.stdout)
+  check('commit message rules the template added are missing here, as JSON text', r.stdout.includes('  commitlint.extends  missing here\n    template: ["@commitlint/config-conventional"]\n  commitlint.rules  missing here\n    template: {"subject-max-length":[2,"always",50]}\n'), r.stdout)
+  check('node range the template raised is listed with both values', r.stdout.includes('  engines.node  changed on the template since the baseline\n    template: >=24.5.0\n    yours:    >=24\n'), r.stdout)
   check('devDependency removed here is customized', r.stdout.includes('devDependencies.vitepress (absent here)'), r.stdout)
   check('catalog entry the template added is missing here', r.stdout.includes('  catalog.secretlint  missing here\n    template: ^13.0.0\n'), r.stdout)
   check('catalog range the template changed is listed with both values', r.stdout.includes('  catalog.@types/node  changed on the template since the baseline\n    template: ^24.5.0\n    yours:    ^24.0.0\n'), r.stdout)
   check('catalog ranges changed or removed here are customized', r.stdout.includes('catalog.eslint, catalog.vitepress (absent here)'), r.stdout)
   check('entries of the repository\'s own never mentioned', !r.stdout.includes('zod'), r.stdout)
-  check('packageManager the template changed is listed with both values', r.stdout.includes('  packageManager  changed on the template since the baseline\n    template: pnpm@11.9.0\n    yours:    pnpm@11.0.0\n'), r.stdout)
+  check('packageManager changed on both sides is labelled so, with the baseline value', r.stdout.includes('  packageManager  changed on both sides since the baseline\n    base:     pnpm@11.0.0\n    template: pnpm@11.9.0\n    yours:    pnpm@11.5.0\n'), r.stdout)
+  check('script the template added and this repository already has is changed on both sides', r.stdout.includes('  scripts.lint:secrets  changed on both sides since the baseline\n    base:     (absent)\n    template: secretlint --maskSecrets .\n    yours:    secretlint .\n'), r.stdout)
   check('allowBuilds entry the template added is missing here', r.stdout.includes('  allowBuilds.@parcel/watcher  missing here\n    template: false\n'), r.stdout)
   check('workspace setting the template added is missing here, its comment dropped', r.stdout.includes('  shellEmulator  missing here\n    template: true\n'), r.stdout)
+  check('a quoted workspace value is read without its quotes', r.stdout.includes('  nodeLinker  missing here\n    template: isolated\n'), r.stdout)
+  check('a key followed only by a comment opens its block', r.stdout.includes('  overrides.lodash  missing here\n    template: ^4.17.21\n') && !r.stdout.includes('  overrides  '), r.stdout)
+  check('a flow-style value in a block and a named catalog are never read', !r.stdout.includes('packageExtensions') && !r.stdout.includes('catalogs'), r.stdout)
   check('trustPolicyExclude item the template added is missing here', r.stdout.includes('  trustPolicyExclude.vite@5.4.22  missing here\n    template: - vite@5.4.22\n'), r.stdout)
   check('workspace setting changed here is customized', r.stdout.includes('Customized locally (unchanged on the template since the baseline): minimumReleaseAge, catalog.eslint'), r.stdout)
-  for (const never of ['packages', 'onlyBuiltDependencies', 'allowBuilds.esbuild', 'trustPolicyExclude.vite@5.4.21', 'engines.node'])
+  for (const never of ['onlyBuiltDependencies', 'allowBuilds.esbuild', 'trustPolicyExclude.vite@5.4.21'])
     check(`setting the same on both sides or not read is never listed: ${never}`, !r.stdout.includes(`  ${never}  `), r.stdout)
-  check('file the template added outside the synced paths is listed', r.stdout.includes(`  .secretlintrc.json  missing here\n    git restore --source=${added.slice(0, 7)} -- .secretlintrc.json\n`), r.stdout)
-  for (const never of ['docs/internal/decisions/20260102-secretlint.md', 'packages/example/src/secret.ts', '.claude/rules/secrets.md'])
+  check('package globs are never compared, even one the template added', !r.stdout.includes('apps/*'), r.stdout)
+  check('file the template added outside the synced paths is listed', r.stdout.includes(`  .secretlintrc.json  missing here\n    git restore --source=${added.slice(0, 7)} --staged --worktree -- .secretlintrc.json\n`), r.stdout)
+  check('file beside a synced path, not under it, is listed', r.stdout.includes('  scripts/docs-preview.mts  missing here\n'), r.stdout)
+  for (const never of ['docs/internal/decisions/20260102-secretlint.md', 'packages/example/src/secret.ts', '.claude/rules/secrets.md', 'CHANGELOG.md'])
     check(`added file never listed: ${never}`, !r.stdout.includes(`  ${never}  missing here`), r.stdout)
-  gitSafe(kid, 'restore', `--source=${added.slice(0, 7)}`, '--', '.secretlintrc.json')
+  gitSafe(kid, 'restore', `--source=${added.slice(0, 7)}`, '--staged', '--worktree', '--', '.secretlintrc.json')
   check('the printed command fetches the file', readFileSync(join(kid, '.secretlintrc.json'), 'utf8') === '{ "rules": [] }\n')
-  gitSafe(kid, 'add', '-A')
+  // A worktree-only restore leaves the file untracked, so a plain commit would leave it out.
+  check('the printed command stages the file', gitSafe(kid, 'diff', '--cached', '--name-only').split('\n').includes('.secretlintrc.json'), gitSafe(kid, 'status', '--porcelain'))
   gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
   const again = run(kid)
   check('gate needs rerun lists no file', again.status === 0 && again.stdout.includes('Files: none new.'), again.stdout)
@@ -1011,6 +1202,211 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('shallow clone exits 0', r.status === 0, r.detail)
   check('shallow clone reads its own state file', r.stderr === '' && !r.stdout.includes('first sync'), r.detail)
   check('shallow clone lists the breaking commit since the sync point', r.stdout.includes('1 commit since last sync') && r.stdout.includes('BREAKING CHANGE: add foo to package.json by hand.'), r.stdout)
+}
+
+// 28. A root-time baseline is approximate, so only the content test retires a file: a copy
+// edited before the first commit here stays when the template retires it, and is listed as
+// kept (with an exact sync point, case 24, it would be staged for deletion). The commits since
+// are marked breaking by a `!` subject alone or by a footer alone.
+{
+  const timeTemplate = join(tmp, 'time-template')
+  mkdirSync(timeTemplate)
+  git(timeTemplate, 'init', '-q', '-b', 'main')
+  write(timeTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(timeTemplate, 'docs/template/a.md', '# a\n')
+  commit(timeTemplate, 'chore: t1', T1_AT)
+  const kid = join(tmp, 'time-child')
+  copyTree(timeTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  const EDITED = '# a, edited before the first commit\n'
+  write(kid, 'docs/template/a.md', EDITED)
+  commit(kid, 'Initial commit', COPY_AT)
+  git(timeTemplate, 'rm', '-q', 'docs/template/a.md')
+  const bang = commit(timeTemplate, 'refactor!: retire a page', T2_AT)
+  write(timeTemplate, 'docs/template/b.md', '# b\n')
+  // A squash merge puts the merged commits after the footer: the paragraph ends at the blank line.
+  const footer = commit(timeTemplate, 'docs: add a page\n\nBREAKING CHANGE: link the new page from your README by hand.\n\n* docs: draft the page\n', T3_AT)
+  const r = run(kid, pathToFileURL(timeTemplate).href)
+  check('root-time copy exits 0', r.status === 0, r.detail)
+  check('root-time copy has a root-time baseline', r.stdout.includes('(root time)'), r.stdout)
+  const s = staged(kid)
+  check('edited copy stays under a root-time baseline', !s.some(l => l.endsWith('docs/template/a.md')) && readFileSync(join(kid, 'docs/template/a.md'), 'utf8') === EDITED, s.join(', '))
+  check('edited copy under a root-time baseline is listed as kept', r.stdout.includes('\nKept (') && r.stdout.includes('\n  docs/template/a.md\n'), r.stdout)
+  check('a `!` subject alone marks a commit breaking', r.stdout.includes(`  ! ${bang.slice(0, 7)} refactor!: retire a page\n`), r.stdout)
+  check('a footer alone marks a commit breaking', r.stdout.includes(`  ! ${footer.slice(0, 7)} docs: add a page\n      BREAKING CHANGE: link the new page from your README by hand.\n`), r.stdout)
+  check('only the footer\'s paragraph is printed', !r.stdout.includes('draft the page'), r.stdout)
+}
+
+// 29. A recorded commit off the template head's history that git still has (a switch from one
+// template branch to another): the staged diff is complete, what the sync point shipped and the
+// head lacks is retired, the follow-ups are two-way, and Files is skipped. The sync point's
+// history counts as the template's too: a rule it retired while that path was excluded here is
+// retired by content, and a hook registration only that branch shipped pairs with the head's.
+{
+  const branchTemplate = join(tmp, 'branch-template')
+  mkdirSync(branchTemplate)
+  git(branchTemplate, 'init', '-q', '-b', 'main')
+  write(branchTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(branchTemplate, 'package.json', pkg({ lint: 'eslint .' }))
+  commit(branchTemplate, 'chore: t1', T1_AT)
+  const branchUrl = pathToFileURL(branchTemplate).href
+  const kid = join(tmp, 'branch-child')
+  copyTree(branchTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  commit(kid, 'Initial commit', COPY_AT)
+  const guard = (command: string): string => json({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command }] }] } })
+  git(branchTemplate, 'checkout', '-q', '-b', 'next')
+  write(branchTemplate, 'docs/template/next.md', '# only on next\n')
+  write(branchTemplate, '.claude/rules/next.md', '# a rule only on next\n')
+  write(branchTemplate, '.claude/settings.json', guard('node next-guard.mts'))
+  write(branchTemplate, 'package.json', pkg({ lint: 'eslint --max-warnings 0 .' }))
+  commit(branchTemplate, 'feat: a page, a rule, a guard and a stricter lint on next', T2_AT)
+  git(branchTemplate, 'checkout', '-q', 'main')
+  write(branchTemplate, 'package.json', pkg({ lint: 'eslint --cache .' }))
+  write(branchTemplate, '.secretlintrc.json', '{}\n')
+  write(branchTemplate, '.claude/settings.json', guard('node main-guard.mts'))
+  commit(branchTemplate, 'feat: cache lint and a guard', T3_AT)
+  const onNext = run(kid, branchUrl, '--ref', 'next')
+  check('sync from another template branch exits 0', onNext.status === 0 && readState(kid).ref === 'next', onNext.detail)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(kid, '.claude/settings.json', guard('node next-guard.mts'))
+  write(kid, STATE, json({ url: branchUrl, ref: 'next', commit: readState(kid).commit, exclude: ['.claude/rules'] }))
+  commit(kid, 'chore: register the next guard, exclude the rules')
+  git(branchTemplate, 'checkout', '-q', 'next')
+  git(branchTemplate, 'rm', '-q', '.claude/rules/next.md')
+  commit(branchTemplate, 'refactor: retire the rule on next', T3_AT)
+  git(branchTemplate, 'checkout', '-q', 'main')
+  const excluded = run(kid)
+  check('excluded path keeps the rule next retired', excluded.status === 0 && existsSync(join(kid, '.claude/rules/next.md')), excluded.detail)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(kid, STATE, json({ url: branchUrl, ref: 'next', commit: readState(kid).commit }))
+  commit(kid, 'chore: sync the rules again')
+  const r = run(kid, '--ref', 'main')
+  const s = staged(kid)
+  check('off-history sync point exits 0', r.status === 0, r.detail)
+  check('off-history sync point git still has says the diff is complete', r.stdout.includes('not in its history') && r.stdout.includes('the staged diff below is complete regardless') && !r.stdout.includes('git cannot fetch it'), r.stdout)
+  check('off-history sync point retires what it shipped', s.includes('D docs/template/next.md'), s.join(', '))
+  check('off-history sync point retires a copy only its history shipped', s.includes('D .claude/rules/next.md'), s.join(', '))
+  check('off-history follow-ups are two-way', r.stdout.includes('  scripts.lint  differs\n    template: eslint --cache .\n    yours:    eslint .\n'), r.stdout)
+  check('hook registration only the sync point\'s history shipped is the template\'s', r.stdout.includes('  hooks.PreToolUse  differs\n    template: matcher Bash, command node main-guard.mts\n    yours:    matcher Bash, command node next-guard.mts\n'), r.stdout)
+  check('off-history sync point skips the files', r.stdout.includes('Files: skipped — '), r.stdout)
+}
+
+// 30. A follow-up block is skipped with its reason whichever side lacks a readable file: first
+// the template ships no package.json, pnpm-workspace.yaml, or .claude/settings.json while this
+// repository has its own, then the template's are readable and this repository's are not.
+// Once its settings parse, the template's allow rules it lacks are listed, while an output style
+// of its own is not. A file the template adds outside the synced paths that this repository
+// already has is never listed.
+{
+  const bareTemplate = join(tmp, 'bare-template')
+  mkdirSync(bareTemplate)
+  git(bareTemplate, 'init', '-q', '-b', 'main')
+  write(bareTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  commit(bareTemplate, 'chore: t1', T1_AT)
+  const kid = join(tmp, 'bare-template-child')
+  copyTree(bareTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  write(kid, 'package.json', '{ "name": "own",\n')
+  write(kid, 'pnpm-workspace.yaml', 'packages:\n  - packages/*\n')
+  write(kid, '.claude/settings.json', '{ "permissions":\n')
+  commit(kid, 'Initial commit', COPY_AT)
+  const r = run(kid, pathToFileURL(bareTemplate).href)
+  check('template without the files exits 0', r.status === 0, r.detail)
+  check('template with no package.json skips the follow-ups', r.stdout.includes('Follow-ups: skipped — the template has no readable package.json.'), r.stdout)
+  check('template with no pnpm-workspace.yaml skips the workspace settings', r.stdout.includes('Workspace: skipped — the template has no pnpm-workspace.yaml.'), r.stdout)
+  check('template with no settings skips the settings', r.stdout.includes('Settings: skipped — the template has no readable .claude/settings.json.'), r.stdout)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(bareTemplate, 'package.json', pkg({ lint: 'eslint .' }))
+  write(bareTemplate, '.claude/settings.json', json({ outputStyle: 'writing', permissions: { allow: ['Bash(git status:*)'], deny: ['Read(**/.env)'] } }))
+  commit(bareTemplate, 'feat: a manifest and settings', T2_AT)
+  const invalid = run(kid)
+  check('unreadable files here exit 0', invalid.status === 0, invalid.detail)
+  check('package.json here that is not JSON skips the follow-ups', invalid.stdout.includes('Follow-ups: skipped — package.json here is not valid JSON.'), invalid.stdout)
+  check('settings here that are not JSON skip the settings', invalid.stdout.includes('Settings: skipped — .claude/settings.json here is not valid JSON.'), invalid.stdout)
+  check('a file the template added that this repository has is never listed', invalid.stdout.includes('Files: none new.'), invalid.stdout)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(kid, '.claude/settings.json', json({ outputStyle: 'terse', permissions: { deny: ['Read(**/.env)'] } }))
+  commit(kid, 'chore: readable settings')
+  const readable = run(kid)
+  check('allow rule the template has is missing here', readable.status === 0 && readable.stdout.includes('  permissions.allow Bash(git status:*)  missing here\n'), readable.detail)
+  check('an output style of its own is never listed', !readable.stdout.includes('outputStyle'), readable.stdout)
+}
+
+// 31. A clone that ran the last sync still holds the recorded commit after the template
+// force-pushes it away, so its tree is an exact sync point: an edited copy of a file it shipped
+// that the new head lacks is retired, and the diff is complete. Once the template prunes the
+// commit, a fresh clone cannot fetch it, so it keeps that file and lists it under Kept.
+{
+  const pushTemplate = join(tmp, 'push-template')
+  mkdirSync(pushTemplate)
+  git(pushTemplate, 'init', '-q', '-b', 'main')
+  write(pushTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(pushTemplate, 'docs/template/a.md', '# a\n')
+  const before = commit(pushTemplate, 'chore: t1', T1_AT)
+  const kid = join(tmp, 'push-child')
+  copyTree(pushTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  commit(kid, 'Initial commit', COPY_AT)
+  write(pushTemplate, 'docs/template/b.md', '# b\n')
+  commit(pushTemplate, 'feat(docs): page b', T2_AT)
+  const pushUrl = pathToFileURL(pushTemplate).href
+  const first = run(kid, pushUrl)
+  check('sync before the force-push stages the new page', first.status === 0 && staged(kid).includes('A docs/template/b.md'), first.detail)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  write(kid, 'docs/template/b.md', '# b, edited here\n')
+  commit(kid, 'docs: edit page b')
+  git(pushTemplate, 'reset', '-q', '--hard', before)
+  write(pushTemplate, 'docs/template/c.md', '# c\n')
+  commit(pushTemplate, 'feat(docs): page c instead', T3_AT)
+  const early = join(tmp, 'push-early')
+  git(tmp, 'clone', '-q', pathToFileURL(kid).href, early)
+  const e = run(early)
+  check('fresh clone fetches a force-pushed sync point the template still has', e.status === 0 && staged(early).includes('D docs/template/b.md') && !e.stdout.includes('Kept'), e.detail)
+  git(pushTemplate, 'reflog', 'expire', '--expire=now', '--all')
+  git(pushTemplate, 'gc', '-q', '--prune=now')
+  const fresh = join(tmp, 'push-fresh')
+  git(tmp, 'clone', '-q', pathToFileURL(kid).href, fresh)
+  const r = run(kid)
+  const s = staged(kid)
+  check('clone holding a force-pushed sync point exits 0', r.status === 0, r.detail)
+  check('clone holding a force-pushed sync point says the diff is complete', r.stdout.includes('not in its history') && r.stdout.includes('the staged diff below is complete regardless') && !r.stdout.includes('git cannot fetch it'), r.stdout)
+  check('clone holding a force-pushed sync point retires an edited copy it shipped', s.includes('D docs/template/b.md') && s.includes('A docs/template/c.md') && !r.stdout.includes('Kept'), `${s.join(', ')}; ${r.stdout}`)
+  const lost = run(fresh)
+  const f = staged(fresh)
+  check('fresh clone after the force-push cannot fetch the sync point', lost.status === 0 && lost.stdout.includes('git cannot fetch it either'), lost.detail)
+  check('fresh clone after the force-push keeps the edited copy', !f.some(l => l.endsWith('docs/template/b.md')) && lost.stdout.includes('\nKept (') && lost.stdout.includes('\n  docs/template/b.md\n'), `${f.join(', ')}; ${lost.stdout}`)
+}
+
+// 32. A new ref or URL alone, at the recorded template commit, is still recorded: pinning the
+// tag of the release already synced, unpinning it, and moving to a mirror at the same head.
+{
+  const refTemplate = join(tmp, 'ref-template')
+  mkdirSync(refTemplate)
+  git(refTemplate, 'init', '-q', '-b', 'main')
+  write(refTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
+  write(refTemplate, 'docs/template/a.md', '# a\n')
+  const only = commit(refTemplate, 'chore: t1', T1_AT)
+  git(refTemplate, 'tag', '-a', 'v1', '-m', 'v1', only)
+  const refUrl = pathToFileURL(refTemplate).href
+  const kid = join(tmp, 'ref-child')
+  copyTree(refTemplate, kid)
+  git(kid, 'init', '-q', '-b', 'main')
+  commit(kid, 'Initial commit', COPY_AT)
+  const first = run(kid, refUrl)
+  check('same-commit first sync exits 0', first.status === 0 && readState(kid).commit === only, first.detail)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
+  const pin = run(kid, '--ref', 'v1')
+  check('pinning the tag of the commit already synced records the ref', pin.status === 0 && readState(kid).ref === 'v1' && staged(kid).join(',') === `M ${STATE}`, `${JSON.stringify(readState(kid))}; ${staged(kid).join(', ')}; ${pin.detail}`)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: pin the template tag')
+  const unpin = run(kid, '--ref', 'main')
+  check('unpinning at the same commit drops the ref', unpin.status === 0 && readState(kid).ref === undefined && staged(kid).join(',') === `M ${STATE}`, `${JSON.stringify(readState(kid))}; ${staged(kid).join(', ')}; ${unpin.detail}`)
+  gitSafe(kid, 'commit', '-q', '-m', 'chore: track the template branch')
+  const mirror = join(tmp, 'ref-mirror')
+  git(tmp, 'clone', '-q', '--bare', refTemplate, mirror)
+  const mirrorUrl = pathToFileURL(mirror).href
+  const moved = run(kid, mirrorUrl)
+  check('a new URL at the same commit is recorded', moved.status === 0 && readState(kid).url === mirrorUrl && staged(kid).join(',') === `M ${STATE}`, `${JSON.stringify(readState(kid))}; ${staged(kid).join(', ')}; ${moved.detail}`)
 }
 
 if (fails.length > 0) {

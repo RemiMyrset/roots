@@ -15,7 +15,8 @@ decision; `gh pr merge` always prompts, and this skill never runs it.
 1. Branch check. `git branch --show-current` must not match a protected
    pattern. If it does, stop and suggest a branch: `feat/`, `fix/`, `docs/`,
    `chore/`, or `refactor/` plus a short kebab slug, then `git switch -c`
-   that branch and continue.
+   that branch (Claude Code asks first; the allowlist leaves `git switch`
+   out) and continue.
 2. Clean tree. `git status --porcelain` must be empty; commit pending work
    first with a Conventional Commit (`type(scope): subject`, subject at most 50
    chars). Never `--no-verify`; the hooks are the gate, and a guard denies it.

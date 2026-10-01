@@ -183,18 +183,50 @@ Code walks nested `CLAUDE.md` only, so a scoped rulebook needs the
 
 ## Permission prompts
 
-The Claude Code permission allowlist in `.claude/settings.json` lets the
-commands in the skills run without a prompt. It is deliberately narrower than
-the read-only shape of a command suggests: `find` is absent (it deletes with
-`-delete` and executes with `-exec`), and `git branch` and `git stash` are
-listed only in their listing, push, and pop forms, so a branch deletion or a
-stash drop prompts. Scripts with a colon in the name are listed one by one
-(`Bash(pnpm test:hooks)`): a trailing `:*` is a space-wildcard, so
-`Bash(pnpm test:*)` matches `pnpm test --watch` and never `pnpm test:hooks`.
-`pnpm --filter <pkg> <script>` prompts once per repository by design; a
-`--filter` rule wide enough to match would also approve `pnpm --filter x exec`.
-The file is the child's own, yet the synced `pnpm test:hooks` checks it:
-beside the guards' hook registration and the home-directory deny rules, it
+The Claude Code permission allowlist in `.claude/settings.json` lets the gate,
+docs, sync, push, pull request, and CI commands run without a prompt, along
+with common reads such as `git log` and `cat`. Claude Code also runs its own
+built-in read-only set without a prompt, such as the read-only forms of `git`
+(`git tag -l`) and `find` without `-exec` or `-delete`. Every other command
+prompts, such as one that changes dependencies (`pnpm add`, `pnpm update`),
+calls `gh api` or changes repository settings (`gh repo edit`), creates a
+branch (`git switch -c`), or reads outside both sets (`pnpm outdated`), so some
+steps of the pr, update-deps, new-package, first-run, and sync-template skills
+ask.
+
+The list is narrower than the read-only shape of a command suggests. `find` is
+absent because `-delete` deletes and `-exec` runs a program, `rg` because
+`--pre` runs a program, and `git switch` because `-f` and `--discard-changes`
+drop uncommitted work and `-C` resets a branch; a `Bash(git switch -c:*)` rule
+would still match `git switch -c x --discard-changes main`, which resets the
+working tree to `main`. `git branch` is listed only in its listing forms, so
+`git branch -d` prompts.
+
+`git stash` is listed only as `git stash list`. Every linked worktree shares
+one stash list, so a bare `git stash pop` in one worktree applies and drops the
+newest entry, which may be another session's. Commit work in progress instead.
+
+To recover a stashed entry, find its hash in
+`git stash list --format="%h %gd %gs"` and run `git stash apply <hash>`:
+another worktree's stash shifts `stash@{n}`, never the hash. The entry stays in
+the list until `git stash drop stash@{n}` removes it, and `drop` refuses a
+hash, so take `n` from a listing run just before.
+
+The prefix rules the skills need still grant side effects no guard checks:
+`git log`, `git diff`, and `git show` accept `--output=<file>`, which overwrites
+the file; `git fetch` accepts `--upload-pack`, which runs a program, and a `+`
+refspec such as `+main:feat/x`, which resets a local branch; and
+`git push . :refs/heads/<branch>` deletes a local branch outside
+`PROTECTED_BRANCHES`.
+
+Scripts with a colon in the name get one rule each (`Bash(pnpm test:hooks)`):
+a trailing `:*` is a space-wildcard, so `Bash(pnpm test:*)` matches
+`pnpm test --watch` and never `pnpm test:hooks`. `pnpm --filter <pkg> <script>`
+prompts once per repository by design; a `--filter` rule wide enough to match
+would also approve `pnpm --filter x exec`.
+
+The settings file is the child's own, yet the synced `pnpm test:hooks` checks
+it: beside the guards' hook registration and the home-directory deny rules, it
 requires allow rules for `pnpm verify` and `pnpm docs:list`, the two commands
 the docs send agents to most. Every other allow rule is the repository's choice.
 
