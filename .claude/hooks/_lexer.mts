@@ -287,6 +287,9 @@ interface Frame {
   subBrace: number
   q: '' | '"' | '\'' | '$' | 'h'
   cur: string
+  // The last nine characters of cur, kept as cur grows: reading them from cur itself flattens
+  // the whole string on every word, which made a long segment quadratic.
+  tail: string
   brace: number
   bracket: number
   dq: number[]
@@ -434,7 +437,7 @@ function tickIn(s: string, from: number, to: number): number {
 function lex(s: string, body: boolean, funsubs = true, discard = false, old = false): string[] {
   const out: string[] = []
   const frame = (close: Frame['close'], subst: boolean, arith: boolean, group: Group | null, word = false, array = false): Frame =>
-    ({ close, subst, word, array, arith, tick: -1, scan: false, hash: false, sub: 0, subBrace: 0, q: '', cur: '', brace: 0, bracket: 0, dq: [], pipe: out.length, here: [], test: false, paren: 0, cmd: true, closer: false, fn: false, cases: 0, subject: 0, pat: false, group, braces: [], closed: [], sinks: [], joined: false, held: 0 })
+    ({ close, subst, word, array, arith, tick: -1, scan: false, hash: false, sub: 0, subBrace: 0, q: '', cur: '', tail: '', brace: 0, bracket: 0, dq: [], pipe: out.length, here: [], test: false, paren: 0, cmd: true, closer: false, fn: false, cases: 0, subject: 0, pat: false, group, braces: [], closed: [], sinks: [], joined: false, held: 0 })
   const stack: Frame[] = [frame('', false, false, null)]
   let f = stack[0]!
   if (body)
@@ -503,11 +506,17 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     open('}', true, false)
     return s[at] === '|' ? at : k
   }
+  // Text joins the current segment.
+  const add = (t: string): void => {
+    f.cur += t
+    f.tail = (f.tail + t).slice(-9)
+  }
   // A segment ends: its text goes out and the frame starts a new command. A group closed in it
   // flows into the segments that follow.
   const cut = (): void => {
     out.push(f.cur)
     f.cur = ''
+    f.tail = ''
     f.sub = 0
     f.lead = undefined
     f.cmd = true
@@ -538,7 +547,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
   // pattern does. Only the last nine characters are read (no reserved word is longer than
   // `function`), so a long segment stays linear.
   const endWord = (): void => {
-    const tail = f.cur.slice(-9)
+    const tail = f.tail
     const at = Math.max(tail.lastIndexOf(' '), tail.lastIndexOf('\t'), tail.lastIndexOf('\n'))
     const w = at < 0 && f.cur.length > 9 ? '\0' : tail.slice(at + 1)
     if (w === '')
@@ -603,7 +612,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
   const glued = (n: number): boolean => {
     if (/[\s;&|<>()`=]/.test(prior(n)))
       return false
-    const tail = f.cur.slice(-7)
+    const tail = f.tail.slice(-7)
     const word = tail.slice(tail.search(/\S*$/))
     return word.length === 7 || !(f.cmd && BEFORE_COMMAND.has(word))
   }
@@ -623,7 +632,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     if (done.group)
       f.closed.push(done.group)
     if (done.subst || (done.word && !done.array))
-      f.cur += SUBST
+      add(SUBST)
     ws = !done.subst && !done.word
   }
   // bash reads an array (`x=(…)`) word by word and rejects an operator or a `(` at n in it,
@@ -672,7 +681,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     // it (`` `echo $[ '` ``). That scan pairs a backslash with what follows it, in single quotes
     // too, so `\\` there escapes nothing after it.
     if (f.tick >= 0 && c === '\\' && (s[n + 1] === '`' || (s[n + 1] === '\\' && f.q === '\''))) {
-      f.cur += c + s[n + 1]!
+      add(c + s[n + 1]!)
       n++
       continue
     }
@@ -683,18 +692,18 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       continue
     }
     if (f.q === '\'') {
-      f.cur += c
+      add(c)
       if (c === '\'')
         f.q = ''
       continue
     }
     if (f.q === '$') {
       if (c === '\\') {
-        f.cur += c + (s[n + 1] ?? '')
+        add(c + (s[n + 1] ?? ''))
         n++
         continue
       }
-      f.cur += c
+      add(c)
       if (c === '\'')
         f.q = ''
       continue
@@ -703,7 +712,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       // Inside double quotes and an expanding heredoc body, `$(` and backticks still run a
       // command; `(`, `;`, `|`, and the other quote are literal.
       if (c === '\\') {
-        f.cur += c + (s[n + 1] ?? '')
+        add(c + (s[n + 1] ?? ''))
         n++
         continue
       }
@@ -722,7 +731,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         continue
       }
       if (c === '$' && s[past(n + 1)] === '$' && s[past(past(n + 1) + 1)] !== '(') {
-        f.cur += '$$'
+        add('$$')
         n = past(n + 1)
         continue
       }
@@ -736,31 +745,31 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         f.brace++
         f.dq.push(f.brace)
         f.q = ''
-        f.cur += '${'
+        add('${')
         n = past(n + 1)
         continue
       }
-      f.cur += c
+      add(c)
       if (c === '"' && f.q === '"')
         f.q = ''
       continue
     }
     if (c === '\\') {
-      f.cur += c + (s[n + 1] ?? '')
+      add(c + (s[n + 1] ?? ''))
       n++
       ws = false
       continue
     }
     if (c === '\'' || c === '"') {
       f.q = c
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
     const next = past(n + 1)
     if (c === '$' && s[next] === '\'') {
       f.q = '$'
-      f.cur += '$\''
+      add('$\'')
       n = next
       ws = false
       continue
@@ -782,7 +791,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     }
     if (f.close === ']' && c === '[') {
       f.bracket++
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
@@ -792,7 +801,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         continue
       }
       f.bracket--
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
@@ -804,33 +813,33 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         f.sub++
       else if (--f.sub === 0)
         f.brace = f.subBrace
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
     if (old && c === '[' && !ws && f.brace === 0 && f.close !== ']' && !f.array && !f.test && !f.pat && nameBefore(n)) {
       f.sub = 1
       f.subBrace = f.brace
-      f.cur += c
+      add(c)
       continue
     }
     // In an array, a `[` that starts a word opens a span bash reads whole, up to its matching `]`.
     if (f.array && c === '[' && (ws || f.bracket > 0)) {
       f.bracket++
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
     if (f.array && c === ']' && f.bracket > 0) {
       f.bracket--
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
     // `$$` is the shell's PID, so a `{` after it opens no expansion (`$${x; …}`). Before a `(`
     // the second `$` still opens a substitution: PowerShell runs `$$(…)`.
     if (c === '$' && s[next] === '$' && s[past(next + 1)] !== '(') {
-      f.cur += '$$'
+      add('$$')
       n = next
       ws = false
       continue
@@ -841,7 +850,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     }
     if (c === '$' && s[next] === '{') {
       f.brace++
-      f.cur += '${'
+      add('${')
       n = next
       ws = false
       continue
@@ -852,9 +861,9 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     // `fi`, `done`, `esac`, or `]]`: `${ { cmd; } }`, `${ if a; then b; fi }`). Inside one, bash
     // ends a group's `}` at that `}`, so a `}` glued after it is read again (`${ { cmd; }}`).
     const shut = f.close === '}' && f.brace === 0 && !f.test && !f.pat && f.paren === 0
-    if (c === '}' && shut && !ws && (f.cmd || f.closer) && f.braces.length > 0 && f.cur.endsWith('}') && /[ \t\n]/.test(f.cur.at(-2) ?? ' ')) {
+    if (c === '}' && shut && !ws && (f.cmd || f.closer) && f.braces.length > 0 && f.tail.endsWith('}') && /[ \t\n]/.test(f.tail.at(-2) ?? ' ')) {
       endWord()
-      f.cur += ' '
+      add(' ')
       ws = true
     }
     if (c === '}' && shut && ws && (f.cmd || f.closer) && f.braces.length === 0) {
@@ -867,7 +876,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         f.q = '"'
       }
       f.brace--
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
@@ -878,7 +887,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     // A process substitution still runs inside an unquoted expansion (`${x:-<(cmd)}`); inside
     // double quotes it is text, and so it is to the scan of bash 3.2 and 4.4 (`old`).
     if (f.brace > 0 && !f.arith && !old && f.dq.length === 0 && (c === '<' || c === '>') && s[next] === '(') {
-      f.cur += c
+      add(c)
       n = next
       open(')', false, false, true)
       continue
@@ -900,12 +909,12 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         continue
       }
       f.paren += c === '(' ? 1 : -1
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
     if (f.brace > 0 && !f.arith && /[()<>;&| \t\n]/.test(c)) {
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
@@ -917,7 +926,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       if (f.pat) {
         if (/[?*+@!]/.test(prior(n)))
           f.paren++
-        f.cur += c
+        add(c)
         ws = false
         continue
       }
@@ -927,7 +936,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         let k = past(n + 1)
         while (s[k] === ' ' || s[k] === '\t') k = past(k + 1)
         if (s[k] === ')' && (/[ \t]/.test(prior(n)) || (f.cmd && glued(n)))) {
-          f.cur += s.slice(n, k + 1)
+          add(s.slice(n, k + 1))
           n = k
           cut()
           continue
@@ -937,7 +946,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       // `$[…]` it groups too, and bash's scan for the `]` passes over it (`$[ (${x ]`).
       if (f.close === ']' || ((f.test || f.paren > 0) ? !/[<>]/.test(prior(n)) : glued(n))) {
         f.paren++
-        f.cur += c
+        add(c)
         ws = false
         continue
       }
@@ -948,7 +957,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       endWord()
       if (f.paren > 0) {
         f.paren--
-        f.cur += c
+        add(c)
         ws = false
         continue
       }
@@ -962,7 +971,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       // A case pattern ends at its `)`, and the commands after it start a new segment.
       if (f.pat) {
         f.pat = false
-        f.cur += c
+        add(c)
         cut()
         continue
       }
@@ -994,7 +1003,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         rejects(n)
     }
     if (c === '<' && s[next] === '<' && s[past(next + 1)] === '<') {
-      f.cur += '<<<'
+      add('<<<')
       n = past(next + 1)
       ws = false
       continue
@@ -1069,14 +1078,14 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         pending.push(h)
         f.here.push(h)
       }
-      f.cur += s.slice(n, k)
+      add(s.slice(n, k))
       n = k - 1
       ws = false
       continue
     }
     // `&` inside `2>&1`, `<&3`, and `&>file`, and `|` inside `>|file`, belong to a redirect.
     if ((c === '&' && (afterOp || s[next] === '>')) || (c === '|' && afterOp && prior(n) === '>')) {
-      f.cur += c
+      add(c)
       ws = false
       continue
     }
@@ -1108,7 +1117,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     if (c === '|' && f.pat) {
       endWord()
       if (f.pat) {
-        f.cur += c
+        add(c)
         ws = false
         continue
       }
@@ -1128,7 +1137,7 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     }
     if (c === ' ' || c === '\t')
       endWord()
-    f.cur += c
+    add(c)
     // Bash separates words only at a space, a tab, or a newline (handled above): a `#` after a
     // no-break space, CR, form feed, or vertical tab is part of the word, not a comment.
     ws = c === ' ' || c === '\t'
