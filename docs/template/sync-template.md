@@ -62,15 +62,17 @@ The template also ships files it never syncs: `package.json`,
 `.devcontainer/devcontainer.json`, `.gitignore`, `eslint.config.ts`,
 `turbo.json`, and every other path outside the synced list. The sync never
 copies them, so a template commit that changes one carries a `BREAKING CHANGE`
-footer naming the edit, marked optional when a child may skip it.
+footer naming the edit, marked optional when a child may skip it. A footer
+for a new verify gate never marks its AGENTS.md Commands line optional:
+`pnpm test:gates` fails a Commands list that leaves out a gate.
 
 The synced paths, grouped: the CI, docs, labels, labeler, and Pages workflows
 with the label list and the path-label map, the agent-task issue template, and
-the PR template; the docs generators and checkers, the verify gate, the
-git-hook installer, the four test suites, and the sync script itself; the
-guards, rules, skills, and writing rules under `.claude/`, the Codex and Gemini
-registrations, and the generated `.agents/` mirror; and `docs/template/`. The
-exact list is `MECHANICS` in the script.
+the PR template; the docs generators and checkers, the verify gate, the secret
+scan, the git-hook installer, the four test suites, and the sync script
+itself; the guards, rules, skills, and writing rules under `.claude/`, the
+Codex and Gemini registrations, and the generated `.agents/` mirror; and
+`docs/template/`. The exact list is `MECHANICS` in the script.
 
 The synced scripts are `.mts` on purpose. `.mts` runs as ESM whatever the
 repository's `package.json` `"type"` says, whereas a `.ts` file is read as

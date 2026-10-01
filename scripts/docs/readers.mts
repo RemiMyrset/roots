@@ -9,7 +9,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { byCodeUnit, DECISION_H1_RE, decisionIdentity, DECISIONS_DIR, H1_RE, repoRoot, SPECS_DIR, STATUS_BULLET_RE, stripFences } from './root.mts'
+import { byCodeUnit, DECISION_H1_RE, decisionIdentity, DECISIONS_DIR, H1_RE, LINE_COMMENT_RE, repoRoot, SPECS_DIR, STATUS_BULLET_RE, stripFences } from './root.mts'
 
 /** One decision record as read from its file: identity, title, and the Status bullet. */
 export interface DecisionEntry {
@@ -44,6 +44,27 @@ export interface SidebarItem {
 const MD_EXT_RE = /\.md$/
 const WHITESPACE_RE = /\s/
 const UNESCAPED_PIPE_RE = /(?<!\\)\|/g
+const HTML_SPECIAL_RE = /[&<>]/g
+const HTML_ESCAPES: Readonly<Record<string, string>> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' }
+// A code span as CommonMark reads one: a backtick run, then the shortest text ending in
+// something other than a backtick, then a run of the same length.
+const CODE_SPAN_RE = /(?<!`)(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g
+
+/**
+ * A title as the HTML a sidebar entry holds. VitePress renders sidebar text, and the previous
+ * and next links drawn from it, as HTML, so `&`, `<`, and `>` are escaped and each code span
+ * becomes `<code>`, as on the page itself; a raw `Result<T, E>` would vanish as a tag.
+ */
+function sidebarHtml(text: string): string {
+  return text
+    .replace(HTML_SPECIAL_RE, c => HTML_ESCAPES[c]!)
+    .replace(CODE_SPAN_RE, (_span, _run, code: string) => {
+      // CommonMark drops one space from each end when both ends have one and the span is not
+      // spaces alone.
+      const inner = code.trim() !== '' && code.length > 1 && code.startsWith(' ') && code.endsWith(' ') ? code.slice(1, -1) : code
+      return `<code>${inner}</code>`
+    })
+}
 
 /** Regular files directly inside `dir`, sorted; empty when `dir` is absent. */
 function filesIn(dir: string): string[] {
@@ -61,8 +82,10 @@ function filesIn(dir: string): string[] {
  * numbered record at 2100 or above ahead of the dated ones too. Metadata comes from the
  * visible bold bullets (`- **Status:** accepted`), never frontmatter, and fenced examples
  * are ignored; the title is the text after `NNNN. ` in a legacy H1 and the whole H1 in a
- * dated one. A record missing its H1 or Status reads as its filename and `unknown`
- * (check-docs.mts rejects those). Default root: the repository this script runs in.
+ * dated one, as written. The Status is read with its HTML comments dropped, as check-docs.mts
+ * reads it. A record missing its H1 or Status reads as its filename and `unknown`, as does a
+ * Status holding only a comment (check-docs.mts rejects those). Default root: the repository
+ * this script runs in.
  */
 export function readDecisions(root = repoRoot()): DecisionEntry[] {
   const dir = join(root, DECISIONS_DIR)
@@ -73,7 +96,7 @@ export function readDecisions(root = repoRoot()): DecisionEntry[] {
       continue
     const text = stripFences(readFileSync(join(dir, file), 'utf8'))
     const title = (identity.legacy ? text.match(DECISION_H1_RE)?.[2] : text.match(H1_RE)?.[1])?.trim() ?? file
-    const status = text.match(STATUS_BULLET_RE)?.[1]?.trim() ?? 'unknown'
+    const status = text.match(STATUS_BULLET_RE)?.[1]?.replace(LINE_COMMENT_RE, '').trim() || 'unknown'
     entries.push({ file, id: identity.id, num: identity.label, legacy: identity.legacy, title, status })
   }
   return entries.sort((a, b) => Number(b.legacy) - Number(a.legacy) || byCodeUnit(a.file, b.file))
@@ -152,6 +175,7 @@ export const INDEX_RENDERERS: Readonly<Record<string, (root: string) => string>>
  * VitePress sidebar entries for the decisions, from the same reader as `pnpm docs:list`:
  * `NNNN. Title` for a legacy record, `YYYY-MM-DD Title` for a dated one, then the first word
  * of the Status in parentheses unless it is `accepted`, so the handbook shows status without a table.
+ * The text is HTML, as VitePress renders it: special characters escaped, code spans as `<code>`.
  * Default root: the repository this script runs in.
  */
 export function decisionsSidebar(root = repoRoot()): SidebarItem[] {
@@ -159,16 +183,19 @@ export function decisionsSidebar(root = repoRoot()): SidebarItem[] {
     const word = d.status.split(WHITESPACE_RE, 1)[0]
     const suffix = word && word !== 'accepted' ? ` (${word})` : ''
     return {
-      text: `${d.legacy ? `${d.num}.` : d.num} ${d.title}${suffix}`,
+      text: sidebarHtml(`${d.legacy ? `${d.num}.` : d.num} ${d.title}${suffix}`),
       link: `/decisions/${d.file.replace(MD_EXT_RE, '')}`,
     }
   })
 }
 
-/** VitePress sidebar entries for the specs, from the same reader as `pnpm docs:list`. Default root: the repository this script runs in. */
+/**
+ * VitePress sidebar entries for the specs, from the same reader as `pnpm docs:list`. The text
+ * is HTML, as for decisionsSidebar. Default root: the repository this script runs in.
+ */
 export function specsSidebar(root = repoRoot()): SidebarItem[] {
   return readSpecs(root).map(s => ({
-    text: `${s.area}: ${s.title}`,
+    text: sidebarHtml(`${s.area}: ${s.title}`),
     link: `/specs/${s.area}/${s.file.replace(MD_EXT_RE, '')}`,
   }))
 }

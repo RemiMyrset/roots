@@ -36,7 +36,9 @@ Register it in `automd.config.ts`, which is yours unless you list it under
 `include`, and add the marker pair to a page under `docs/`, the only place
 automd looks. automd also ships the built-ins `file` (inline a file),
 `dir-tree`, and `fetch`. The drift gate in `pnpm verify` and CI keeps such a
-region current; `pnpm docs:check` checks only its shape.
+region current; `pnpm docs:check` checks only its shape. A region on a page
+under `docs/public/` reads only from inside it, as rule 4 of
+[markdown-portability](./markdown-portability.md#rules) says.
 
 A region is opt-in, and the template's own index pages carry none;
 [conventions](./conventions.md) says why. A page may keep the
@@ -192,14 +194,27 @@ your own:
   `turbo.json`, which is yours.
 - A step that needs what the synced workflows lack goes in a workflow of your
   own, such as `.github/workflows/project.yml`: a service such as Postgres, a
-  secret, a schedule, or typos (crate-ci/typos) spell-checking the docs. Pin
-  its actions by full commit SHA, since first run turns on required SHA
-  pinning. The done gate has no extension point, so such a step checks in CI
-  only.
-- A step of your own that runs `pnpm <script>` but is not a gate, such as an
-  e2e or deploy step, ends its line with `# not a gate`. Otherwise
-  `pnpm test:gates`, which keeps `pnpm verify` and the workflows running the
-  same steps, fails on it.
+  secret, a schedule, or typos (crate-ci/typos) spell-checking the docs. The
+  done gate has no extension point, so such a step checks in CI only.
+- Pin each action of such a workflow as
+  `uses: owner/repo@<40-hex sha> # vX.Y.Z`, the full commit SHA with its
+  exact version in a trailing comment: first run turns on required SHA
+  pinning, and `pnpm test:gates` refuses any other form. A workflow that runs
+  a verify gate script, such as a nightly `pnpm test`, also runs on
+  `pull_request`, or that line ends with `# not a gate`. One that caches
+  `.turbo` keys the cache, restore keys included, on the exact node, the
+  `node-version` output of its setup-node step, as `ci.yml` does.
+- A step of your own that runs `pnpm` but is not a gate, such as an e2e or
+  deploy step, ends its line with `# not a gate`. So does a call that runs no
+  root script the way `pnpm verify` does: one after a `cd <dir> &&` anywhere
+  earlier on its line, or with a flag before the script, such as
+  `pnpm --filter web e2e` or `pnpm -r test`.
+  Otherwise `pnpm test:gates`, which keeps `pnpm verify`, the workflows, and
+  the AGENTS.md Commands list naming the same gates, fails on it.
+- `pnpm test:gates` reads a line whose command starts with `pnpm`, after any
+  `NAME=value` assignments and one `cd <dir> &&`. It does not see a
+  `working-directory:` key or a `cd` on an earlier line, so put the `cd` on
+  the line of the call.
 - lychee checks external URLs; run it scheduled (weekly) and advisory, since
   external links rot on their own schedule.
 - Coverage thresholds are vitest `coverage.thresholds` plus the `text-summary`

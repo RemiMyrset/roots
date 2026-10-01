@@ -25,7 +25,7 @@
     "typecheck": "tsc --noEmit && turbo run typecheck",
     "lint": "CI=1 eslint . --cache --cache-location node_modules/.cache/eslint/",
     "lint:fix": "CI=1 eslint . --fix --cache --cache-location node_modules/.cache/eslint/",
-    "lint:secrets": "secretlint \"**/*\"",
+    "lint:secrets": "node scripts/lint-secrets.mts",
     "boundaries": "turbo boundaries",
     "docs:gen": "automd && node scripts/docs/gen-skills.mts",
     "docs:check": "node scripts/docs/check-docs.mts",

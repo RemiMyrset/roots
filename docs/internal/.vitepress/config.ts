@@ -16,6 +16,10 @@ export default withMermaid(defineConfig({
   head: [
     ['meta', { name: 'robots', content: 'noindex, nofollow' }],
   ],
+  // Mermaid alone puts chunks of about 700 kB (minified) into this build, past Vite's 500 kB
+  // warning, which would print on every build and teach readers to skip it. The limit sits just
+  // above Mermaid, so a chunk that outgrows it still warns.
+  vite: { build: { chunkSizeWarningLimit: 800 } },
   themeConfig: {
     nav: [
       { text: 'Handbook', link: '/' },
