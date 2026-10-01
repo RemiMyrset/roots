@@ -97,6 +97,12 @@ portability requirement. The choices, each with its why:
   otherwise. Agents reach across packages by path, which works locally and
   breaks the package graph turbo caches by. A deliberate exception carries a
   `// @boundaries-ignore <reason>` comment.
+- `turbo.json` sets `agentGuidance: false`. From turbo 2.11.5, any turbo run
+  an agent starts otherwise writes a managed block into the root `AGENTS.md`,
+  pointing at turbo's bundled docs: a second H1 that fails `pnpm lint`, in a
+  rulebook that links to facts and never restates them. `pnpm test:gates`
+  fails a `turbo.json` that lets turbo write it; a turbo older than 2.11.5
+  writes nothing and rejects the key.
 - Unit tests live in a sibling `test/` directory beside `src/`, never colocated:
   the unjs and antfu house layout. Every exported symbol carries a `/** */`
   block; ESLint `jsdoc/require-jsdoc` enforces presence, review enforces

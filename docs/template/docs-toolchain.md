@@ -127,6 +127,23 @@ own commit. pnpm refuses any version published in the last 48 hours
 skill keeps only the ones a fix still needs, each named in the pull request.
 Why roots ships no update bot is in [conventions](./conventions.md).
 
+`pnpm audit` exits 1 even on a fresh lockfile, on four accepted advisories
+that no release inside the catalog ranges fixes. All four sit in the vite
+5.4.21 and esbuild 0.21.5 that vitepress 1.x requires (`vite ^5.4.14`), the
+fixes ship in vite 6.4.3 and esbuild 0.25.0, and each reaches only a running
+dev server, never a build or CI.
+
+| Advisory | Package | Why it is accepted |
+| --- | --- | --- |
+| [GHSA-fx2h-pf6j-xcff](https://github.com/advisories/GHSA-fx2h-pf6j-xcff) | vite | It needs a dev server exposed to the network on Windows, and `pnpm docs:*:dev` binds to localhost. |
+| [GHSA-4w7w-66w2-5vf9](https://github.com/advisories/GHSA-4w7w-66w2-5vf9) | vite | It needs a dev server exposed to the network, and `pnpm docs:*:dev` binds to localhost. |
+| [GHSA-v6wh-96g9-6wx3](https://github.com/advisories/GHSA-v6wh-96g9-6wx3) | vite | It needs Windows with NTLM on and a hostile page open while a docs dev server runs. |
+| [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) | esbuild | It is in esbuild's own serve mode, which vite never starts. |
+
+The table empties when vitepress moves off vite 5. Any other advisory left
+after the skill's audit step either gets a fix or joins the table with its
+reason, in the same pull request.
+
 First run turns on required SHA pinning for actions, which makes GitHub refuse
 a workflow that references an action by a mutable tag. The check reaches
 inside a pinned composite action too, so an action bump waits until the new

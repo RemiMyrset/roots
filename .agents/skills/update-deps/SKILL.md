@@ -28,12 +28,16 @@ branch with a clean tree. Claude Code asks before each `pnpm outdated`,
    add a setting. Review that diff, keep each comment above the key it
    explains, and leave the `allowBuilds` entries as they are; each is a human
    verdict. Commit.
-3. Audit. `pnpm audit` lists the known advisories. `pnpm audit --fix update`
+3. Audit. `pnpm audit` lists the known advisories, and the table under
+   "Keep dependencies current" in `docs/template/docs-toolchain.md` lists the
+   accepted ones; drop a row whose advisory is gone. `pnpm audit --fix update`
    moves the lockfile to fixed versions within the ranges. Where no such
    release exists, a forced version (`pnpm audit --fix override`, which writes
    `overrides` into `pnpm-workspace.yaml`, then `pnpm install`) is the last
-   resort and is named in the PR. Either one exits 1 while any advisory
-   remains, even when it fixed others. Either one also appends a
+   resort and is named in the PR; an advisory whose fix would break the
+   package that pins it joins the table instead, with a one-line reason.
+   Either `--fix` run exits 1 while any advisory remains, even when it fixed
+   others. Either one also appends a
    `minimumReleaseAgeExclude` list to `pnpm-workspace.yaml` naming the
    patched version of every advisory, installed or not, and that list lifts
    the cooldown for each. Delete the list and run `pnpm install`: it passes

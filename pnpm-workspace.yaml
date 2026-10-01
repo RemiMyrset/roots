@@ -1,30 +1,16 @@
 # Key order follows the pnpm-workspace convention enforced by yaml/sort-keys.
 
-# Build scripts are blocked by default; explicit verdicts only. esbuild needs its
-# native binary (vite 5 via vitepress and vite 7 via vitest both depend on it).
-# @parcel/watcher: automd imports it only in --watch mode, its prebuilt binary arrives
-# as an optional dependency, and its install script is a no-op unless building from
-# source — so no build script is needed. simple-git-hooks is invoked explicitly via
-# the prepare script, its postinstall is unnecessary.
-allowBuilds:
-  '@parcel/watcher': false
-  esbuild: true
-  simple-git-hooks: false
-
 # `pnpm add <dep>` writes the catalog entry and the package's "catalog:" reference
 # in one step, and refuses a version outside a range the catalog already holds, so
 # adding a dependency never leaves the catalog rule or the lockfile to fix afterwards.
 catalogMode: strict
 
-# Fail installs on incompatible node (replaces the old .npmrc engine-strict).
-engineStrict: true
-
 # Supply-chain hardening: 48h cooldown against compromised fresh releases.
 minimumReleaseAge: 2880
-
-# Run package.json scripts through pnpm's shell emulator, so `CI=1 eslint .`-style env
-# prefixes and `&&` chains behave the same on Windows as on POSIX.
-shellEmulator: true
+# Install, add, update, remove, and dedupe drop a minimumReleaseAgeExclude entry
+# the new lockfile no longer resolves. @antfu/eslint-config requires the setting,
+# but pnpm reads it only from 11.22, so the pinned 11.9 ignores it for now.
+minimumReleaseAgeExcludePrune: true
 
 # No silently-downgraded publish trust.
 trustPolicy: no-downgrade
@@ -37,11 +23,30 @@ trustPolicy: no-downgrade
 # moves off vite 5.
 trustPolicyExclude:
   - vite@5.4.21
+
+# Run package.json scripts through pnpm's shell emulator, so `CI=1 eslint .`-style env
+# prefixes and `&&` chains behave the same on Windows as on POSIX.
+shellEmulator: true
+
+# Fail installs on incompatible node (replaces the old .npmrc engine-strict).
+engineStrict: true
+
 # Workspace globs. The samples populate both; pnpm tolerates an empty glob once
 # a sample is removed.
 packages:
   - apps/*
   - packages/*
+
+# Build scripts are blocked by default; explicit verdicts only. esbuild needs its
+# native binary (vite 5 via vitepress and vite 7 via vitest both depend on it).
+# @parcel/watcher: automd imports it only in --watch mode, its prebuilt binary arrives
+# as an optional dependency, and its install script is a no-op unless building from
+# source — so no build script is needed. simple-git-hooks is invoked explicitly via
+# the prepare script, its postinstall is unnecessary.
+allowBuilds:
+  '@parcel/watcher': false
+  esbuild: true
+  simple-git-hooks: false
 
 # Catalog-first (enforced by pnpm/json-enforce-catalog): every dependency
 # version lives here once; packages reference "catalog:".

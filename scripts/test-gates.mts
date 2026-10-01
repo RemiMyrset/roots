@@ -338,9 +338,10 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 
 // The second half holds the gates to what AGENTS.md says they enforce: ESLint must reject each
 // probe below, linted from stdin under a path that is never written; turbo's hash must cover
-// the node-version file (the major) and CI's turbo cache key the exact node; the pre-commit
-// hook must run ESLint on every file type `pnpm lint` checks; every package tsconfig must take
-// in every TypeScript file of its package; the install hook must set up the git hooks in a
+// the node-version file (the major) and CI's turbo cache key the exact node, and a turbo run an
+// agent starts must leave AGENTS.md alone; the pre-commit hook must run ESLint on every file
+// type `pnpm lint` checks; every package tsconfig must take in every TypeScript file of its
+// package; the install hook must set up the git hooks in a
 // checkout and leave a linked worktree alone; verify's docs drift gate must skip only
 // outside a git checkout, failing on any other git error; the secret scan must fail on a
 // force-added `.env` and pass an untracked one, and the pre-commit scan must fail on it once it
@@ -397,6 +398,31 @@ else {
     if (!(file in hashed))
       failures.push(`turbo.json globalDependencies lacks ${file}, which the workflows install node from, so a node bump replays cached results`)
   }
+}
+
+// From 2.11.5, turbo writes a managed block into the root AGENTS.md before any run it sees an
+// AI agent start, unless the root turbo config sets `agentGuidance: false`: a second H1 that
+// fails the lint gate. The probe makes such a run in a temp copy of the root manifests, with
+// AI_AGENT set, and holds a stub rulebook to its bytes. An older turbo writes nothing.
+{
+  const dir = join(tmp, 'agent-guidance')
+  mkdirSync(dir)
+  const config = ['turbo.json', 'turbo.jsonc'].find(file => existsSync(join(root, file))) ?? 'turbo.json'
+  for (const file of ['package.json', 'pnpm-workspace.yaml', config]) {
+    if (existsSync(join(root, file)))
+      writeFileSync(join(dir, file), readFileSync(join(root, file)))
+  }
+  const stub = '# Rulebook\n'
+  writeFileSync(join(dir, 'AGENTS.md'), stub)
+  const run = spawnSync(process.execPath, [join(root, 'node_modules/turbo/bin/turbo'), 'run', 'test', '--dry=json'], {
+    cwd: dir,
+    encoding: 'utf8',
+    env: { ...process.env, CI: '1', AI_AGENT: 'roots-test-gates' },
+  })
+  if (parseJson<object>(run.stdout ?? '') === undefined)
+    failures.push(`the agent-guidance probe's \`turbo run test --dry=json\` printed no plan: ${(run.stderr ?? '').trim().split('\n')[0] ?? ''}`)
+  else if (readFileSync(join(dir, 'AGENTS.md'), 'utf8') !== stub)
+    failures.push(`turbo writes its own block into AGENTS.md on a run an agent starts, a second H1 that fails \`pnpm lint\`; set "agentGuidance": false in ${config} and delete any block between the turborepo-agent-rules markers`)
 }
 
 /**
@@ -987,4 +1013,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; turbo leaves AGENTS.md alone on an agent's run; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}`)
