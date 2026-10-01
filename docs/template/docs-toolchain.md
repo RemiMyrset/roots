@@ -8,7 +8,7 @@ and the growth paths roots leaves open.
 | Command | What it does |
 | --- | --- |
 | `pnpm docs:gen` | the `.agents/skills` mirror and any automd region a page keeps (mutates files) |
-| `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness |
+| `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness, skill frontmatter |
 | `pnpm docs:list` | the decisions table and the spec list, read from the files (read-only; `decisions` or `specs` prints one) |
 | `pnpm docs:portability` | portability lint (GitHub, VitePress, Obsidian), blocking |
 | `pnpm docs:internal:dev` / `docs:internal:build` | internal handbook site: preview / build |
@@ -36,7 +36,9 @@ Register it in `automd.config.ts`, which is yours unless you list it under
 `include`, and add the marker pair to a page under `docs/`, the only place
 automd looks. automd also ships the built-ins `file` (inline a file),
 `dir-tree`, and `fetch`. The drift gate in `pnpm verify` and CI keeps such a
-region current; `pnpm docs:check` checks only its shape.
+region current; `pnpm docs:check` checks only its shape. A region on a page
+under `docs/public/` reads only from inside it, as rule 4 of
+[markdown-portability](./markdown-portability.md#rules) says.
 
 A region is opt-in, and the template's own index pages carry none;
 [conventions](./conventions.md) says why. A page may keep the
@@ -70,7 +72,7 @@ one needs GitHub Pro, Team, or Enterprise.
 
 ```sh
 gh api -X POST repos/OWNER/REPO/pages -f build_type=workflow
-gh workflow run pages.yml                       # first deploy without waiting for a push
+gh workflow run pages.yml -R OWNER/REPO         # first deploy without waiting for a push
 gh repo edit OWNER/REPO --homepage https://OWNER.github.io/REPO/
 ```
 
@@ -125,6 +127,23 @@ own commit. pnpm refuses any version published in the last 48 hours
 skill keeps only the ones a fix still needs, each named in the pull request.
 Why roots ships no update bot is in [conventions](./conventions.md).
 
+`pnpm audit` exits 1 even on a fresh lockfile, on four accepted advisories
+that no release inside the catalog ranges fixes. All four sit in the vite
+5.4.21 and esbuild 0.21.5 that vitepress 1.x requires (`vite ^5.4.14`), the
+fixes ship in vite 6.4.3 and esbuild 0.25.0, and each reaches only a running
+dev server, never a build or CI.
+
+| Advisory | Package | Why it is accepted |
+| --- | --- | --- |
+| [GHSA-fx2h-pf6j-xcff](https://github.com/advisories/GHSA-fx2h-pf6j-xcff) | vite | It needs a dev server exposed to the network on Windows, and `pnpm docs:*:dev` binds to localhost. |
+| [GHSA-4w7w-66w2-5vf9](https://github.com/advisories/GHSA-4w7w-66w2-5vf9) | vite | It needs a dev server exposed to the network, and `pnpm docs:*:dev` binds to localhost. |
+| [GHSA-v6wh-96g9-6wx3](https://github.com/advisories/GHSA-v6wh-96g9-6wx3) | vite | It needs Windows with NTLM on and a hostile page open while a docs dev server runs. |
+| [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99) | esbuild | It is in esbuild's own serve mode, which vite never starts. |
+
+The table empties when vitepress moves off vite 5. Any other advisory left
+after the skill's audit step either gets a fix or joins the table with its
+reason, in the same pull request.
+
 First run turns on required SHA pinning for actions, which makes GitHub refuse
 a workflow that references an action by a mutable tag. The check reaches
 inside a pinned composite action too, so an action bump waits until the new
@@ -140,8 +159,21 @@ gh api -X PUT repos/OWNER/REPO/actions/permissions -F enabled=true -f allowed_ac
 the official TypeScript-and-node image at node 24, the Claude Code and GitHub
 CLI Dev Container features, `pnpm install` after creation, the editor
 extensions the repo already recommends, the two VitePress dev-server ports
-forwarded, and the pnpm store on a named volume, so a rebuild copies packages
-from it instead of downloading them again.
+forwarded, and the pnpm home on a volume of its own.
+
+The volume is named `pnpm-home-${devcontainerId}`, and the id is derived from
+the checkout's path. So the volume belongs to this checkout's container alone
+and survives a rebuild, which then copies packages from it instead of
+downloading them again. For a clean slate, find the volume's name under
+`Mounts` in `docker inspect <container>`, remove the container, then delete
+the volume with `docker volume rm <name>`.
+
+The pnpm home holds the store and the pnpm binary that `packageManager`
+switches to. Docker shares a named volume with every container that names it,
+so a fixed name would let an agent in one repository plant code that another
+repository's container runs. `pnpm test:gates` fails a devcontainer config
+whose `mounts` names a volume without `${devcontainerId}` in its name; it does
+not read `runArgs` or a compose file.
 
 The container runs as the non-root `node` user, and Docker creates the
 volume's mount point owned by root, so the post-create step first hands it to
@@ -154,22 +186,102 @@ version `packageManager` pins but, unlike corepack, does not check the
 download against the pin's hash. Corepack's shims would land in a root-owned
 directory behind it on the path, so the container does not enable corepack.
 
-Open it with VS Code's "Reopen in Container", a GitHub Codespace, or the
-`devcontainer` CLI. Inside it an unattended agent run cannot reach your keys,
-your other repos, or anything outside the mounted workspace.
+How you open the container decides which of your credentials it carries in.
+Start an unattended agent run with the `devcontainer` CLI:
+
+```sh
+pnpm dlx @devcontainers/cli up --workspace-folder .
+pnpm dlx @devcontainers/cli exec --workspace-folder . claude
+```
+
+- The `devcontainer` CLI forwards no host credentials: no SSH agent, no git
+  or Docker credential helper, and no `~/.gitconfig`.
+- VS Code's "Reopen in Container" forwards your SSH agent through a socket
+  under `/tmp`, answers git and Docker credential requests from your host's
+  helpers, and copies `~/.gitconfig`, so an agent in it can push anywhere you
+  can. The `dev.containers.*` user settings only skip writing that setup into
+  the container's config, and `"remoteEnv": { "SSH_AUTH_SOCK": "" }` hides the
+  variable but not the socket. Keep VS Code for interactive work.
+- A GitHub Codespace carries a `GITHUB_TOKEN` that can push to the
+  repository, plus every Codespaces secret you have given it.
+
+The CLI keeps your credentials out, not your checkout: it mounts your host
+folder writable, as VS Code does. Code an agent writes there runs on your host
+the next time a host tool loads it:
+
+- git runs the commands `.git/config` names and the hooks in `.git/hooks`: a
+  `core.fsmonitor` or a `post-index-change` hook at your next `git status`,
+  and at your next commit the commit hooks with the lint-staged, ESLint, and
+  commitlint configs they load.
+- `devcontainer up` runs the `initializeCommand` in
+  `.devcontainer/devcontainer.json` every time, and a mount or `runArgs` entry
+  added there takes effect at the next rebuild.
+- pnpm runs the package scripts, and the files under `node_modules` they call,
+  the next time you run it outside the container.
+
+So after an unattended run, read `.git/config`, and every file in `.git/hooks`
+that lacks a `.sample` suffix, with `cat` before any git command. Then review
+everything the run changed, its commits included, before you commit, run pnpm,
+or run `devcontainer up` in that folder on your host. `git status` does not
+show `node_modules`, so delete it before your first pnpm command there.
 
 Egress control is the opt-in second step because it needs Linux container
-privileges. Copy Anthropic's reference `init-firewall.sh` (the
-`.devcontainer/` folder of the anthropics/claude-code repository) into
-`.devcontainer/`, add `"runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"]`
-and `"postStartCommand": "sudo /usr/local/bin/init-firewall.sh"` to the JSON,
-and install `iptables` and `ipset` in a small Dockerfile. The script allows
-only the npm registry, GitHub, and the Anthropic API, so a prompt-injected
-agent has nowhere to send data.
+privileges. Anthropic's reference `init-firewall.sh` (the `.devcontainer/`
+folder of the anthropics/claude-code repository) narrows egress without
+closing it: DNS and SSH stay open to any host, the Docker host's network stays
+reachable, and GitHub and the npm registry accept writes, so a token an
+attacker plants in a prompt still gets data out. Read your copy of the script
+before relying on it.
+
+To add it:
+
+1. Copy `init-firewall.sh` into `.devcontainer/`.
+2. Add `.devcontainer/Dockerfile`, built from the image the JSON names now. It
+   installs the tools the script calls, puts the script on the path, and
+   creates the pnpm home owned by `node`. The image gives `node` passwordless
+   sudo for every command, and with `NET_ADMIN` that is enough to flush the
+   rules, so the Dockerfile narrows sudo to the script:
+
+   ```dockerfile
+   FROM mcr.microsoft.com/devcontainers/typescript-node:24-bookworm
+   RUN apt-get update \
+     && apt-get install -y --no-install-recommends iptables ipset dnsutils aggregate \
+     && rm -rf /var/lib/apt/lists/*
+   COPY init-firewall.sh /usr/local/bin/init-firewall.sh
+   RUN chmod +x /usr/local/bin/init-firewall.sh \
+     && mkdir -p /home/node/.local/share/pnpm \
+     && chown -R node:node /home/node/.local \
+     && echo 'node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh' > /etc/sudoers.d/node \
+     && chmod 0440 /etc/sudoers.d/node
+   ```
+
+3. In `devcontainer.json`, replace the `"image"` line with a build of that
+   file, and add the two capabilities, the post-start step, and a wait for it.
+   The post-create step drops its `sudo chown`, which the narrowed sudo
+   refuses: a new volume takes its owner from the folder it mounts over, and
+   the Dockerfile made that folder `node`'s.
+
+   ```jsonc
+   {
+     "build": { "dockerfile": "Dockerfile" },
+     "postCreateCommand": "pnpm install",
+     "runArgs": ["--cap-add=NET_ADMIN", "--cap-add=NET_RAW"],
+     "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+     "waitFor": "postStartCommand"
+     // The other keys stay as they are.
+   }
+   ```
+
+4. Rebuild the container and check that the post-start output ends with a
+   `Firewall verification passed` line. The script flushes every rule before
+   it adds its own, so a run that stops partway, on a missing tool or a failed
+   lookup, leaves the container running with egress wide open.
 
 Claude Code itself does not need the firewall or the capabilities; leave them
 out if your own network controls cover it. Never mount host secrets into the
-container; pass what an agent needs as environment variables.
+container, and never start an unattended run through VS Code or a Codespace,
+which forward them for you. Pass only what an agent needs, such as an API key,
+as an environment variable.
 
 ## Growth paths
 
@@ -190,16 +302,35 @@ your own:
   package's through turbo, so it is in the done gate and in CI with no workflow
   edit. A variable the test reads is declared under the task's `env` in
   `turbo.json`, which is yours.
+- A suite of your own at `scripts/test-*.mts` that starts a process first
+  drops the inherited `GIT_` variables: copy the two lines below the imports of
+  `scripts/test-hooks.mts`. `pnpm test:gates` fails a suite that starts one
+  before them. A git hook or `git rebase --exec` exports `GIT_DIR`, and a
+  `git init` run under it in a temp folder re-initialises the repository
+  running the suite.
 - A step that needs what the synced workflows lack goes in a workflow of your
   own, such as `.github/workflows/project.yml`: a service such as Postgres, a
-  secret, a schedule, or typos (crate-ci/typos) spell-checking the docs. Pin
-  its actions by full commit SHA, since first run turns on required SHA
-  pinning. The done gate has no extension point, so such a step checks in CI
-  only.
-- A step of your own that runs `pnpm <script>` but is not a gate, such as an
-  e2e or deploy step, ends its line with `# not a gate`. Otherwise
-  `pnpm test:gates`, which keeps `pnpm verify` and the workflows running the
-  same steps, fails on it.
+  secret, a schedule, or typos (crate-ci/typos) spell-checking the docs. The
+  done gate has no extension point, so such a step checks in CI only.
+- Pin each action of such a workflow as
+  `uses: owner/repo@<40-hex sha> # vX.Y.Z`, the full commit SHA with its
+  exact version in a trailing comment: first run turns on required SHA
+  pinning, and `pnpm test:gates` refuses any other form. A workflow that runs
+  a verify gate script, such as a nightly `pnpm test`, also runs on
+  `pull_request`, or that line ends with `# not a gate`. One that caches
+  `.turbo` keys the cache, restore keys included, on the exact node, the
+  `node-version` output of its setup-node step, as `ci.yml` does.
+- A step of your own that runs `pnpm` but is not a gate, such as an e2e or
+  deploy step, ends its line with `# not a gate`. So does a call that runs no
+  root script the way `pnpm verify` does: one after a `cd <dir> &&` anywhere
+  earlier on its line, or with a flag before the script, such as
+  `pnpm --filter web e2e` or `pnpm -r test`.
+  Otherwise `pnpm test:gates`, which keeps `pnpm verify`, the workflows, and
+  the AGENTS.md Commands list naming the same gates, fails on it.
+- `pnpm test:gates` reads a line whose command starts with `pnpm`, after any
+  `NAME=value` assignments and one `cd <dir> &&`. It does not see a
+  `working-directory:` key or a `cd` on an earlier line, so put the `cd` on
+  the line of the call.
 - lychee checks external URLs; run it scheduled (weekly) and advisory, since
   external links rot on their own schedule.
 - Coverage thresholds are vitest `coverage.thresholds` plus the `text-summary`

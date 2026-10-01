@@ -1,5 +1,9 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  // From 2.11.5, turbo writes its own block into AGENTS.md before any run an agent starts: a
+  // second H1 the markdown lint rejects. Opting out stops the writes but never removes a block
+  // already written; a turbo older than 2.11.5 rejects the key. Why: docs/template/conventions.md.
+  "agentGuidance": false,
   "globalDependencies": ["tsconfig.base.json", "pnpm-workspace.yaml", ".node-version"],
   // Never talk to a remote cache by default; a project opts in deliberately (turbo login/link).
   "remoteCache": { "enabled": false },

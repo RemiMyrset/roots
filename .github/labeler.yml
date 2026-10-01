@@ -3,7 +3,9 @@
 # defined in labels.yml.
 spec:
   - changed-files:
-      - any-glob-to-any-file: docs/internal/specs/**
+      - any-glob-to-any-file:
+          - docs/internal/specs/**
+          - docs/template/sync-template.md
 decision:
   - changed-files:
       - any-glob-to-any-file: docs/internal/decisions/**

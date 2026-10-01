@@ -12,9 +12,20 @@ Thumbs.db
 # VitePress cache (its dist/ output is covered by the dist/ rule above)
 docs/**/.vitepress/cache/
 
-# Environment files: never commit; a future .env.example is the one allowed exception
+# Environment files: never commit. The lowercase names mirror the secret-read guard: `.env` and
+# `.envrc` alone or with a `.`, `-`, `_`, or `~` suffix (an editor backup, a direnv override), and
+# never `.env*`, which would also catch `.environment`. `.env.example` is the one allowed
+# exception; `pnpm test:gates` checks the set.
 .env
 .env.*
+.env-*
+.env_*
+.env~*
+.envrc
+.envrc.*
+.envrc-*
+.envrc_*
+.envrc~*
 !.env.example
 
 # Other secret material — the repo-shaped subset of the Read-deny + shell-guard secret set
@@ -26,7 +37,6 @@ secrets/
 *.p12
 *.pfx
 *.jks
-.envrc
 .netrc
 _netrc
 .git-credentials
@@ -43,3 +53,6 @@ docs/.obsidian/*
 # Per-developer Claude Code settings (team-wide settings.json IS committed)
 .claude/settings.local.json
 CLAUDE.local.md
+
+# Claude Code worktrees: other checkouts, whose files are not this one's to scan or check
+.claude/worktrees/

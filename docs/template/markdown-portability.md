@@ -39,10 +39,17 @@ frontmatter.
    relatively: `![alt](./images/x.png)`. Never VitePress `public/`-rooted
    `/x.png` paths, never Obsidian embeds. A page under `docs/public/` links and
    embeds nothing outside `docs/public/`: the public build bundles what a page
-   embeds, so an image from `docs/internal/` would be published. The build
+   embeds, so an image from `docs/internal/` would be published. A footnote
+   line such as `[^1]: ../x.png` counts: VitePress bundles no footnote plugin,
+   so it reads the line as a reference definition. The build
    follows symlinks, so the checker refuses one under `docs/public/` that
    leads out of it, a page or a directory, and resolves each link through
    them. A link to `docs/public/` itself, such as `[home](./)`, is inside.
+   An automd region on a public page reads nothing outside `docs/public/`
+   either: its `src`, relative to the page or from the repository root with a
+   leading `/`, must resolve inside, and a `decisionsIndex` or `specIndex`
+   region, which lists the handbook, is refused. The checker reads a region in
+   fenced code too, since automd fills it there.
 5. **Headings**: exactly one H1 per page, and unique text per file. The
    checker keys on the GitHub slug, so two headings that differ only in case or
    punctuation are duplicates. Backticks, emoji, and non-ASCII characters in a
@@ -58,26 +65,68 @@ frontmatter.
    GitHub and Obsidian render them natively; the internal site through the
    bundled plugin; the public site only once its config export is wrapped in
    `withMermaid()` the way the internal config is, because the plugin preloads
-   about 500 KB of diagram code on every visit and ships off until a public
-   page needs it.
+   about 2 MB of minified diagram code (about 600 KB compressed) on every
+   visit and ships off until a public page needs it.
 8. **Emoji** are real Unicode characters, never `:shortcode:` colon codes
    (Obsidian renders those literally).
 9. **HTML** is limited to `<details>`/`<summary>` and `<br>`; the checker
    rejects every other tag, one whose attributes run onto the next line
    included. Inline code is exempt on every line it spans: a generic type in
-   backticks that wraps onto the next line is code, not a tag. VitePress
+   backticks that wraps onto the next line is code, not a tag. An HTML block's
+   lines hold no inline code, so a tag in backticks there is checked. VitePress
    compiles every page as a Vue template
    and evaluates two opening braces in a row as an interpolation, in inline
    code as much as in prose, so the checker rejects them anywhere but fenced
    code: show one in a fenced block. A single brace, or a `<` that opens no
    tag, renders as plain text.
-10. **Single-sourcing** goes through automd; never VitePress `@include` or `<<<`
-    snippet syntax.
-11. GFM tables (kept simple), task lists, footnotes, fenced code with language
-    tags, standard emphasis, lists, and blockquotes are **freely portable**.
-    The checker skips fenced code at the top level, in a blockquote, and in a
-    list item at the item's indent; code indented four spaces instead of fenced
-    is checked as prose.
+10. **Single-sourcing** goes through automd, with its source inside
+    `docs/public/` on a public page (rule 4); never VitePress `@include` or
+    `<<<` snippet syntax. VitePress expands an HTML comment holding `@include:`
+    before it parses the page, in fenced and inline code too and with the path
+    on a later line, so the checker refuses every one. To show the syntax, drop
+    the comment opener and write `@include: ./file.md` alone. A `<<<` line
+    embeds a file from a list item or a blockquote as well as from the top
+    level.
+11. GFM tables (kept simple), task lists, fenced code with language tags,
+    standard emphasis, lists, and blockquotes are **freely portable**.
+    Footnotes render on GitHub and in Obsidian only: VitePress bundles no
+    footnote plugin (rule 4). The checker skips fenced code at the top level,
+    in a blockquote, and in a list item at the item's indent; code indented
+    four spaces instead of fenced is checked as prose. Two things are read
+    inside fenced code anyway, because their tools read them there: an
+    `@include` comment (rule 10) and an automd region on a public page
+    (rule 4).
+
+The checker reads a page's blocks as VitePress 1.6.4 reads them before it
+decides what a comment or a code span hides. A paragraph ends at an empty line,
+a heading, a fence, a thematic break, a list item, a blockquote, a table's
+header row, and an HTML block's start: a line that opens with a tag other than
+an inline one (`<details>` and `<summary>`, not `<br>`), or with `<!--`, `<?`,
+or `<!X`. A line holding only a `<br>` opens an HTML block where no paragraph
+runs on into it.
+
+An HTML block runs to an empty line, and its lines are HTML: a backtick there
+opens no code span and no fence. A table row splits at its pipes first, so a
+code span or a comment in it ends at a pipe. A line-start `<!--` above a
+table's delimiter row heads the table and opens no block.
+
+The checker skips an HTML comment as VitePress reads it. A `<!--` that starts
+a line opens a block that hides lines until its `-->` or the end of the quote
+or list item holding it, and VitePress also ends one in a list item at an empty
+line.
+
+Anywhere else, a comment hides text only when VitePress's inline grammar
+accepts it and its `-->` stands in the same paragraph or table cell. That
+grammar is strict: `<!-- a -- b -->`, whose text holds `--`, hides nothing, and
+neither do `<!-->`, `<!--->`, `\<!--`, a `<!--` inside a code span, or one in
+a link's destination or title. To comment out a line that uses `--` as a dash,
+start the comment at the start of the line.
+
+The checker can still miss text VitePress shows in three layouts: a blockquote
+opened after a list marker (`- > text`), a quote's later line whose `>` is
+indented four or more spaces, and a backtick in a link's destination or title,
+which it pairs with one outside the link. Keep a public page's comments and
+code spans out of these.
 
 Obsidian users open `docs/` as the vault. The committed
 `docs/.obsidian/app.json` turns markdown links on with relative link format, so

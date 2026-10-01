@@ -64,3 +64,14 @@ A [newline-padded absolute](
 
 A stray ` backtick, then a split <img
   src="x.png"> tag.
+
+> [qabs]: /abs.md
+> [qbr]: ./missing.md
+
+- [lbr]: ./missing.md
+
+> [qnext]:
+> ./missing.md
+
+- [lnext]:
+  ./missing.md

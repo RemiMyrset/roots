@@ -1,7 +1,9 @@
 {
-  // The egress firewall is an opt-in recipe (docs/template/docs-toolchain.md, "Sandbox agents
-  // in a devcontainer"). Features float on their major like the image tag, so a rebuild takes
-  // their updates; a new major is a hand edit, and the Claude Code feature tracks the CLI's releases.
+  // Start an unattended agent run with the devcontainer CLI, not VS Code or a Codespace. Why, what
+  // the CLI still leaves open, and the opt-in egress firewall are in
+  // docs/template/docs-toolchain.md, "Sandbox agents in a devcontainer". Features float on their
+  // major like the image tag, so a rebuild takes their updates; a new major is a hand edit, and
+  // the Claude Code feature tracks the CLI's releases.
   "image": "mcr.microsoft.com/devcontainers/typescript-node:24-bookworm",
   "features": {
     "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
@@ -12,7 +14,11 @@
   "remoteUser": "node",
   // The two VitePress dev servers (internal, then public) bind the next free port from 5173.
   "forwardPorts": [5173, 5174],
-  "mounts": ["source=roots-pnpm-store,target=/home/node/.local/share/pnpm,type=volume"],
+  // The pnpm home holds the store and the pnpm binary `packageManager` switches to. Docker shares
+  // a named volume with every container that names it, so a fixed name would let an agent in one
+  // repository plant code another repository's container runs. ${devcontainerId} is derived
+  // from the checkout's path, so the volume is this container's alone and survives a rebuild.
+  "mounts": ["source=pnpm-home-${devcontainerId},target=/home/node/.local/share/pnpm,type=volume"],
   "customizations": {
     "vscode": {
       "extensions": ["editorconfig.editorconfig", "dbaeumer.vscode-eslint"]

@@ -32,7 +32,8 @@ generated `.agents/skills/` mirror); path-scoped rules live in `.claude/rules/`
 | Agent guard threat model | [guards](./docs/template/guards.md) |
 | How each agent tool reads the rulebook, guards, skills, and writing rules | [agent-surfaces](./docs/template/agent-surfaces.md) |
 | Template sync recipe and contract | [sync-template](./docs/template/sync-template.md) |
-| Setup, install, quickstart | [README.md](./README.md) |
+| Setup and install | [README.md](./README.md) |
+| Branch names and the PR flow | [CONTRIBUTING.md](./CONTRIBUTING.md) |
 <!-- This table is the canonical-home map. Add one row per fact as homes appear
      (ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
      design/). A fact with no row gets one home and one row. -->
@@ -51,11 +52,17 @@ affect passes clean after your last edit. When unsure which apply, run
 - Test hooks: `pnpm test:hooks` (agent guard allow/deny fixtures)
 - Test sync: `pnpm test:sync` (template-sync fixtures)
 - Test docs: `pnpm test:docs` (docs checker fixtures)
-- Test gates: `pnpm test:gates` (verify and the workflows run the same steps; the rules
-  the gates rely on hold in the workflows, ESLint, lint-staged, turbo, and package tsconfigs)
+- Test gates: `pnpm test:gates` (verify, the workflows, and this list name the same gates;
+  the rules the gates rely on hold in the workflows, ESLint, lint-staged, turbo, package
+  tsconfigs, the install hook, verify's drift gate, the secret scan, and `.gitignore`;
+  changelogen sends no commit author's email out unless `changelog.excludeAuthors` lists
+  names, and the release script refuses a dirty tree; the devcontainer's `mounts` share no
+  volume with another repository's container; each `scripts/test-*.mts` suite drops the
+  inherited `GIT_` variables before it starts a process)
 - Typecheck: `pnpm typecheck`
-- Lint: `pnpm lint` — run `pnpm lint:fix` after making code changes
-- Secrets: `pnpm lint:secrets` (secretlint over every tracked file; also in lint-staged)
+- Lint: `pnpm lint`. Run `pnpm lint:fix` after making code changes.
+- Secrets: `pnpm lint:secrets` (secretlint over every tracked file, a force-added gitignored
+  one included, and every untracked file `.gitignore` does not exclude; also in lint-staged)
 - Boundaries: `pnpm boundaries` (turbo: imports stay inside their package unless by
   package name, and every imported package is declared)
 - Docs, regenerate: `pnpm docs:gen` (the `.agents/skills` mirror and any automd region)
@@ -90,7 +97,8 @@ Other commands, never part of done and never run to prove it:
   and body lines under 100 (commitlint), and NEVER bypass a git hook (guard-enforced):
   fix the failing check.
 - ALWAYS give every exported symbol a `/** */` block saying what it is for and what
-  a caller cannot see from the signature (presence is lint-enforced; content is on you).
+  a caller cannot see from the signature (presence is lint-enforced, a tool config's
+  default export aside; content is on you).
 - NEVER push to a protected branch: `PROTECTED_BRANCHES` in the `env` block of
   `.claude/settings.json`, default `main` (guard-enforced; the GitHub ruleset is the
   server-side boundary). Feature branches push and open PRs freely; merging is a
@@ -108,7 +116,7 @@ Other commands, never part of done and never run to prove it:
 For minor implementation choices such as naming, file placement, the shape of a
 refactor, or which of two equivalent approaches, pick a reasonable option and
 note it in the PR description. Ask first only for a change in scope, a new
-dependency, deleting user data or git history, or anything a hook blocks.
+dependency, deleting user data or git history, or anything a guard denies.
 
 ## Spec discipline
 
@@ -119,9 +127,9 @@ before touching behavior.
 
 ## Monorepo map
 
-- `packages/example-package` — `@repo/example-package`, sample library; replace
+- `packages/example-package`: `@repo/example-package`, sample library; replace
   it with (or rename it to) your first real package.
-- `apps/example-app` — `@repo/example-app`, sample CLI consuming the package over
+- `apps/example-app`: `@repo/example-app`, sample CLI consuming the package over
   `workspace:*` (`pnpm --filter @repo/example-app start`); replace it with your
   first real app.
 <!-- One line per package and its purpose, nothing else. A stale map is worse
@@ -136,8 +144,9 @@ is a lint error).
 A package with its own conventions gets a scoped `AGENTS.md` (same 200-line
 budget) plus a sibling `CLAUDE.md` holding only `@AGENTS.md`. The pairing is for
 Claude Code, which discovers nested `CLAUDE.md` and never nested `AGENTS.md` (the
-import resolves relative to the file holding it); Codex and Gemini read the
-nested `AGENTS.md` directly.
+import resolves relative to the file holding it). When Codex and Gemini load a
+nested `AGENTS.md` is under
+[agent-surfaces](./docs/template/agent-surfaces.md#nested-rulebooks).
 
 ## Gotchas
 

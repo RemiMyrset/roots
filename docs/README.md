@@ -2,7 +2,10 @@
 
 Three folders, three readers. The public site builds from `public/`, and
 `pnpm docs:portability` fails a public page that links or embeds a file outside
-it and a symlink in it that leads out, so internal content cannot leak into it.
+it or fills an automd region from a `src` outside it, and a symlink in it that
+leads out. That keeps internal content out of the site, except in the page
+layouts [markdown-portability](./template/markdown-portability.md#rules) says
+the checker can miss.
 
 - [internal/](./internal/index.md) is the engineering handbook: decisions,
   specs, and this project's own guides. VitePress renders it

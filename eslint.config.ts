@@ -1,10 +1,27 @@
 import antfu from '@antfu/eslint-config'
 
+/**
+ * The `jsdoc/require-jsdoc` options: `publicOnly` limits the check to ESM exports, the
+ * `require` keys cover exported functions in every spelling, and the contexts add exported
+ * interfaces, type aliases, and plain values. A default export is added below, outside a tool
+ * config.
+ */
+const docBlocks = {
+  publicOnly: true,
+  require: { FunctionDeclaration: true, ArrowFunctionExpression: true, FunctionExpression: true },
+  contexts: ['TSInterfaceDeclaration', 'TSTypeAliasDeclaration', 'ExportNamedDeclaration > VariableDeclaration'],
+}
+
 export default antfu(
   {
     type: 'app',
     typescript: true,
-    ignores: [
+    // antfu ignores every `.claude` directory. The guard sources under `.claude/hooks` are
+    // TypeScript the repo rules hold for, so they are linted; the rest of `.claude` stays out.
+    ignores: originals => [
+      ...originals.filter(glob => glob !== '**/.claude'),
+      '**/.claude/*',
+      '!.claude/hooks/',
       'docs/**/.vitepress/cache',
       'docs/**/.vitepress/dist',
       // Checker fixtures, one of them deliberately broken; linting them would couple two gates
@@ -33,6 +50,10 @@ export default antfu(
         // second `no-restricted-syntax` block would discard the bans above. `\x2F` is a `/`,
         // which an esquery regex cannot contain.
         { selector: 'ImportExpression[source.value=/^\\.\\.?\\x2F.*\\.[cm]?jsx?$/]', message: 'Import the .ts/.mts source: node runs it as written and has no .js file to load.' },
+        // `jsdoc/require-jsdoc` reads a `/** */` block at the declaration, so a symbol exported
+        // through a local list (`export { a }`, `export type { T }`) escapes it. A re-export
+        // (`export { a } from './a.ts'`) is checked where it is declared.
+        { selector: 'ExportNamedDeclaration[declaration=null][source=null][specifiers.length>0]', message: 'Export at the declaration (`export const a`), where jsdoc/require-jsdoc checks its /** */ block.' },
       ],
     },
   },
@@ -89,32 +110,27 @@ export default antfu(
     },
   },
 )
-  // A flat-config rule must be declared in an object that registers its plugin, so the
-  // `eslint-comments` rule is layered onto antfu's own block rather than a new one.
   // Every escape from a rule must carry a written reason (`-- why`) so the exception is
-  // greppable and reviewable; antfu ships this rule off.
+  // greppable and reviewable; antfu ships this rule off. Layered onto antfu's own block.
   .override('antfu/eslint-comments/rules', {
     rules: { 'eslint-comments/require-description': 'error' },
   })
   // Every exported symbol carries a `/** */` block (AGENTS.md rule), enforced here rather
-  // than by convention: `publicOnly` limits the check to ESM exports, the `require` keys cover
-  // exported functions in every spelling, and the contexts add exported interfaces, type
-  // aliases, and plain values. What the block must SAY (purpose plus constraints a caller
-  // cannot see, never a restatement) stays on the author. Layered onto antfu's jsdoc block,
-  // which registers the plugin but leaves this rule off.
+  // than by convention, with `docBlocks` above plus a default export that is no function
+  // (`export default {…}`; the `require` keys already cover a function). A local export list,
+  // which this rule cannot see through, is banned in `repo/ban-class-and-enum`. What the block
+  // must SAY (purpose plus constraints a caller cannot see, never a restatement) stays on the
+  // author. Layered onto antfu's jsdoc block, which registers the plugin but leaves this rule
+  // off.
   .override('antfu/jsdoc/rules', {
     rules: {
-      'jsdoc/require-jsdoc': ['error', {
-        publicOnly: true,
-        require: { FunctionDeclaration: true, ArrowFunctionExpression: true, FunctionExpression: true },
-        contexts: ['TSInterfaceDeclaration', 'TSTypeAliasDeclaration', 'ExportNamedDeclaration > VariableDeclaration'],
-      }],
+      'jsdoc/require-jsdoc': ['error', { ...docBlocks, contexts: [...docBlocks.contexts, 'ExportDefaultDeclaration[declaration.type!=/Function/]'] }],
     },
   })
-// Note: antfu default-ignores `.claude`, so the agent guard sources
-// (`.claude/hooks/*.mts`) are NOT ESLint-linted — intentionally. They are covered by the
-// root tsconfig typecheck (they are in its `include`) and by `pnpm test:hooks` (the behavioural
-// suite in scripts/test-hooks.mts), which is the coverage that actually matters
-// for them. Do not un-ignore them to "add lint": they are not antfu-clean and doing so turns
-// CI red for ~style-only findings on zero-dependency, node-builtin shell-lexing code.
-// Consequence: the class ban above does not reach them; their enums are still caught by tsc.
+  // A tool config's default export is read by its tool, never by a caller, so the default
+  // export alone is exempt there; a named export in a config still needs its block.
+  .append({
+    name: 'repo/tool-config-default-export',
+    files: ['**/*.config.?([cm])ts', '**/.vitepress/config.?([cm])ts'],
+    rules: { 'jsdoc/require-jsdoc': ['error', docBlocks] },
+  })

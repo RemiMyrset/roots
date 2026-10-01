@@ -49,8 +49,9 @@ colon into a sentence.
 
 Chat after an edit: one line naming the file and the change, then how it was
 checked. Commit body: why, in at most three sentences; the subject says what.
-PR body: what changed, why, how it was checked, and any risk, one short
-paragraph each; the template's checklists are ticked, never narrated. Issue:
+PR body: what changed and why under Summary, in one or two sentences, then
+how it was checked and any risk under the reviewer notes, one short paragraph
+each; the template's checklists are ticked, never narrated. Issue:
 the problem, the expected behavior, and how to reproduce, one short paragraph
 each. Docs page: one sentence of purpose, then the shortest path to doing the
 thing; rationale at the end or in a linked page. Code comment: the why or the
@@ -76,7 +77,7 @@ No. The cache is not the bottleneck; the build spends its time in type checking,
 I broke the Windows job: the hook forced an exit inside the stdin handler. Fixed and pushed.
 </example>
 <example type="pr body">
-Adds a SessionStart hook so Codex and Gemini load the writing rules Claude Code applies as its output style. One file feeds all three tools.
+Adds a SessionStart hook so Codex and Gemini load the writing rules Claude Code applies as its output style, one file for all three tools.
 
 Replies and PR bodies were walls of text, and per-artifact rules would sprawl.
 

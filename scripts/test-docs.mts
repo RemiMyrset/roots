@@ -4,21 +4,40 @@
  * record a past bug — plus the readers (readers.mts) called directly and the skills mirror
  * generator (gen-skills.mts). Copies a fixture tree (scripts/docs/fixtures/clean, /broken)
  * to a temp dir, runs each script with that cwd, and asserts the exit code and the messages.
- * Also pins the rulebook budget, the CI-annotation gating, a missing docs dir, the
- * three-step repo-root fallback, the stale-region comparison (with a CRLF checkout), the
- * skills mirror clean, drifted, generated, and absent, a region holding merge conflict
- * lines (named, then repaired by automd), dated and legacy decision records side by side (a
- * legacy-only table byte for byte as before), index pages without regions, `docs:list`, a
- * Status keyword matched whole, Source and Tests values with a line reference or no path,
- * fences nested in list items, inline code wrapped across lines, link targets spelled with a
- * space, percent-encoding, or the wrong case or starting on the next line, public pages that
- * link outside docs/public or to its root, symlinks out of docs/public (made at test time,
- * skipped where the platform refuses one), and the property dated names exist
- * for: two git branches that each add a record merge with no conflict. The skill trees are planted in the copy at test time: a fixture under
- * `.claude/skills` would be listed as a live skill. Runs in CI on Ubuntu and Windows via
- * `pnpm test:docs`. Node builtins only; git runs with an isolated config; the automd runs
- * use the installed automd in a child process and are skipped, with a note, where automd is
- * not installed.
+ * Also pins the rulebook budget (a nested checkout's rulebook left out), the CI-annotation
+ * gating, a missing docs dir, the three-step repo-root fallback, the stale-region comparison
+ * (with a CRLF checkout), the skills mirror clean, drifted, generated, and absent, a region
+ * holding merge conflict lines (named, then repaired by automd), dated and legacy decision
+ * records side by side (a legacy-only table byte for byte as before), index pages without
+ * regions, `docs:list`, a Status keyword matched whole, Source and Tests values with a line
+ * reference, a route-file path (a param matcher and a `%5F` escape too), a wrapped line,
+ * or no path, a stale template page's remedy, sidebar text escaped as HTML and a Status
+ * comment dropped by the readers, fences nested in list items, inline code wrapped across
+ * lines, link targets spelled with a space, percent-encoding, or the wrong case or starting
+ * on the next line, public pages that link outside docs/public or to its root, symlinks out of
+ * docs/public (made at test time, skipped where the platform refuses one), a VitePress include
+ * or snippet in every form VitePress expands, reference definitions in quotes and list items
+ * (the destination on the next line too, the label escaped or wrapped, a `[^label]:` one
+ * on a public page) but not a `[Term]:` followed by prose, automd regions on a public page
+ * (filled by the installed automd to show each refused one leaks, a `ſrc` key among them)
+ * and a multi-line automd opener, text the checker must not blank (after an escaped backtick,
+ * where a list item, a quote, a thematic break, a setext underline, a table's header row, or
+ * an HTML block's start ends the paragraph a stray backtick opened, after a comment opener
+ * its paragraph never closes, below a comment its quote or list item ends, below a `<!--`
+ * in indented code, space- or tab-indented, below a backtick fence whose info string holds
+ * a backtick, in a mid-line comment VitePress's grammar refuses: a `--` in it, `<!-->`, an
+ * escaped `<`, a table cell's pipe, a code span opened first, a link's title holding it,
+ * a nested item's heading, a table, or an HTML block ending the paragraph; and in blocks
+ * read as VitePress reads them: an HTML block's lines, which hold no code span and no fence,
+ * a table's rows, split at their pipes, and list items, lazy lines, and quotes as CommonMark
+ * nests them), while a comment that grammar accepts stays hidden (holding a pipe, in a table
+ * cell or an HTML block, past a lone `<br>`), a tab-indented fence in a list item, a quoted
+ * fence that ends with its quote, and the property dated names exist for: two git branches that
+ * each add a record merge with no conflict. The skill trees are planted in the copy at test
+ * time: a fixture under `.claude/skills` would be listed as a live skill. Runs in CI on Ubuntu
+ * and Windows via `pnpm test:docs`. Node builtins only; git runs with an isolated config; the
+ * automd runs use the installed automd in a child process and are skipped, with a note, where
+ * automd is not installed.
  */
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
@@ -29,6 +48,11 @@ import { pathToFileURL } from 'node:url'
 import { decisionsSidebar, escapeCell, readDecisions, readSpecs, renderDecisionsIndex, specsSidebar } from './docs/readers.mts'
 import { stripFences } from './docs/root.mts'
 import { SKILLS_SOURCE, SKILLS_TARGET } from './docs/skills.mts'
+
+// A git hook or `git rebase --exec` exports GIT_DIR and its kin, which would aim every git this
+// suite starts, the checkers' included, at the repository running it: drop them first.
+for (const key of Object.keys(process.env).filter(k => /^GIT_/i.test(k)))
+  delete process.env[key]
 
 const FIXTURES = join(import.meta.dirname, 'docs', 'fixtures')
 const CHECKERS = {
@@ -54,6 +78,20 @@ function fixture(name: 'clean' | 'broken'): string {
 function plantSkill(dir: string, tree: typeof SKILLS_SOURCE | typeof SKILLS_TARGET, name: string, content: string): void {
   mkdirSync(join(dir, tree, name), { recursive: true })
   writeFileSync(join(dir, tree, name, 'SKILL.md'), content)
+}
+
+/** A SKILL.md whose frontmatter docs:check accepts: its directory's name and a plain description. */
+function skillFile(name: string): string {
+  return `---\nname: ${name}\ndescription: Say what ${name} does and when to use it.\n---\n\n# ${name}\n`
+}
+
+/** Unquoted descriptions YAML reads as a boolean, a number, null, or a YAML 1.1 merge or value key, each planted as its own skill. */
+const NON_STRINGS = [['bool', 'true'], ['number', '123'], ['null-word', 'null'], ['tilde', '~'], ['yes-word', 'yes'], ['infinity', '.inf'], ['merge-key', '<<'], ['value-key', '=']] as const
+
+/** One skill planted in the source and, byte for byte, in the mirror, so only its frontmatter is judged. */
+function plantMirrored(dir: string, name: string, content: string): void {
+  plantSkill(dir, SKILLS_SOURCE, name, content)
+  plantSkill(dir, SKILLS_TARGET, name, content)
 }
 
 interface Run { status: number | null, out: string }
@@ -118,8 +156,41 @@ function runAutomd(cwd: string): Run {
     const file = join(dir, page)
     writeFileSync(file, readFileSync(file, 'utf8').replace('2026-09-07', today))
   }
-  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
-  plantSkill(dir, SKILLS_TARGET, 'x', '# x\n')
+  plantMirrored(dir, 'x', skillFile('x'))
+  // Frontmatter that parses as YAML unchanged: a quoted or folded value may hold ": " and " #",
+  // a plain one "a:b", "a#b", an apostrophe, and a continuation line; comments, blank lines,
+  // other keys, and CRLF endings pass, and a directory without a SKILL.md is no skill.
+  plantMirrored(dir, 'quoted', '---\nname: "quoted"\ndescription: "Use when: the user says \\"go\\" # twice."\n---\n')
+  plantMirrored(dir, 'folded', '---\nname: folded\ndescription: >\n  Folded: a colon here is text,\n\n  and so is # this.\n---\n')
+  plantMirrored(dir, 'plain', '---\n# a comment line\nname: plain\ndescription: Checks a:b and a#b, the user\'s words,\n  and a second line.\n\nallowed-tools: Read, Grep\n---\n')
+  plantMirrored(dir, 'crlf', '---\r\nname: crlf\r\ndescription: Written on Windows.\r\n---\r\n\r\n# crlf\r\n')
+  // A key holding a nested map or list, as Codex's own skill-creator (metadata) and Claude Code
+  // plugins (allowed-tools, hooks) write them, a list at its key's indent included; '' inside
+  // single quotes, a comment after a closing quote, and an indented comment under a plain value.
+  plantMirrored(dir, 'metadata', '---\nname: metadata\ndescription: Holds a map.\nmetadata:\n  short-description: Short text\n---\n')
+  plantMirrored(dir, 'tool-list', '---\nname: tool-list\ndescription: Holds a list.\nallowed-tools:\n  - Read\n  - Grep\n---\n')
+  plantMirrored(dir, 'tool-list-at-key', '---\nname: tool-list-at-key\ndescription: Holds a list at its key\'s indent.\nallowed-tools:\n- Read\n- Grep\n---\n')
+  plantMirrored(dir, 'hooks', '---\nname: hooks\ndescription: Holds a nested map.\nhooks:\n  PreToolUse:\n    - matcher: Bash\n---\n')
+  plantMirrored(dir, 'doubled-apostrophe', '---\nname: doubled-apostrophe\ndescription: \'It\'\'s fine: really\'\n---\n')
+  plantMirrored(dir, 'quoted-comment', '---\nname: "quoted-comment" # c\ndescription: Fine.\n---\n')
+  plantMirrored(dir, 'indented-comment', '---\nname: indented-comment\ndescription: Fine,\n  on two lines.\n  # an indented comment\n---\n')
+  // A nested key holding a space or a "#"; flow collections that close at the value's end, with
+  // a comment after one, quoted items holding ": " and '', and brackets inside quotes or a comment;
+  // a block scalar whose indent digit lets a later line sit less indented than the first, one
+  // ended by a less-indented comment, and one whose header comment holds a digit that is no
+  // indent digit; \u and \U escapes either side of the surrogates, up to the last character.
+  plantMirrored(dir, 'spaced-key', '---\nname: spaced-key\ndescription: Fine.\nmetadata:\n  short description: x\n  a#b: y\n---\n')
+  plantMirrored(dir, 'flow-comment', '---\nname: flow-comment\ndescription: Fine.\nargument-hint: [message] # c\n---\n')
+  plantMirrored(dir, 'flow-quoted', '---\nname: flow-quoted\ndescription: Fine.\nallowed-tools: [Read, "Bash(git: x)", \'it\'\'s\']\n---\n')
+  plantMirrored(dir, 'flow-lines', '---\nname: flow-lines\ndescription: Fine.\nx: {a: "b]", c: [d, # ]\n  e]}\n---\n')
+  plantMirrored(dir, 'block-digit', '---\nname: block-digit\ndescription: |2\n    text\n  more\n---\n')
+  plantMirrored(dir, 'block-header-digit', '---\nname: block-header-digit\ndescription: > # 4 lines\n  text\n---\n')
+  plantMirrored(dir, 'escapes', '---\nname: escapes\ndescription: "Use \\uD7FF \\uE000 \\U00000041 \\U0001F600 \\U0010FFFF."\n---\n')
+  plantMirrored(dir, 'block-comment', '---\nname: block-comment\ndescription: >\n  text\n # a comment\n---\n')
+  for (const tree of [SKILLS_SOURCE, SKILLS_TARGET]) {
+    mkdirSync(join(dir, tree, 'notes'), { recursive: true })
+    writeFileSync(join(dir, tree, 'notes', 'README.md'), '# Notes\n')
+  }
   const c = run('docs:check', dir, withoutCi)
   check('clean docs:check exits 0', c.status === 0, c.out)
   check('clean docs:check counts records', c.out.includes('✔ docs:check — 4 decision(s)'), c.out)
@@ -133,10 +204,98 @@ function runAutomd(cwd: string): Run {
 // in all three forms: a source without a copy, a copy that differs, a copy without a source.
 {
   const dir = fixture('broken')
-  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
-  plantSkill(dir, SKILLS_SOURCE, 'y', '# y\n')
-  plantSkill(dir, SKILLS_TARGET, 'x', '# x edited\n')
-  plantSkill(dir, SKILLS_TARGET, 'z', '# z\n')
+  plantSkill(dir, SKILLS_SOURCE, 'x', skillFile('x'))
+  plantSkill(dir, SKILLS_SOURCE, 'y', skillFile('y'))
+  plantSkill(dir, SKILLS_TARGET, 'x', `${skillFile('x')}edited\n`)
+  plantSkill(dir, SKILLS_TARGET, 'z', skillFile('z'))
+  // Skill frontmatter Codex would skip or read differently. The first is new-adr's
+  // description as it shipped: "yourself: adding" made the whole block invalid YAML.
+  plantMirrored(dir, 'colon-space', '---\nname: colon-space\ndescription: Also use unprompted immediately after making a load-bearing choice yourself: adding or swapping a dependency.\n---\n')
+  plantMirrored(dir, 'hash', '---\nname: hash\ndescription: Run the gate #now.\n---\n')
+  plantMirrored(dir, 'trailing-colon', '---\nname: trailing-colon\ndescription: Use it for:\n---\n')
+  plantMirrored(dir, 'continued', '---\nname: continued\ndescription: The first line is fine,\n  but the second: is not.\n---\n')
+  plantMirrored(dir, 'backtick', '---\nname: backtick\ndescription: `pnpm verify` runs the gate.\n---\n')
+  plantMirrored(dir, 'no-frontmatter', '# No frontmatter\n')
+  plantMirrored(dir, 'unclosed', '---\nname: unclosed\ndescription: Never closed.\n\n# Unclosed\n')
+  plantMirrored(dir, 'wrong-name', '---\nname: other-name\ndescription: Named for another directory.\n---\n')
+  plantMirrored(dir, 'no-name', '---\ndescription: Has no name.\n---\n')
+  plantMirrored(dir, 'empty-description', '---\nname: empty-description\ndescription:\n---\n')
+  plantMirrored(dir, 'empty-folded', '---\nname: empty-folded\ndescription: >\n\n---\n')
+  plantMirrored(dir, 'stray-line', '---\nname: stray-line\ndescription: Fine.\nnot a key\n---\n')
+  plantMirrored(dir, 'twice', '---\nname: twice\nname: twice\ndescription: Named twice.\n---\n')
+  // A description YAML reads as a map or a list, not a string.
+  plantMirrored(dir, 'usage-map', '---\nname: usage-map\ndescription:\n  Usage: now\n---\n')
+  plantMirrored(dir, 'flow-list', '---\nname: flow-list\ndescription: [a, b]\n---\n')
+  plantMirrored(dir, 'nested-name', '---\nname:\n  a: b\ndescription: Fine.\n---\n')
+  // Quoted values YAML rejects: an apostrophe that closes single quotes early, text after the
+  // closing quote, a quote never closed, and a backslash that is no YAML escape.
+  plantMirrored(dir, 'apostrophe', '---\nname: apostrophe\ndescription: \'Use when the user\'s words say so\'\n---\n')
+  plantMirrored(dir, 'quote-trail', '---\nname: quote-trail\ndescription: "Quoted" and more\n---\n')
+  plantMirrored(dir, 'quote-open', '---\nname: quote-open\ndescription: "Never closed\n---\n')
+  plantMirrored(dir, 'bad-escape', '---\nname: bad-escape\ndescription: "C:\\Users\\q"\n---\n')
+  // Other unquoted shapes YAML rejects: text after a comment line, text after a block
+  // indicator, a tab as indentation, a leading "]", and a list item under a plain value.
+  plantMirrored(dir, 'comment-then-text', '---\nname: comment-then-text\ndescription: The first line,\n  # a comment\n  then more.\n---\n')
+  plantMirrored(dir, 'block-header', '---\nname: block-header\ndescription: > inline text\n---\n')
+  plantMirrored(dir, 'tab-indent', '---\nname: tab-indent\ndescription: The first line,\n\tthen a tab.\n---\n')
+  plantMirrored(dir, 'bracket', '---\nname: bracket\ndescription: ] opens it.\n---\n')
+  plantMirrored(dir, 'list-after-plain', '---\nname: list-after-plain\ndescription: Text,\n- then an item\n---\n')
+  // A whitespace-only line opening with a tab, which libyaml rejects too.
+  plantMirrored(dir, 'tab-blank', '---\nname: tab-blank\ndescription: Text,\n\t\n  then more.\n---\n')
+  // A tab after leading spaces, which libyaml rejects as well: the value's first line under an
+  // empty key, a blank line inside a block scalar, a blank line above a list, and a line inside a
+  // block scalar with text after it.
+  plantMirrored(dir, 'tab-after-space', '---\nname: tab-after-space\ndescription:\n \tUse it when the user asks.\n---\n')
+  plantMirrored(dir, 'block-tab-blank', '---\nname: block-tab-blank\ndescription: >\n    Use it.\n  \t\n    More.\n---\n')
+  plantMirrored(dir, 'list-tab-blank', '---\nname: list-tab-blank\ndescription: Fine.\nallowed-tools:\n \t\n  - Read\n---\n')
+  plantMirrored(dir, 'block-tab-line', '---\nname: block-tab-line\ndescription: >\n  a\n \tb\n  c\n---\n')
+  // A space YAML reads as text where JavaScript's \s takes it as indentation: a no-break space
+  // opening a value's first line, U+3000 alone on a blank line, a no-break space after a block
+  // scalar's indicator, and one after a column-0 "-".
+  plantMirrored(dir, 'nbsp-indent', '---\nname: nbsp-indent\ndescription:\n\u00A0\u00A0Use it when the user asks.\n---\n')
+  plantMirrored(dir, 'ideo-blank', '---\nname: ideo-blank\ndescription: Use it\n\u3000\n  when the user asks.\n---\n')
+  plantMirrored(dir, 'nbsp-header', '---\nname: nbsp-header\ndescription: >\u00A0# c\n  Use it.\n---\n')
+  plantMirrored(dir, 'nbsp-dash', '---\nname: nbsp-dash\ndescription: Fine.\nx:\n-\u00A0y\n---\n')
+  // Such a space at a value's end, which YAML keeps as text, unlike JavaScript's trim(): after a
+  // closing quote, a block indicator, or a closing bracket, where YAML rejects it, and after a
+  // name, which it changes. A "#" after one inside a flow collection is text too, so the "}"
+  // after it is no comment, and it mismatches the "[".
+  plantMirrored(dir, 'nbsp-after-quote', '---\nname: nbsp-after-quote\ndescription: "Use it."\u00A0\n---\n')
+  plantMirrored(dir, 'nbsp-after-folded', '---\nname: nbsp-after-folded\ndescription: >\u3000\n  Use it.\n---\n')
+  plantMirrored(dir, 'nbsp-after-flow', '---\nname: nbsp-after-flow\ndescription: Fine.\nx: [a]\uFEFF\n---\n')
+  plantMirrored(dir, 'name-nbsp', '---\nname: name-nbsp\u00A0\ndescription: Fine.\n---\n')
+  plantMirrored(dir, 'flow-nbsp-hash', '---\nname: flow-nbsp-hash\ndescription: Fine.\nx: [a\u00A0#}\n  ]\n---\n')
+  // Escapes libyaml rejects though YAML's grammar has them: a surrogate, and one past U+10FFFF.
+  plantMirrored(dir, 'surrogate-escape', '---\nname: surrogate-escape\ndescription: "Use \\uD800 it."\n---\n')
+  plantMirrored(dir, 'past-unicode-escape', '---\nname: past-unicode-escape\ndescription: "Use \\U00110000 it."\n---\n')
+  // Characters libyaml rejects, or reads as a line break: ESC from pasted colored text, NEL, and
+  // U+2028, which also ends the line a key opens.
+  plantMirrored(dir, 'esc-char', '---\nname: esc-char\ndescription: Use it \x1B[1mnow\x1B[0m.\n---\n')
+  plantMirrored(dir, 'nel-char', '---\nname: nel-char\ndescription: Use it\x85now.\n---\n')
+  plantMirrored(dir, 'ls-char', '---\nname: ls-char\ndescription: Use it\u2028now.\n---\n')
+  // Flow collections that do not close at the value's end: Claude Code's documented
+  // argument-hint shape, text after a closed map, a list never closed, and a list closed by "}".
+  plantMirrored(dir, 'hint-lists', '---\nname: hint-lists\ndescription: Fine.\nargument-hint: [pr-number] [priority] [assignee]\n---\n')
+  plantMirrored(dir, 'map-then-text', '---\nname: map-then-text\ndescription: Fine.\nallowed-tools: {Read} extra\n---\n')
+  plantMirrored(dir, 'flow-open', '---\nname: flow-open\ndescription: Fine.\nargument-hint: [a, b\n---\n')
+  plantMirrored(dir, 'flow-mismatch', '---\nname: flow-mismatch\ndescription: Fine.\nx: [a}\n---\n')
+  // Block scalars with a line indented less than the first, which ends the block; a blank line
+  // above the text holding more spaces than it; and text after the comment that ended a block.
+  plantMirrored(dir, 'folded-dedent', '---\nname: folded-dedent\ndescription: >\n    text\n  more\n---\n')
+  plantMirrored(dir, 'literal-dedent', '---\nname: literal-dedent\ndescription: |\n    text\n  more\n---\n')
+  plantMirrored(dir, 'folded-one-space', '---\nname: folded-one-space\ndescription: >\n  text\n more\n---\n')
+  plantMirrored(dir, 'block-blank-top', '---\nname: block-blank-top\ndescription: >\n     \n  text\n---\n')
+  plantMirrored(dir, 'block-after-comment', '---\nname: block-after-comment\ndescription: >\n   text\n  # c\n   more\n---\n')
+  // A block scalar whose header comment holds a digit, which sets no indentation; and a name in a
+  // block scalar, whose line breaks and spaces YAML keeps: the break that ends it, a blank line
+  // above its text, and, though "-" strips the break, a name in one is refused alike.
+  plantMirrored(dir, 'block-header-dedent', '---\nname: block-header-dedent\ndescription: > # 2 lines\n    text\n  more\n---\n')
+  plantMirrored(dir, 'block-name-blank', '---\nname: >-\n\n  block-name-blank\ndescription: Fine.\n---\n')
+  plantMirrored(dir, 'block-name', '---\nname: |-\n  block-name\ndescription: Fine.\n---\n')
+  plantMirrored(dir, 'block-name-clip', '---\nname: |\n  block-name-clip\ndescription: Fine.\n---\n')
+  // A description YAML reads as a boolean, a number, null, or a merge or value key.
+  for (const [skill, value] of NON_STRINGS)
+    plantMirrored(dir, skill, `---\nname: ${skill}\ndescription: ${value}\n---\n`)
   const c = run('docs:check', dir, withoutCi)
   check('broken docs:check exits 1', c.status === 1, `status ${c.status}`)
   expectAll('broken docs:check', c.out, [
@@ -190,10 +349,91 @@ function runAutomd(cwd: string): Run {
     'docs/internal/specs/cli/no-path.md: Source names no path to check — write the repo-relative path in backticks (`src/feature.ts`), or (pending) before the code exists',
     'docs/internal/specs/cli/no-path.md: Tests names no path to check',
     'docs/internal/specs/cli/wrong-case.md: Source path `readme.md` is README.md on disk; the case must match, or Linux CI fails it',
+    // A route file is a path, and a bullet is read with the indented lines it wraps onto; an
+    // empty bullet names no path rather than taking the next bullet as its value.
+    'docs/internal/specs/cli/routes.md: Source path `src/routes/(group)/+page.ts` does not exist',
+    'docs/internal/specs/cli/routes.md: Source path `src/routes/[id=integer]/+page.svelte` does not exist',
+    'docs/internal/specs/cli/routes.md: Tests path `app/routes/$id.tsx` does not exist',
+    'docs/internal/specs/cli/routes.md: Tests path `app/%5Fprivate/page.tsx` does not exist',
+    'docs/internal/specs/cli/wrapped.md: Source path `src/gone.ts` does not exist',
+    'docs/internal/specs/cli/empty-source.md: Source names no path to check',
+    // A stale spec is re-verified; a stale template page is the template's to re-verify, and a
+    // child syncs it instead of editing it.
+    'docs/internal/specs/cli/stale.md: last reviewed 2020-01-01 (> 180 days ago) — re-verify against the source',
+    'docs/template/aged.md: last reviewed 2020-01-01 (> 180 days ago) — template-owned: in the template, re-verify and bump the date; in a child, run `pnpm sync:template` and never edit the page',
     '.agents/skills/y/SKILL.md: missing — run `pnpm docs:gen` to mirror .claude/skills',
     '.agents/skills/x/SKILL.md: differs from .claude/skills/x/SKILL.md — never hand-edit the mirror',
     '.agents/skills/z/SKILL.md: has no source under .claude/skills — run `pnpm docs:gen` to remove it',
+    '.claude/skills/colon-space/SKILL.md: description is an unquoted value holding ": ", " #", or a colon at a line end, which YAML rejects or cuts short, and then Codex skips the skill; reword it (a comma where the colon was), or quote the whole value',
+    '.claude/skills/hash/SKILL.md: description is an unquoted value holding',
+    '.claude/skills/trailing-colon/SKILL.md: description is an unquoted value holding',
+    '.claude/skills/continued/SKILL.md: description is an unquoted value holding',
+    '.claude/skills/backtick/SKILL.md: description opens with "`", which YAML reserves at the start of an unquoted value; reword the start, or quote the whole value',
+    '.claude/skills/no-frontmatter/SKILL.md: no frontmatter — open the file with a --- line, then `name: no-frontmatter` and `description: ...`, then a closing --- line',
+    '.claude/skills/unclosed/SKILL.md: no frontmatter',
+    '.claude/skills/wrong-name/SKILL.md: name "other-name" must be the directory\'s name, "wrong-name"',
+    '.claude/skills/no-name/SKILL.md: frontmatter has no name — add `name: no-name`, the directory\'s name',
+    '.claude/skills/empty-description/SKILL.md: frontmatter has no description, or an empty one — say what the skill does and when to use it',
+    '.claude/skills/empty-folded/SKILL.md: frontmatter has no description, or an empty one',
+    '.claude/skills/stray-line/SKILL.md: line 4, in the frontmatter, is not a top-level `key: value` line, so YAML fails to parse the block',
+    '.claude/skills/twice/SKILL.md: line 3 sets name a second time, which YAML rejects; keep one',
+    '.claude/skills/usage-map/SKILL.md: description must be a string, not a nested map or list',
+    '.claude/skills/flow-list/SKILL.md: description must be a string, not a nested map or list',
+    '.claude/skills/nested-name/SKILL.md: name must be a string, not a nested map or list',
+    '.claude/skills/apostrophe/SKILL.md: description is a quoted value YAML rejects: it must close at its end, with an apostrophe written \'\' inside single quotes and only YAML escapes inside double quotes',
+    '.claude/skills/quote-trail/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/quote-open/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/bad-escape/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/comment-then-text/SKILL.md: description continues after a comment line, which ends an unquoted value',
+    '.claude/skills/block-header/SKILL.md: description opens a block scalar with "> inline text", which YAML rejects',
+    '.claude/skills/tab-indent/SKILL.md: line 4, in the frontmatter, holds a tab in its indentation, which YAML rejects; indent it with spaces only',
+    '.claude/skills/bracket/SKILL.md: description opens with "]", which YAML reserves at the start of an unquoted value',
+    '.claude/skills/list-after-plain/SKILL.md: line 4, in the frontmatter, is not a top-level `key: value` line',
+    '.claude/skills/tab-blank/SKILL.md: line 4, in the frontmatter, is blank but holds a tab, which YAML rejects; empty the line',
+    '.claude/skills/tab-after-space/SKILL.md: line 4, in the frontmatter, holds a tab in its indentation, which YAML rejects; indent it with spaces only',
+    '.claude/skills/block-tab-blank/SKILL.md: line 5, in the frontmatter, is blank but holds a tab, which YAML rejects; empty the line',
+    '.claude/skills/list-tab-blank/SKILL.md: line 5, in the frontmatter, is blank but holds a tab',
+    '.claude/skills/block-tab-line/SKILL.md: line 5, in the frontmatter, holds a tab in its indentation',
+    '.claude/skills/nbsp-indent/SKILL.md: line 4, in the frontmatter, holds U+00A0 (a space YAML reads as text) in its indentation, which YAML rejects; indent it with spaces only',
+    '.claude/skills/ideo-blank/SKILL.md: line 4, in the frontmatter, is blank but holds U+3000 (a space YAML reads as text), which YAML rejects; empty the line',
+    '.claude/skills/nbsp-header/SKILL.md: description opens a block scalar with ">\u00A0# c", which YAML rejects',
+    '.claude/skills/nbsp-dash/SKILL.md: line 5, in the frontmatter, is not a top-level `key: value` line',
+    '.claude/skills/nbsp-after-quote/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/nbsp-after-folded/SKILL.md: description opens a block scalar with ">　", which YAML rejects',
+    '.claude/skills/nbsp-after-flow/SKILL.md: x opens a flow collection with "[" that does not close at the end of the value',
+    '.claude/skills/name-nbsp/SKILL.md: name "name-nbsp " must be the directory\'s name, "name-nbsp"',
+    '.claude/skills/flow-nbsp-hash/SKILL.md: x opens a flow collection with "[" that does not close at the end of the value',
+    '.claude/skills/surrogate-escape/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/past-unicode-escape/SKILL.md: description is a quoted value YAML rejects',
+    '.claude/skills/esc-char/SKILL.md: line 3, in the frontmatter, holds U+001B, a character YAML rejects or reads as a line break; remove it',
+    '.claude/skills/nel-char/SKILL.md: line 3, in the frontmatter, holds U+0085, a character YAML rejects or reads as a line break; remove it',
+    '.claude/skills/ls-char/SKILL.md: line 3, in the frontmatter, holds U+2028',
+    '.claude/skills/hint-lists/SKILL.md: argument-hint opens a flow collection with "[" that does not close at the end of the value, which YAML rejects; close it there, or quote the whole value',
+    '.claude/skills/map-then-text/SKILL.md: allowed-tools opens a flow collection with "{" that does not close at the end of the value',
+    '.claude/skills/flow-open/SKILL.md: argument-hint opens a flow collection with "[" that does not close at the end of the value',
+    '.claude/skills/flow-mismatch/SKILL.md: x opens a flow collection with "[" that does not close at the end of the value',
+    '.claude/skills/folded-dedent/SKILL.md: description is a block scalar with a line indented less than its first text line, which ends the block, so YAML rejects the line; indent every line at least as far',
+    '.claude/skills/literal-dedent/SKILL.md: description is a block scalar with a line indented less than its first text line',
+    '.claude/skills/folded-one-space/SKILL.md: description is a block scalar with a line indented less than its first text line',
+    '.claude/skills/block-blank-top/SKILL.md: description is a block scalar with a blank line above its first text line that holds more spaces than that line, which YAML rejects; empty the blank line',
+    '.claude/skills/block-after-comment/SKILL.md: description is a block scalar with text after a comment indented less than the block, which ends it, so YAML rejects the text; indent the comment with the text, or drop it',
+    '.claude/skills/block-header-dedent/SKILL.md: description is a block scalar with a line indented less than its first text line',
+    '.claude/skills/block-name-clip/SKILL.md: name is a block scalar, whose line breaks and spaces YAML keeps, so it can differ from the directory\'s name; write `name: block-name-clip` on one line',
+    '.claude/skills/block-name-blank/SKILL.md: name is a block scalar, whose line breaks and spaces YAML keeps',
+    '.claude/skills/block-name/SKILL.md: name is a block scalar, whose line breaks and spaces YAML keeps',
+    ...NON_STRINGS.map(([skill]) => `.claude/skills/${skill}/SKILL.md: description is an unquoted value YAML reads as other than a string (null, a boolean, a number, a date, \`<<\`, or \`=\`); reword it, or quote it`),
   ])
+  check('a path inside a comment that wraps is not checked', !c.out.includes('src/ignored.ts'), c.out)
+  check('a template page\'s stale warning does not ask a child to re-verify it', !c.out.includes('docs/template/aged.md: last reviewed 2020-01-01 (> 180 days ago) — re-verify against the source'), c.out)
+  check('a skill with valid frontmatter raises no frontmatter error', !c.out.includes('.claude/skills/x/SKILL.md: ') && !c.out.includes('.claude/skills/y/SKILL.md: '), c.out)
+  check('a skill frontmatter break is reported once', c.out.split('.claude/skills/colon-space/SKILL.md: ').length === 2, c.out)
+  check('a name that is no string is not also reported missing', c.out.split('.claude/skills/nested-name/SKILL.md: ').length === 2, c.out)
+  check('a description that is no string is not also reported empty', c.out.split('.claude/skills/null-word/SKILL.md: ').length === 2, c.out)
+  check('a blank line opening with a tab is reported once', c.out.split('.claude/skills/tab-blank/SKILL.md: ').length === 2, c.out)
+  // Each break is reported once: a line with a tab stands for the value it continues, so that is
+  // not also an empty description, nor the line after it a stray one.
+  for (const skill of ['tab-after-space', 'block-tab-blank', 'list-tab-blank', 'block-tab-line', 'esc-char', 'nel-char', 'ls-char', 'block-name-clip', 'nbsp-indent', 'ideo-blank', 'name-nbsp', 'block-name'])
+    check(`a ${skill} break is reported once`, c.out.split(`.claude/skills/${skill}/SKILL.md: `).length === 2, c.out)
   check('a "(pending)" inside a comment is not a pending bullet', !c.out.includes('template-copy.md: Source is (pending)') && !c.out.includes('template-copy.md: Tests is (pending)'), c.out)
   check('an index page without a region is not an error', !c.out.includes('missing <!-- automd:'), c.out)
   check('a bad filename date is reported once, not also per bullet', c.out.split('20260230-not-a-date.md').length === 2, c.out)
@@ -244,7 +484,195 @@ function runAutomd(cwd: string): Run {
     'docs/internal/README.md  no H1',
     'docs/internal/README.md  README.md inside a site directory',
     'docs/index.md  index.md outside a site directory',
+    // A reference definition counts after quote and list markers, as markdown-it reads it.
+    'README.md:68  absolute link "[qabs]: /abs.md"',
+    'README.md:69  broken relative link: [qbr]: ./missing.md',
+    'README.md:71  broken relative link: [lbr]: ./missing.md',
+    // A destination may start on the next line there too.
+    'README.md:73  broken relative link: [qnext]: ./missing.md',
+    'README.md:76  broken relative link: [lnext]: ./missing.md',
+    'docs/public/index.md:5  link or image outside docs/public: [d]: ../internal/images/diagram.svg',
+    'docs/public/index.md:7  link or image outside docs/public: [q]: ../internal/images/diagram.svg',
+    'docs/public/index.md:9  link or image outside docs/public: [l]: ../internal/images/diagram.svg',
+    'docs/public/index.md:15  link or image outside docs/public: [f]: ../internal/images/diagram.svg',
+    // automd fills a public page's region from wherever its src resolves, and the opener's
+    // arguments may run onto the lines below it.
+    'docs/public/index.md:17  automd region reads outside docs/public: <!-- automd:file src=../internal/part.txt --> reads docs/internal/part.txt',
+    'docs/public/index.md:23  automd region reads outside docs/public: <!-- automd:file src="/docs/internal/part.txt" --> reads docs/internal/part.txt',
+    // A comment an HTML block opens in a quote or a list item ends with it, in VitePress at an
+    // empty line too, and a `<!--` in indented code opens none: the line below each renders.
+    'docs/public/index.md:32  link or image outside docs/public: [v1]: ../internal/images/diagram.svg',
+    'docs/public/index.md:36  link or image outside docs/public: [v2]: ../internal/images/diagram.svg',
+    'docs/public/index.md:42  link or image outside docs/public: [v3]: ../internal/images/diagram.svg',
+    'docs/public/index.md:47  link or image outside docs/public: [v4]: ../internal/images/diagram.svg',
+    // A label may hold an escaped bracket or wrap onto the next line, in a quote too, and
+    // VitePress, with no footnote plugin, reads a `[^x]:` line as a definition.
+    'docs/public/index.md:52  link or image outside docs/public: [a\\]b]: ../internal/images/diagram.svg',
+    'docs/public/index.md:54  link or image outside docs/public: [multi line]: ../internal/images/diagram.svg',
+    'docs/public/index.md:57  link or image outside docs/public: [quoted label]: ../internal/images/diagram.svg',
+    'docs/public/index.md:60  link or image outside docs/public: [^x]: ../internal/images/diagram.svg',
+    // VitePress expands an include across lines, in fenced code, and in inline code, and a
+    // snippet from a list item or a quote, or from below a comment the quote or item ends or a
+    // `<!--` in indented code.
+    'docs/internal/embeds.md:4  VitePress @include',
+    'docs/internal/embeds.md:8  VitePress @include',
+    'docs/internal/embeds.md:11  VitePress @include',
+    'docs/internal/embeds.md:13  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:15  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:17  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:19  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:22  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:26  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:32  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:37  VitePress code snippet "<<<"',
+    // Any number of spaces may follow a quote marker in a list item, and a tab indents to the
+    // next multiple of four columns: a tab-indented `<!--` is indented code at the top level
+    // and an HTML block in a list item, which the unindented line ends.
+    'docs/internal/embeds.md:40  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:42  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:47  VitePress code snippet "<<<"',
+    'docs/internal/embeds.md:53  VitePress code snippet "<<<"',
+    // Text the renderers show is read: past an escaped backtick; in a list item or a quote that
+    // ends the paragraph a stray backtick opened; after a `<!--` no line of its paragraph
+    // closes, and in the next paragraph; below a backtick fence whose info string holds a
+    // backtick, which is no fence; and after a quoted fence, which ends with its quote.
+    'docs/internal/blanked.md:3  Obsidian wikilink',
+    'docs/internal/blanked.md:6  Obsidian wikilink',
+    'docs/internal/blanked.md:10  Obsidian wikilink',
+    'docs/internal/blanked.md:14  Obsidian wikilink',
+    'docs/internal/blanked.md:16  Obsidian wikilink',
+    'docs/internal/blanked.md:18  Obsidian wikilink',
+    'docs/internal/blanked.md:21  Obsidian wikilink',
+    // An escaped backtick opens no span a later line closes, and a thematic break or a setext
+    // underline ends the paragraph a stray backtick opened.
+    'docs/internal/blanked.md:23  Obsidian wikilink',
+    'docs/internal/blanked.md:28  Obsidian wikilink',
+    'docs/internal/blanked.md:32  Obsidian wikilink',
+    // A `<!--` opens no comment after a comment block closes on its line, beside a comment
+    // block closed on its line, or in a heading; and a comment block ends the paragraph a
+    // stray backtick opened.
+    'docs/internal/blanked.md:36  Obsidian wikilink',
+    'docs/internal/blanked.md:40  Obsidian wikilink',
+    'docs/internal/blanked.md:44  Obsidian wikilink',
+    'docs/internal/blanked.md:48  Obsidian wikilink',
+    // A definition in an alert is one too.
+    'docs/public/index.md:63  link or image outside docs/public: [q2]: ../internal/images/diagram.svg',
+    // Away from a block's start, a comment is one only as VitePress's grammar reads it: not with
+    // `--` in its text, not as `<!-->` or `<!--->`, not after an escaping backslash, not across a
+    // table cell's pipe, not where a code span opened first holds its `<!--`, and not past what
+    // ends its paragraph: a heading that ends a nested item's, a table's header row, or an HTML
+    // block's start such as `<details>`. A `<!--` in a link's title is the title's. A heading's
+    // or an HTML block's backtick opens no code span below it, and what a comment hid turns into
+    // spaces, so the backticks on either side of it, or after its `-->`, open no fence.
+    'docs/public/index.md:65  link or image outside docs/public: ../internal/images/diagram.svg',
+    'docs/public/index.md:67  link or image outside docs/public: ../internal/images/diagram.svg',
+    'docs/public/index.md:72  link or image outside docs/public: ../internal/images/diagram.svg',
+    'docs/public/index.md:76  link or image outside docs/public: ../internal/images/diagram.svg "<!--"',
+    // A table's header row ends the paragraph a stray backtick opened, and a cell's backtick
+    // pairs with none in another cell.
+    'docs/public/index.md:81  link or image outside docs/public: ../internal/images/diagram.svg',
+    'docs/internal/comments.md:3  Obsidian wikilink',
+    'docs/internal/comments.md:5  Obsidian wikilink',
+    'docs/internal/comments.md:8  Obsidian wikilink',
+    'docs/internal/comments.md:11  Obsidian wikilink',
+    'docs/internal/comments.md:15  Obsidian wikilink',
+    'docs/internal/comments.md:20  Obsidian wikilink',
+    'docs/internal/comments.md:23  Obsidian wikilink',
+    'docs/internal/comments.md:28  Obsidian wikilink',
+    'docs/internal/comments.md:31  Obsidian wikilink',
+    'docs/internal/comments.md:34  Obsidian wikilink',
+    'docs/internal/comments.md:37  Obsidian wikilink',
+    'docs/internal/comments.md:51  Obsidian wikilink',
+    'docs/internal/comments.md:54  Obsidian wikilink',
+    'docs/internal/comments.md:58  Obsidian wikilink',
+    'docs/internal/comments.md:62  Obsidian wikilink',
+    // A fence opens where the line as written opens one, so a backtick in a comment still makes
+    // an info string no fence's; and a comment's last line stays in its list item, whose fence
+    // ends with it.
+    'docs/internal/comments.md:64  Obsidian wikilink',
+    'docs/internal/comments.md:48  Obsidian wikilink',
+    // A `<!--` that heads a table opens no HTML block in VitePress: the table comes first.
+    'docs/internal/comments.md:68  Obsidian wikilink',
+    // A backtick run pairs with one on an indented line below it, which continues the
+    // paragraph, so the line after both is read.
+    'docs/internal/comments.md:41  Obsidian wikilink',
+    // Blocks read as VitePress 1.6.4 reads them. A paragraph runs on past a lone `<br>` line and
+    // past a header row whose cell count no delimiter row matches; a `<!--` in what only looks
+    // like a link's title is a comment (all three as before this check read tables and HTML).
+    'docs/internal/blocks.md:4  Obsidian wikilink',
+    'docs/internal/blocks.md:7  Obsidian wikilink',
+    'docs/internal/blocks.md:11  Obsidian wikilink',
+    // An HTML block's lines, a comment block's included, hold no code span.
+    'docs/internal/blocks.md:13  Obsidian wikilink',
+    'docs/internal/blocks.md:16  Obsidian wikilink',
+    'docs/internal/blocks.md:19  Obsidian wikilink',
+    // A paragraph's comment may hold a pipe; a title holds a `<!--` though it wraps, and on the
+    // line it wraps onto.
+    'docs/internal/blocks.md:21  Obsidian wikilink',
+    'docs/internal/blocks.md:24  Obsidian wikilink',
+    'docs/internal/blocks.md:28  Obsidian wikilink',
+    // A table row splits at its pipes before a code span pairs: in a table a list marker heads,
+    // one in a list item, and a row with no pipe; and a quoted line heads a table at its
+    // delimiter row's depth.
+    'docs/internal/blocks.md:32  Obsidian wikilink',
+    'docs/internal/blocks.md:36  Obsidian wikilink',
+    'docs/internal/blocks.md:40  Obsidian wikilink',
+    'docs/internal/blocks.md:44  Obsidian wikilink',
+    'docs/internal/blocks.md:47  Obsidian wikilink',
+    // A quoted fence ends where the quote depth drops; a backtick fence whose info string holds a
+    // backtick ends no paragraph.
+    'docs/internal/blocks.md:51  Obsidian wikilink',
+    'docs/internal/blocks.md:55  Obsidian wikilink',
+    // List items as CommonMark reads them: a thematic break or a setext underline opens none,
+    // a line may open two, a quote inside one ends its paragraph, a paragraph ends where its
+    // item's content column says, and an HTML block's line ends one.
+    'docs/internal/blocks.md:59  Obsidian wikilink',
+    'docs/internal/blocks.md:64  Obsidian wikilink',
+    'docs/internal/blocks.md:67  Obsidian wikilink',
+    'docs/internal/blocks.md:71  Obsidian wikilink',
+    'docs/internal/blocks.md:74  Obsidian wikilink',
+    'docs/internal/blocks.md:80  Obsidian wikilink',
+    // A lazy line quoted two less than its paragraph loses its indent, so a comment there ends
+    // the paragraph; a line indented as code below a deeper quote's line is code.
+    'docs/internal/blocks.md:85  Obsidian wikilink',
+    'docs/internal/blocks.md:90  Obsidian wikilink',
+    // An HTML block runs on past a `>` line, empty only inside the quote; a lone `<br>` opens
+    // one where a block starts; a `--` with no text above is text.
+    'docs/internal/blocks.md:94  Obsidian wikilink',
+    'docs/internal/blocks.md:97  Obsidian wikilink',
+    'docs/internal/blocks.md:101  Obsidian wikilink',
+    // A link's destination is read when its title wraps onto the next line or starts there.
+    'docs/internal/blocks.md:103  broken relative link: ./missing-wrapped.md',
+    'docs/internal/blocks.md:106  broken relative link: ./missing-next.md',
+    // A lazy line keeps its paragraph's content column and quote depth: an item's HTML block
+    // ends the paragraph, and a line quoted less than it runs on in it. A quote left of a list
+    // item's content ends the item; a lazy line's heading ends a paragraph two quotes deeper.
+    'docs/internal/blocks.md:112  Obsidian wikilink',
+    'docs/internal/blocks.md:116  Obsidian wikilink',
+    'docs/internal/blocks.md:121  Obsidian wikilink',
+    'docs/internal/blocks.md:135  Obsidian wikilink',
+    'docs/internal/blocks.md:148  Obsidian wikilink',
+    // A lone `<br>` below a paragraph's text is the paragraph's, so a fence below it opens; a
+    // `<!--` after a `](` no label opens is a comment.
+    'docs/internal/blocks.md:156  Obsidian wikilink',
+    'docs/internal/blocks.md:158  Obsidian wikilink',
+    // A list item at a paragraph's content column ends it only as a bullet or a `1.`, and
+    // another marker there is the paragraph's text, no item opening an HTML block; a lone `-`
+    // below the text still underlines it.
+    'docs/internal/blocks.md:161  Obsidian wikilink',
+    'docs/internal/blocks.md:165  Obsidian wikilink',
+    'docs/internal/blocks.md:172  Obsidian wikilink',
+    // A table's delimiter row is its own though it reads as a thematic break, its rows end at a
+    // fence, and a deeper quote that runs on into a line keeps it from heading a shallower table.
+    'docs/internal/blocks.md:125  Obsidian wikilink',
+    'docs/internal/blocks.md:131  Obsidian wikilink',
+    'docs/internal/blocks.md:143  Obsidian wikilink',
+    // A lazy line leaves its list item open, so a fence at the item's indent ends with the item;
+    // a fence inside an HTML block is the block's text.
+    'docs/internal/blocks.md:178  Obsidian wikilink',
+    'docs/internal/blocks.md:184  Obsidian wikilink',
   ])
+  check('a quoted fence\'s body is still code', !p.out.includes('blanked.md:13'), p.out)
   check('a split tag is reported once, on its first line', !p.out.includes('README.md:49'), p.out)
   check('a raw-space link is not also reported broken', !p.out.includes('broken relative link: ./My Doc.md'), p.out)
   check('a wrong-case link is not also reported broken', !p.out.includes('broken relative link: ./agents.md'), p.out)
@@ -272,8 +700,7 @@ function runAutomd(cwd: string): Run {
   writeFileSync(spec, original.replace('2026-09-07', local))
   const contract = join(dir, 'docs/template/contract.md')
   writeFileSync(contract, readFileSync(contract, 'utf8').replace('2026-09-07', local))
-  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
-  plantSkill(dir, SKILLS_TARGET, 'x', '# x\n')
+  plantMirrored(dir, 'x', skillFile('x'))
   const ok = run('docs:check', dir, withoutCi)
   check('local today is not in the future', ok.status === 0 && !ok.out.includes('in the future'), ok.out)
   writeFileSync(spec, original.replace('2026-09-07', inTwoDays))
@@ -281,7 +708,8 @@ function runAutomd(cwd: string): Run {
   check('two days ahead is in the future', future.out.includes('is in the future'), future.out)
 }
 
-// 4. The rulebook budget applies to every AGENTS.md in the tree: 200 lines pass, 201 fail.
+// 4. The rulebook budget applies to every AGENTS.md in this checkout (a nested checkout's is
+// its own): 200 lines pass, 201 fail.
 {
   const over = fixture('clean')
   mkdirSync(join(over, 'packages/x'), { recursive: true })
@@ -295,6 +723,20 @@ function runAutomd(cwd: string): Run {
   writeFileSync(join(exact, 'packages/x/AGENTS.md'), `# Big\n${'- line\n'.repeat(199)}`)
   const ok = run('docs:check', exact, withoutCi)
   check('rulebook of exactly 200 lines passes', ok.status === 0, ok.out)
+
+  // A directory with its own `.git` entry is another checkout, so its rulebook is its own: a
+  // linked worktree (a `.git` file) and a nested clone (a `.git` directory).
+  const nested = fixture('clean')
+  for (const [dir, git] of [['.claude/worktrees/lane', 'file'], ['vendor/clone', 'dir']] as const) {
+    mkdirSync(join(nested, dir), { recursive: true })
+    if (git === 'file')
+      writeFileSync(join(nested, dir, '.git'), 'gitdir: /elsewhere/.git/worktrees/lane\n')
+    else
+      mkdirSync(join(nested, dir, '.git'))
+    writeFileSync(join(nested, dir, 'AGENTS.md'), `# Big\n${'- line\n'.repeat(200)}`)
+  }
+  const skipped = run('docs:check', nested, withoutCi)
+  check('a rulebook in a nested checkout is not held to the budget', skipped.status === 0 && !skipped.out.includes('rulebook budget'), skipped.out)
 }
 
 // 5. Warnings are GitHub annotations only under GitHub Actions.
@@ -340,7 +782,8 @@ function runAutomd(cwd: string): Run {
   check('no root: non-zero with a clear message', x.status !== 0 && x.out.includes('repo root not found'), x.out)
 }
 
-// 8. A generated region is compared to the generator, whatever the line endings.
+// 8. A generated region is compared to the generator, whatever the line endings, and an
+// opener whose arguments run onto the lines below it opens one, as automd reads it.
 {
   const edited = fixture('clean')
   const index = join(edited, 'docs/internal/decisions/index.md')
@@ -348,6 +791,12 @@ function runAutomd(cwd: string): Run {
   const e = run('docs:check', edited, withoutCi)
   check('stale index region exits 1', e.status === 1, e.out)
   check('stale index region named', e.out.includes('docs/internal/decisions/index.md: <!-- automd:decisionsIndex --> region is stale'), e.out)
+
+  const split = fixture('clean')
+  const splitIndex = join(split, 'docs/internal/decisions/index.md')
+  writeFileSync(splitIndex, readFileSync(splitIndex, 'utf8').replace('<!-- automd:decisionsIndex -->', '<!-- automd:decisionsIndex\n  note="the arguments run on"\n-->').replace('| Fourth | accepted |', '| Fourth | proposed |'))
+  const m = run('docs:check', split, withoutCi)
+  check('a stale region under a multi-line opener is named', m.status === 1 && m.out.includes('docs/internal/decisions/index.md: <!-- automd:decisionsIndex --> region is stale'), m.out)
 
   const crlf = fixture('clean')
   const crlfIndex = join(crlf, 'docs/internal/decisions/index.md')
@@ -411,10 +860,10 @@ function runAutomd(cwd: string): Run {
 // and exits 0, and docs:check passes with neither tree present.
 {
   const dir = fixture('clean')
-  plantSkill(dir, SKILLS_SOURCE, 'x', '# x\n')
+  plantSkill(dir, SKILLS_SOURCE, 'x', skillFile('x'))
   const g = run('gen-skills', dir, withoutCi)
   check('gen-skills mirrors the source', g.status === 0 && g.out.includes('.agents/skills (1 files) mirrored from .claude/skills'), g.out)
-  check('mirror is byte-identical', readFileSync(join(dir, SKILLS_TARGET, 'x/SKILL.md'), 'utf8') === '# x\n')
+  check('mirror is byte-identical', readFileSync(join(dir, SKILLS_TARGET, 'x/SKILL.md'), 'utf8') === skillFile('x'))
   const c = run('docs:check', dir, withoutCi)
   check('generated mirror passes docs:check', c.status === 0, c.out)
 
@@ -598,12 +1047,12 @@ function runAutomd(cwd: string): Run {
 
 // 18. The property dated names exist for: two branches cut from the same commit, each adding
 // a record on the same day, merge into main with no conflict, and the result passes
-// docs:check. Git runs with an isolated config, and the inherited GIT_ variables are dropped
-// so a hook's GIT_DIR or GIT_INDEX_FILE cannot point it at the outer repository.
+// docs:check. Git runs with an isolated config; the inherited GIT_ variables are gone since
+// the top of the file.
 {
   const gitconfig = join(tmp, 'gitconfig')
   writeFileSync(gitconfig, '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n[core]\n\tautocrlf = false\n')
-  const gitEnv: NodeJS.ProcessEnv = { ...Object.fromEntries(Object.entries(withoutCi).filter(([k]) => !k.toUpperCase().startsWith('GIT_'))), GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1' }
+  const gitEnv: NodeJS.ProcessEnv = { ...withoutCi, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1' }
   const git = (cwd: string, ...args: string[]): Run => {
     const r = spawnSync('git', args, { cwd, env: gitEnv, encoding: 'utf8' })
     return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? r.error.message : ''}` }
@@ -659,7 +1108,8 @@ function runAutomd(cwd: string): Run {
 // prose; inline code wrapped onto the next line is code on both lines; a percent-encoded
 // link names the file with the space; and a public page links within docs/public, the site's
 // root included. stripFences, which docs:check and the anchor check read pages through,
-// tracks list items the same way and ends a list item's fence with the item.
+// tracks list items the same way, a tab in an indent counted in columns, and ends a list
+// item's fence with the item.
 {
   const dir = fixture('clean')
   const page = [
@@ -698,6 +1148,7 @@ function runAutomd(cwd: string): Run {
   check('stripFences blanks a fence nested two list levels deep', stripFences('- a\n  - b\n\n    ```md\n    # not a heading\n    ```\n# Real\n') === '- a\n  - b\n\n\n\n\n# Real\n')
   check('stripFences ends a list item\'s fence with the item', stripFences('- item\n\n  ```\n  code\n# Heading\n') === '- item\n\n\n\n# Heading\n')
   check('stripFences reads an over-indented fence as code in the item, not a fence', stripFences('- item\n\n      ```\n# Heading\n') === '- item\n\n      ```\n# Heading\n')
+  check('stripFences counts a tab to the next multiple of four columns', stripFences('- item\n\n\t```\n\t# not a heading\n\t```\n# Real\n') === '- item\n\n\n\n\n# Real\n')
 }
 
 // 21. The public build follows a symlink, so one under docs/public that resolves outside it
@@ -732,6 +1183,133 @@ function runAutomd(cwd: string): Run {
   }
   if (linkedPage)
     check('a page symlinked into docs/public is named', p.out.includes('docs/public/handbook.md  symlink to docs/internal/secret.md, outside docs/public'), p.out)
+}
+
+// 22. What a public page may hold: a reference definition in a quote or a list item, a
+// `[Term]:` followed by prose, which defines nothing, and an automd region whose source is
+// inside docs/public, relative or root-absolute, or which names none (dir-tree then lists the
+// page's own directory). Text a comment or a code span hides stays hidden: a comment that
+// closes on a later line of its paragraph, a lazy quote line, an indented line, a nested item's
+// line, or a lone `<br>` line included; a comment after an escaped backslash or holding a
+// backtick or a pipe; a comment block in a quote across a bare `>` line; a comment in a table
+// cell or an HTML block; a code span after an escaped backslash, holding an escaped pipe in a
+// table cell, in a quoted table, or past a line with a pipe that heads no table; a fence a tab
+// indents into a list item; and an image whose title holds a comment. Neither a comment's last
+// line nor an HTML block's line is a heading or underlines one. A definition with an escaped or
+// wrapped label may name a file inside, and a `[^label]:` line may name one inside or none, as a
+// footnote's text does. What it may not: a region that reads outside docs/public in any form
+// automd reads it, a long-s `ſrc` key included, or one that lists the handbook. Where automd is
+// installed it fills the refused regions, which shows each is a real leak.
+{
+  const dir = fixture('clean')
+  mkdirSync(join(dir, 'docs/public/images'), { recursive: true })
+  writeFileSync(join(dir, 'docs/public/images/d.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+  writeFileSync(join(dir, 'docs/public/part.txt'), 'Public text.\n')
+  const region = (opener: string, body: string): string => `${opener}\n\n${body}\n\n<!-- /automd -->\n`
+  writeFileSync(join(dir, 'docs/public/index.md'), [
+    '# Public\n',
+    '> [q]: ./images/d.svg\n',
+    '- [l]: ./images/d.svg\n',
+    '- [Obsidian]: open the folder as a vault\n',
+    '> [Note]: see the section below\n',
+    region('<!-- automd:file src=./part.txt -->', 'Public text.'),
+    region('<!-- automd:file\n  src=/docs/public/part.txt\n-->', 'Public text.'),
+    region('<!-- automd:dir-tree -->', '```text\n└── index.md\n```'),
+    'Text <!-- a note that\nwraps [[hidden]] --> and more.\n',
+    '> Quoted <!-- a note that\nwraps [[hidden]] --> lazily.\n',
+    'Text <!-- a note [[hidden]] --> and a second backslash \\\\<!-- [[hidden]] --> to end.\n',
+    'Text <!-- a tick ` --> shown <!-- and ` its pair [[hidden]] --> after.\n',
+    '- a\n  - b <!-- a note in a nested item\n    [[hidden]] -->\n',
+    'Text <!-- a note\n--># Not a second H1\n',
+    '<!-- a note --># Not a second H1 either\n',
+    'A paragraph line\n<!-- a note -->===\n',
+    'Text\n    <!-- a note on an indented line\n[[hidden]] -->\n',
+    '> <!-- a note\n>\n> [[hidden]]\n> -->\n',
+    'Two backslashes \\\\`[[code]]` leave the code span whole.\n',
+    '[e\\]x]: ./images/d.svg\n',
+    '[wrapped\nlabel]: ./images/d.svg\n',
+    '[^word]: word\n',
+    '[^inside]: ./images/d.svg\n',
+    '- item\n\n\t~~~ts\n\t[ID]: number;\n\t~~~\n',
+    'Text <!-- a pipe | in [[hidden]] --> a paragraph comment.\n',
+    '| a | b |\n| - | - |\n| <!-- [[hidden]] --> | `an escaped \\| [[code]]` |\n',
+    '> | a |\n> | - |\n> | `[[code]]` |\n',
+    'Text <!-- a note past\n<br>\n[[hidden]] --> a lone tag.\n',
+    'Text `code past\nb | c [[code]]\nd` a header row no delimiter row follows.\n',
+    '<details>\n<!-- [[hidden]] -->\n</details>\n',
+    'An ![image](./images/d.svg "<!-- its title -->") shown.\n',
+  ].join('\n'))
+  const p = run('docs:portability', dir, withoutCi)
+  check('a public page reading only docs/public passes', p.status === 0 && !p.out.includes('warning'), p.out)
+
+  const leak = fixture('clean')
+  mkdirSync(join(leak, 'docs/public'))
+  writeFileSync(join(leak, 'docs/internal/part.txt'), 'INTERNAL-PART\n')
+  writeFileSync(join(leak, 'x.mts'), 'export const rootOnly = 1\n')
+  writeFileSync(join(leak, 'docs/public/x.mts'), 'export const publicOnly = 1\n')
+  writeFileSync(join(leak, 'docs/public/index.md'), [
+    '# Public\n',
+    region('<!-- automd:file src=%2e%2e/internal/part.txt -->', ''),
+    '```md',
+    region('<!-- automd:file src=../internal/part.txt -->', ''),
+    '```\n',
+    region('<!-- automd:file src=./nope.txt -->', ''),
+    region('<!-- automd:specIndex -->', ''),
+    region('<!-- automd:jsimport src=./x.mts -->', ''),
+    region('<!-- automd:file ſrc=../internal/part.txt -->', ''),
+    region('<!-- automd:dir-tree src=/ -->', ''),
+  ].join('\n'))
+  const l = run('docs:portability', leak, withoutCi)
+  check('a public page reading outside docs/public exits 1', l.status === 1, l.out)
+  expectAll('a public region reading outside docs/public', l.out, [
+    'docs/public/index.md:3  automd region reads outside docs/public: <!-- automd:file src=%2e%2e/internal/part.txt --> reads docs/internal/part.txt',
+    'docs/public/index.md:10  automd region reads outside docs/public: <!-- automd:file src=../internal/part.txt --> reads docs/internal/part.txt',
+    'docs/public/index.md:18  automd region reads outside docs/public: <!-- automd:file src=./nope.txt --> names ./nope.txt, which does not exist',
+    'docs/public/index.md:24  automd region reads outside docs/public: <!-- automd:specIndex --> lists docs/internal/specs',
+    // jsimport resolves its src as a module from the repository root, not from the page, so
+    // the copy beside the page does not make it inside.
+    'docs/public/index.md:30  automd region reads outside docs/public: <!-- automd:jsimport src=./x.mts --> reads x.mts',
+    // automd camel-cases a key, which reads a long s as `s`; and the root has a name.
+    'docs/public/index.md:36  automd region reads outside docs/public: <!-- automd:file ſrc=../internal/part.txt --> reads docs/internal/part.txt',
+    'docs/public/index.md:42  automd region reads outside docs/public: <!-- automd:dir-tree src=/ --> reads . (the repository root)',
+  ])
+  if (automdUrl) {
+    const a = runAutomd(leak)
+    const filled = readFileSync(join(leak, 'docs/public/index.md'), 'utf8').split('INTERNAL-PART').length - 1
+    check('automd fills the three refused file regions from docs/internal', a.status === 0 && filled === 3, `${a.out} filled ${filled}`)
+  }
+
+  // A layout the rules doc says the checker can miss, which docs/README.md's public-boundary
+  // sentence cites: a backtick in a link's title pairs with a later one, so the checker reads
+  // nothing between them, while VitePress ends the title at its quote and embeds the image.
+  // Pinned so the admission stays true: once the checker catches this, drop it from the list.
+  const miss = fixture('clean')
+  mkdirSync(join(miss, 'docs/public'))
+  mkdirSync(join(miss, 'docs/internal/images'), { recursive: true })
+  writeFileSync(join(miss, 'docs/internal/images/d.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+  writeFileSync(join(miss, 'docs/public/index.md'), '# Public\n\nSee [home](./index.md "`") ![x](../internal/images/d.svg) `\n')
+  const m = run('docs:portability', miss, withoutCi)
+  const rules = readFileSync(join(import.meta.dirname, '..', 'docs/template/markdown-portability.md'), 'utf8').replace(/\s+/g, ' ')
+  check('a backtick in a link\'s title is still a miss the rules doc names', m.status === 0 && rules.includes('a backtick in a link\'s destination or title'), m.out)
+}
+
+// 23. The sidebars hold HTML, since VitePress renders sidebar text as HTML: a title's `&`, `<`,
+// and `>` are escaped and its code spans become `<code>`. A Status comment is dropped wherever
+// the Status is read, and a Status holding only a comment reads as unknown.
+{
+  const dir = withoutRegions(fixture('clean'))
+  const decisions = join(dir, 'docs/internal/decisions')
+  writeFileSync(join(decisions, '20260107-result.md'), '# Return `Result<T, E>` & friends\n\n- **Status:** proposed<!-- until the spike lands -->\n- **Date:** 2026-01-07\n')
+  writeFileSync(join(decisions, '20260108-blank.md'), '# Blank\n\n- **Status:** <!-- pick one -->\n- **Date:** 2026-01-08\n')
+  writeFileSync(join(dir, 'docs/internal/specs/cli/quote.md'), '# Quote `` `x` `` when a<b\n\n- **Source:** `src/hello.txt`\n- **Tests:** `test/hello.txt`\n- **Last reviewed:** 2026-09-07\n')
+  const statuses = readDecisions(dir).slice(-2).map(d => d.status)
+  check('readDecisions drops a Status comment, and a comment alone reads as unknown', same(statuses, ['proposed', 'unknown']), JSON.stringify(statuses))
+  const sidebar = decisionsSidebar(dir).slice(-2).map(d => d.text)
+  check('decisionsSidebar escapes a title and renders its code span', same(sidebar, ['2026-01-07 Return <code>Result&lt;T, E&gt;</code> &amp; friends (proposed)', '2026-01-08 Blank (unknown)']), JSON.stringify(sidebar))
+  const specs = specsSidebar(dir).map(s => s.text)
+  check('specsSidebar escapes a title and renders a double-backtick span', same(specs, ['cli: Hello', 'cli: Quote <code>`x`</code> when a&lt;b']), JSON.stringify(specs))
+  const l = run('docs:list', dir, withoutCi, ['decisions'])
+  check('docs:list prints a title as written and a Status without its comment', l.out.includes('| [20260107-result](./20260107-result.md) | Return `Result<T, E>` & friends | proposed |') && !l.out.includes('<!--'), l.out)
 }
 
 if (fails.length > 0) {

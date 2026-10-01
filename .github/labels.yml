@@ -8,13 +8,13 @@
   description: Well-scoped task an AI agent executes end to end
 - name: spec
   color: 0e8a16
-  description: Touches docs/internal/specs
+  description: Touches docs/internal/specs or docs/template/sync-template.md
 - name: decision
   color: d93f0b
   description: Touches docs/internal/decisions
 - name: docs
   color: 0075ca
-  description: Documentation only
+  description: Touches docs/ or root markdown
 - name: bug
   color: d73a4a
   description: Something is broken

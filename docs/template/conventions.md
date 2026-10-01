@@ -35,8 +35,9 @@ portability requirement. The choices, each with its why:
 - `docs/template/` holds the rules and agent material the template owns, listed
   in [its README](./README.md). It is synced into children and never edited in
   a child, so a fix lands once. `docs/internal/` and `docs/public/` are the
-  child's own and start clean; the decisions and specs folders hold only their
-  index and template files.
+  child's own. `docs/internal/` starts clean: the decisions and specs folders
+  hold only their index and template files. The two public pages describe the
+  template until the README's First run checklist replaces them.
 - Decisions are MADR 4 minimal, the maintained published standard, and
   append-only. Metadata is visible bold bullets because YAML frontmatter is
   invisible in VitePress and noisy on GitHub.
@@ -96,10 +97,20 @@ portability requirement. The choices, each with its why:
   otherwise. Agents reach across packages by path, which works locally and
   breaks the package graph turbo caches by. A deliberate exception carries a
   `// @boundaries-ignore <reason>` comment.
+- `turbo.json` sets `agentGuidance: false`. From turbo 2.11.5, any turbo run
+  an agent starts otherwise writes a managed block into the root `AGENTS.md`,
+  pointing at turbo's bundled docs: a second H1 that fails `pnpm lint`, in a
+  rulebook that links to facts and never restates them. `pnpm test:gates`
+  fails a `turbo.json` that lets turbo write it; a turbo older than 2.11.5
+  writes nothing and rejects the key.
 - Unit tests live in a sibling `test/` directory beside `src/`, never colocated:
   the unjs and antfu house layout. Every exported symbol carries a `/** */`
   block; ESLint `jsdoc/require-jsdoc` enforces presence, review enforces
-  content.
+  content. The rule reads the block at the declaration, so a local export list
+  (`export { a }`) is banned; the guard sources under `.claude/hooks` are
+  linted too, though antfu ignores `.claude`. A tool config's default export
+  (`vitest.config.ts`, a VitePress `config.ts`) is exempt: its tool reads it,
+  and no caller does.
 - `secretlint` with the recommended preset runs on staged files at commit, in
   `pnpm verify`, and in CI: npm-native, no binary, no licence. It is the
   write-side counterpart to the secret-read guard.

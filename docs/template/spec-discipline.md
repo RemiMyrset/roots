@@ -90,11 +90,15 @@ fails on drift. The checks:
   check catches its collision
 - a spec's Source and Tests each name at least one backticked path, and
   every backticked path resolves in the case written (a `:42` or `#L42`
-  suffix is dropped first); its Last reviewed date is real (a warning after
-  180 days); a Source or Tests value that opens with `(pending)` is a warning
-  instead, and HTML comments on the line are ignored
+  suffix is dropped first; a route file such as `[slug]/+page.ts` is a
+  path); its Last reviewed date is real (a warning after 180 days); a Source
+  or Tests value that opens with `(pending)` is a warning instead, and HTML
+  comments in the value are ignored. A bullet may wrap onto indented lines,
+  and the paths there are checked too; a path itself stays on one line
 - specs sit one level below an area, never at the top or nested deeper
-- a template page with a Source bullet meets the spec rules above
+- a template page with a Source bullet meets the spec rules above; its
+  stale-date warning tells a child to run `pnpm sync:template`, since only
+  the template edits the page
 - both index pages exist; neither needs a region
 - no committed automd warning comment, and every automd region under `docs/`
   is closed and free of merge conflict lines; an index region is also current
@@ -102,8 +106,43 @@ fails on drift. The checks:
   one's error says deleting it stops the next one
 - no page under `docs/` holds a `<<<<<<<` conflict line outside a region or a
   fence
-- every `AGENTS.md` is within the 200-line budget
+- every `AGENTS.md` in this checkout is within the 200-line budget; a
+  directory with its own `.git` entry (a worktree under `.claude/worktrees/`, a
+  nested clone) is another checkout and is skipped
 - `.agents/skills` matches `.claude/skills` byte for byte
+- every `.claude/skills/<dir>/SKILL.md` opens with a closed frontmatter block
+  Codex can parse as YAML (it skips a skill whose frontmatter fails):
+  - each line is a top-level `key: value` (each key set once), a continuation
+    indented with spaces, a list item under an empty `key:`, a comment, or a
+    blank line; no line's indentation holds a tab or another space YAML reads
+    as text (a no-break space, U+3000, a byte-order mark), a blank line
+    included, which also refuses a few such shapes YAML takes
+  - a value is trimmed of spaces and tabs alone, as YAML trims it: another
+    space after a closing quote, a closing bracket, or a block indicator
+    fails, and one around `name` is part of the name
+  - the block holds no character YAML rejects (a control character but a tab
+    and a newline, DEL, U+FFFE, U+FFFF) and no line break but a newline (NEL,
+    U+2028, U+2029, a lone CR)
+  - `name` is `<dir>`, written as no block scalar (YAML keeps a block
+    scalar's line breaks and spaces), and `description` is a non-empty
+    string; neither is a map or a list, or an unquoted value YAML reads as
+    null, a boolean, a number, a date, or YAML 1.1's merge or value key
+    (`true`, `yes`, `~`, `123`, `.inf`, `<<`, `=`)
+  - an unquoted value holds no `: `, no ` #`, and no colon at a line end,
+    opens with no character YAML reserves, and does not go on after a comment
+    line
+  - a quoted value closes at its end, with `''` for an apostrophe inside
+    single quotes and only YAML escapes inside double quotes, none naming a
+    surrogate or a code point past U+10FFFF
+  - a `|` or `>` line holds only its indicators and a comment
+  - each text line below it is indented at least as far as the indent digit
+    or else the first text line; a less-indented comment ends the block; and
+    without an indent digit, a blank line above the first text line holds no
+    more spaces than it
+  - a value opening with `[` or `{` closes that collection at its end, with
+    only a comment after it
+  - what a nested block map or list, or a flow collection, holds is not
+    checked further
 
 ## In-flight planning
 

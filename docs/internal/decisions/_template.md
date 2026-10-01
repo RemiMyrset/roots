@@ -7,15 +7,16 @@
      Status vocabulary: proposed | accepted | rejected | deprecated | superseded by [ID](./file.md)
      ID is the linked record's filename without .md (20260929-use-postgres), or the
      number of a legacy numbered record (0007).
-     Optional extra bullets when relevant:
+     When this record replaces or amends an earlier one, add the bullet
      - **Supersedes:** [ID](./file.md)
-     - **Amends:** [ID](./file.md)
-     Link both ways: the old record's Status line gains "superseded by ...";
-     nothing else in it changes. This is MADR 4 minimal; add the full-MADR
-     sections (Decision Drivers, Pros and Cons, Confirmation) only when a
-     decision warrants the ceremony. MADR 4 minimal carries no YAML frontmatter
-     by design: metadata is the visible bold bullets above, and
-     `pnpm docs:portability` rejects frontmatter anywhere under `docs/`. -->
+     and link both ways: the old record's Status line gains "superseded by ...";
+     nothing else in it changes. An amendment supersedes too, so restate here
+     what still holds of the old record, and this one reads alone.
+     This is MADR 4 minimal; add the full-MADR sections (Decision Drivers,
+     Pros and Cons, Confirmation) only when a decision warrants the ceremony.
+     MADR 4 minimal carries no YAML frontmatter by design: metadata is the
+     visible bold bullets above, and `pnpm docs:portability` rejects
+     frontmatter anywhere under `docs/`. -->
 
 ## Context and Problem Statement
 

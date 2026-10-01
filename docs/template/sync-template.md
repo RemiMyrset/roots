@@ -1,8 +1,8 @@
 # Template sync
 
 - **Source:** `scripts/sync-template.mts`
-- **Tests:** `scripts/test-sync.mts` — `pnpm test:sync`
-- **Last reviewed:** 2026-09-29
+- **Tests:** `scripts/test-sync.mts` (`pnpm test:sync`)
+- **Last reviewed:** 2026-10-01
 
 The contract for `pnpm sync:template`. The tests pin behaviors 1 to 27; the
 per-file-error branch of behavior 23 is untested. The user-facing recipe is the
@@ -51,20 +51,28 @@ discard the rest with `git restore --staged --worktree <path>`. Apply each
 and the printed follow-ups, then run the done gate and commit
 `.template-sync.json` with the rest.
 
+The sync stages only the synced paths and `.template-sync.json`. Before the
+commit, `git add` every file a follow-up edited (`package.json`,
+`pnpm-workspace.yaml`, the lockfile, `.claude/settings.json`) and `git rm`
+every orphan a footer names, or the pushed branch lacks what the new
+mechanics need and CI fails where the local done gate passed.
+
 The template also ships files it never syncs: `package.json`,
 `.claude/settings.json`, `AGENTS.md`, `README.md`, `CONTRIBUTING.md`,
 `.devcontainer/devcontainer.json`, `.gitignore`, `eslint.config.ts`,
 `turbo.json`, and every other path outside the synced list. The sync never
 copies them, so a template commit that changes one carries a `BREAKING CHANGE`
-footer naming the edit, marked optional when a child may skip it.
+footer naming the edit, marked optional when a child may skip it. A footer
+for a new verify gate never marks its AGENTS.md Commands line optional:
+`pnpm test:gates` fails a Commands list that leaves out a gate.
 
 The synced paths, grouped: the CI, docs, labels, labeler, and Pages workflows
 with the label list and the path-label map, the agent-task issue template, and
-the PR template; the docs generators and checkers, the verify gate, the
-git-hook installer, the four test suites, and the sync script itself; the
-guards, rules, skills, and writing rules under `.claude/`, the Codex and Gemini
-registrations, and the generated `.agents/` mirror; and `docs/template/`. The
-exact list is `MECHANICS` in the script.
+the PR template; the docs generators and checkers, the verify gate, the secret
+scan, the git-hook installer, the four test suites, and the sync script
+itself; the guards, rules, skills, and writing rules under `.claude/`, the
+Codex and Gemini registrations, and the generated `.agents/` mirror; and
+`docs/template/`. The exact list is `MECHANICS` in the script.
 
 The synced scripts are `.mts` on purpose. `.mts` runs as ESM whatever the
 repository's `package.json` `"type"` says, whereas a `.ts` file is read as
@@ -75,10 +83,17 @@ CommonJS in a repo that sets `"type": "commonjs"`, which breaks its
 to stop pulling it (say `.gemini/settings.json` once you have local Gemini
 settings), or an extra path under `include` (for example `tsconfig.base.json`
 or `eslint.config.ts`) to pull it too. You can write the file by hand before
-the first sync and commit it; the sync fills in `commit`. An uncommitted state
-file is refused like any other change (behavior 7), and a stashed one takes
-its lists with it. Never edit `MECHANICS` in the script itself: the script is
-synced, and the edit would be staged for revert on the next run.
+the first sync and commit it; the sync fills in `commit`. An untracked state
+file, or one with unstaged edits, is refused (behavior 7); a staged one is read
+as it stands. Commit it, never stash it: a stashed one takes its lists with it,
+and a stash is not private to a worktree
+([agent-surfaces](./agent-surfaces.md#permission-prompts)). Never edit
+`MECHANICS` in the script itself: the script is synced, and the edit would be
+staged for revert on the next run.
+
+Exclude `.claude/skills` and `.agents` together or not at all. `.agents` is
+generated from `.claude/skills`, so excluding one alone leaves a mirror the
+`docs:gen` drift gate rejects, and the sync warns about it.
 
 An organization that keeps its own fork of roots as its template syncs the
 fork from roots, and a repository made from the fork syncs from the fork. The
@@ -108,6 +123,19 @@ ships, the template's version replaces it (an `M` line), so discard that path.
 A file at a path the template once shipped that matches none of its versions
 stays too, listed under `Kept`: it is yours, or a template file you edited;
 `git rm` the template's. Behavior 24 has the rule.
+
+The synced `pnpm test:hooks` runs only the template's guards and leaves your
+own hooks to you, apart from one rule
+([agent-surfaces](./agent-surfaces.md#surfaces)). Test your own guard in a
+suite of your own.
+
+A skill is two synced paths: `.claude/skills/<name>/` and its generated copy
+`.agents/skills/<name>/`. Discard, keep, or `git rm` the two together, or
+after discarding under `.claude/skills` run
+`pnpm docs:gen && git add .agents/skills`. A template mirror left staged
+beside your own skill fails the `docs:gen` drift gate; a second `pnpm verify`
+passes because the worktree now matches, yet the index still holds the
+template's mirror, and CI fails on the commit.
 
 ## Contract
 
@@ -152,27 +180,32 @@ are literal repo-relative paths with forward slashes: a glob character (`*`,
 `..` segment is refused, and a trailing `/` is dropped. Every git call reads
 its paths literally (`GIT_LITERAL_PATHSPECS=1`), so `x[1].md` names that file
 only. `.agents/skills` is a generated copy of `.claude/skills` (no symlinks
-anywhere), so it syncs as plain files.
+anywhere), so it syncs as plain files, and an `exclude` holding one of
+`.claude/skills` and `.agents` without the other draws a warning on stderr.
 
 A tracked file under a synced path that the template head does not ship is
 retired, and staged for deletion, only when it is the template's: it is in the
 tree at an exact sync point, or its content is byte-identical to a version the
 template shipped at that path. An exact sync point is the recorded commit,
 fetched by its hash when this clone lacks it (a fresh clone syncing back to an
-older ref), or a `shared history` or `root tree` baseline; with a `root time`
-baseline, which is approximate, with none, or when the template no longer has
-the recorded commit (a force-push, or a URL for another fork), the content
-test is the only one. The content test reads the template head's history and
-the sync point's, so it also catches a copy that got here another way (an
-older copy of the script that recorded no sync point, a sync while the path
-was excluded).
+older ref), or a `shared history` or `root tree` baseline. A clone that still
+holds the recorded commit uses its tree even after a template force-push
+dropped it, since that tree is what the last sync staged.
+
+The recorded commit is lost when this clone lacks it and git cannot fetch it
+(a force-push, once the template's host has pruned the dropped commit, or a
+URL for another fork). With a `root time` baseline, which is approximate, with
+none, or with a lost recorded commit, the content test is the only one. The
+content test reads the template head's history and the sync point's, so it
+also catches a copy that got here another way (an older copy of the script
+that recorded no sync point, a sync while the path was excluded).
 
 A file that stays is listed under `Kept` when it may still be the template's:
 at a path the template once shipped (a copy edited here, or a file of the
 repository's own that reuses the path), or at any path when the recorded
-commit is lost, since the template may have shipped it only in the history it
-lost. Any other file is the repository's own and is never touched or
-mentioned.
+commit is lost, since the template may have shipped it only in the history
+this clone cannot reach. Any other file is the repository's own and is never
+touched or mentioned.
 
 The state file `.template-sync.json` at the repo root is written with LF and
 staged whenever it changes:
@@ -200,7 +233,7 @@ that, so a contributor whose `origin` is a fork never changes it; a file that
 lacks it is rewritten to add it. The run that writes it first says so in its
 report, since that `origin` may itself be a personal fork or a mirror. Correct
 it by hand then, or if the repository moves. It must match the same pattern as
-`url`.
+`url`; an `origin` that does not is never recorded.
 
 A missing state file, or one without `commit`, means a first sync; a file
 holding only `url`, `ref`, `exclude`, or `include` is a configuration written
@@ -208,9 +241,9 @@ before the first sync, and all of it applies. A leading byte-order mark is
 ignored, here and in `package.json` and `.claude/settings.json`. An invalid
 `commit` produces a warning on stderr, is treated as a first sync with the
 other fields kept, and is rewritten. Anything else invalid (not a JSON object,
-a bad `url` or `ref`, an `exclude` or `include` that is not an array of valid
-entries) stops the run: dropping the field would switch the template or ref,
-or overwrite an excluded path.
+a bad `url`, `repo`, or `ref`, an `exclude` or `include` that is not an array
+of valid entries) stops the run: dropping the field would switch the template
+or ref, or overwrite an excluded path.
 
 The baseline for a first sync (no recorded commit) is the first match of: the
 merge-base of `HEAD` and the template head when history is shared; else the
@@ -264,8 +297,11 @@ stdout, in order:
    per such file (behavior 24).
 5. `Follow-ups: none new.`, `Follow-ups: skipped` with a reason, or a
    `Follow-ups` header followed by one block per `package.json` entry (the
-   `<block>.<key>`, its label, `template:`, `yours:`, and an optional `note:`
-   line), then an optional `Customized locally` line. The entries are
+   `<block>.<key>`, its label, a `base:` line for a value changed on both
+   sides, `template:`, `yours:`, and an optional `note:` line), then an
+   optional `Customized locally` line. The labels are `missing here`,
+   `changed on the template since ...`, `changed on both sides since ...`,
+   `differs`, and `customized locally` (behavior 14). The entries are
    `packageManager`, then the blocks `scripts`, `devDependencies`,
    `simple-git-hooks`, `lint-staged`, `commitlint`, and `engines`, in that
    order; a value that is not a string prints as its JSON text. Labels say
@@ -276,9 +312,11 @@ stdout, in order:
    list item as `<key>.<item>` with the value `- <item>`
    (`trustPolicyExclude.vite@5.4.21`). Then `Files: none new.`, `Files: skipped` with a
    reason, or a `Files` header followed by one `<path>  missing here` line per
-   file the template added since the sync point outside the synced paths and
-   `docs/internal/`, `docs/public/`, `src/`, `packages/`, and `apps/`, each
-   with a `git restore --source=<sha> -- <path>` line that fetches it. Then
+   file the template added since the sync point outside the synced paths,
+   `.template-sync.json`, `CHANGELOG.md`, `docs/internal/`, `docs/public/`,
+   `src/`, `packages/`, and `apps/`, each with a
+   `git restore --source=<sha> --staged --worktree -- <path>` line that fetches
+   and stages it. Then
    `Settings: none new.`,
    `Settings: skipped` with a reason, or a `Settings` header followed by one
    `<rule>  missing here` line per `permissions.allow` or `permissions.deny`
@@ -289,9 +327,12 @@ stdout, in order:
    opens with `hooks.<event>  differs` when it replaced a registration here
    (behavior 14), else `hooks.<event>  missing here`, then a `template:` line
    and one `yours:` line per replaced registration, each reading
-   `matcher <matcher>, command <command>`.
-6. A `Next:` block with the review, discard, and commit commands, only when
-   something is staged.
+   `matcher <matcher>, command <command>`, with `(none)` for a registration
+   that has no matcher.
+6. A `Next:` block, only when something is staged: the review and discard
+   commands; `pnpm docs:gen && git add .agents/skills` when a path under
+   `.claude/skills` or `.agents` is staged; `git add <path>` for each file a
+   follow-up edited by hand; and the commit command.
 
 Commit lines are `  ! <sha> <subject>` for breaking commits and
 `    <sha> <subject>` otherwise, newest first, merge commits left out unless
@@ -314,9 +355,12 @@ stderr.
    deletion, files outside the synced paths are untouched, the state file is
    written with that URL and the template head and is staged, stdout says
    "first sync", and no template tag exists locally.
-3. Given the recorded commit equals the template head and every synced file
-   already matches, when run, then nothing is staged and stdout says "unchanged
-   since last sync" and "Already up to date".
+3. Given the recorded commit equals the template head, the URL and ref are
+   the recorded ones, `repo` is recorded or there is none to record (behavior
+   25), and every synced file already matches, when run, then nothing is
+   staged and stdout says "unchanged since last sync" and "Already up to
+   date". A new URL or ref alone, or `repo` recorded for the first time, at
+   the recorded commit, stages only the rewritten state file.
 4. Given template commits after the recorded one, when run, then stdout counts
    them, lists them newest first with `!` on commits whose subject carries `!`
    or whose body has a `BREAKING CHANGE` footer, prints that footer's paragraph
@@ -329,22 +373,29 @@ stderr.
    template head, when run, then stdout says the sync point is "not in its
    history", no commit list is printed, script follow-ups are computed
    two-way, and the state is rewritten to the template head. stdout says the
-   staged diff is complete, or, when git cannot fetch the recorded commit,
-   that the files it cannot place are listed under `Kept` (behavior 24).
-6. Given a state file that is not a JSON object, or whose `url`, `ref`,
-   `exclude`, or `include` fails validation, when run, then exit `1`, stderr
-   says it "is invalid" and names the field, and nothing is fetched or staged.
+   staged diff is complete, or, when this clone lacks the recorded commit and
+   git cannot fetch it, that the files it cannot place are listed under `Kept`
+   (behavior 24).
+6. Given a state file that is not a JSON object, or whose `url`, `repo`,
+   `ref`, `exclude`, or `include` fails validation, when run, then exit `1`,
+   stderr says it "is invalid" and names the field, and nothing is fetched or
+   staged.
    Given an invalid `commit` alone, stderr warns, the run proceeds as a first
    sync keeping the other fields, and the file is rewritten. Given no
    `commit`, the run is a first sync with no warning that uses the file's
    `url` and lists. A leading byte-order mark is ignored.
 7. Given uncommitted changes under a synced path or to the state file, when run,
-   then exit `1`, stderr names the paths, nothing is fetched or staged, and the
-   `template` remote is not added or changed. `scripts/sync-template.mts`
-   itself never counts, untracked or modified: a fresh copy dropped in by hand
-   is how an older repo bootstraps. The state file counts only when it has
-   worktree changes: staged and clean is what a previous run left, so a second
-   run before the commit proceeds.
+   then exit `1`, stderr names the paths (each untracked file by its own path,
+   even inside an untracked directory) and says to commit them without ever
+   suggesting a stash, nothing is fetched or staged, and the `template` remote
+   is not added or changed. An untracked file counts even when
+   `status.showUntrackedFiles` hides it from `git status`: git has no copy of
+   it, and the checkout would overwrite one at a path the template ships.
+   `scripts/sync-template.mts` itself never counts, untracked or modified: a
+   fresh copy dropped in by hand is how an older repo bootstraps. The state
+   file counts only when it has worktree changes (edited, deleted, or
+   untracked): staged and clean is what a previous run left, so a second run
+   before the commit proceeds.
 8. Given an untracked copy of the script, or an older tracked and now modified
    one, when run with a URL, then the run succeeds and the template's version
    of the script is staged.
@@ -355,8 +406,10 @@ stderr.
 11. Given `exclude` and `include` lists in the state, when run, then excluded
     synced paths are not staged, included paths are, and both lists survive
     the state rewrite; an `exclude` entry that matches no synced path draws a
-    warning, and an entry that is not a literal repo-relative path (a glob,
-    `.`, a `..` segment, a leading `:`) fails as in behavior 6.
+    warning, as does an `exclude` holding one of `.claude/skills` and
+    `.agents` without the other, and an entry that is not a literal
+    repo-relative path (a glob, `.`, a `..` segment, a leading `:`) fails as
+    in behavior 6.
 12. Given no URL argument and no `template` remote, when a state file exists,
     then its `url` is used and the remote is re-added.
 13. Given a template URL whose repository has none of the synced paths, when
@@ -382,15 +435,19 @@ stderr.
     template's is no difference, the file is never edited, and a missing or
     unreadable file skips the block with a reason. `package.json` follow-ups
     compare only the template's keys of each block (behavior 26), in template
-    order. A
-    key absent here is "missing here", unless the template at the baseline
-    already had it, in which case it is listed as customized, "absent here"; a
-    key whose local value differs from the template's is "changed on the
-    template since ..." when the value also changed on the template, "differs"
-    when no baseline is known, and "customized locally" when the template value
-    is unchanged since the baseline. A local value that mentions a file this
-    run deleted carries a "which this sync deletes" note, including an entry
-    the template does not have.
+    order. A key absent here is "missing here", unless the template at the
+    baseline already had it, in which case it is listed as customized, "absent
+    here". A key whose local value differs from the template's is "changed on
+    the template since ..." when the template's value changed and the local
+    one still equals the baseline's; "changed on both sides since ..." with a
+    `base:` line when the local value moved too, or the template added a key
+    this repository already defines (`base:     (absent)`); "differs" when no
+    baseline is known; and "customized locally" when the template value is
+    unchanged since the baseline. A local value that mentions a file this run
+    deleted carries a "which this sync deletes" note. A customized one then
+    gets its own "customized locally" block instead of a place on the compact
+    line, and so does an entry the template does not have, with
+    `template: (not on the template)`.
 15. Given a repository that shares history with the template (a fork or clone)
     and no state file, when run, then stdout prints
     `Baseline: <merge-base> (shared history)`, the commit list starts there,
@@ -419,8 +476,9 @@ stderr.
 21. Given a refused ref (`--ref -x`), an unknown option, or a ref that is
     neither a branch nor a tag, when run, then exit `1` with a reason and the
     state file is untouched.
-22. Given a checkout whose `origin` is the template URL, when run, then exit `1`
-    and stderr says this is the template itself.
+22. Given a checkout whose `origin` is the template URL, compared by host and
+    path in any letter case and with or without a `.git` suffix, when run,
+    then exit `1` and stderr says this is the template itself.
 23. Given a synced path whose checkout fails, when run, then the path and the
     first line of git's reason appear under `Skipped`, the other paths are still
     staged, and exit is `0`; when every checkout fails, exit `1` with the list.
@@ -430,14 +488,16 @@ stderr.
 24. Given a tracked file under a synced path that the template head does not
     ship, when run, then it is staged for deletion only when it is in the
     template's tree at an exact sync point (the recorded commit, fetched by
-    its hash when this clone lacks it, or a `shared history` or `root tree`
-    baseline) or byte-identical to a version the template shipped at that
-    path, however it got here (an older copy of the script that recorded no
-    sync point, a sync while its path was excluded). Otherwise it stays
-    untouched and unstaged. It is listed under `Kept` when the template once
-    shipped a file at that path or, given a recorded commit the template no
-    longer has, whatever its path; otherwise it is the repository's own (a
-    skill, rule, guard, or included path) and is never mentioned.
+    its hash when this clone lacks it and used as it stands when this clone
+    still holds it after a template force-push, or a `shared history` or
+    `root tree` baseline) or byte-identical to a version the template shipped
+    at that path, however it got here (an older copy of the script that
+    recorded no sync point, a sync while its path was excluded). Otherwise it
+    stays untouched and unstaged. It is listed under `Kept` when the template
+    once shipped a file at that path or, given a recorded commit this clone
+    lacks and git cannot fetch, whatever its path; otherwise it is the
+    repository's own (a skill, rule, guard, or included path) and is never
+    mentioned.
 25. Given a state file that came with the repository's first commit (a
     repository made with **Use this template** from one that syncs, such as
     an organization's fork of roots), when run with no URL, then stderr warns
@@ -451,7 +511,7 @@ stderr.
     into one commit whose `repo` is its own `origin`. `repo` is written once
     and kept; a file without it gets it on the next run, from `origin` with
     the user and token of an `http(s)` URL dropped, and stdout names the URL
-    recorded.
+    recorded. An `origin` that fails the URL pattern is never recorded.
 26. Given a template that changed what a synced gate relies on outside the
     synced paths, when run, then `packageManager` and the `devDependencies`,
     `simple-git-hooks`, `lint-staged`, `commitlint`, and `engines` blocks of
@@ -460,11 +520,12 @@ stderr.
     under `Workspace`, skipped with a reason when either side has no
     `pnpm-workspace.yaml`. A file the template added since the
     sync point outside the synced paths (every `MECHANICS` and `include`
-    entry, excluded ones too) and `docs/internal/`, `docs/public/`, `src/`,
-    `packages/`, and `apps/` that this repository lacks is listed under
-    `Files` with the command that fetches it; `Files` is skipped when the sync
-    point is not on the template head's history (no baseline, a lost or newer
-    recorded commit).
+    entry, excluded ones too), `.template-sync.json` (a fork's own sync
+    point), `CHANGELOG.md` (its release history), and `docs/internal/`,
+    `docs/public/`, `src/`, `packages/`, and `apps/` that this repository
+    lacks is listed under `Files` with the command that fetches and stages
+    it; `Files` is skipped when the sync point is not on the template head's
+    history (no baseline, or a lost, newer, or off-history recorded commit).
 27. Given a shallow clone (`git clone --depth 1`, the default of
     `actions/checkout`) whose state file was written by a commit the clone cut
     off, when run, then the file is this repository's own, not inherited: the
@@ -493,8 +554,20 @@ stderr.
   deletion again on every sync while it stays byte-identical to a version the
   template shipped. Edited, it stays and is listed under `Kept`; moved to a
   path the template never shipped, it is never mentioned again.
+- After a template force-push, clones of one repository can stage different
+  diffs. A clone that holds the recorded commit, or can still fetch it by its
+  hash (git and GitHub serve a commit no branch reaches until the host prunes
+  it), retires an edited copy of a file that commit shipped (a `D` line). A
+  clone that lacks it after the template's host has pruned it keeps that file
+  and lists it under `Kept`.
 - Template tags live under `refs/template-tags/`, so `git describe` and
   changelogen in this repository never see them and `git tag -l` stays clean.
+- `refs/remotes/template/<ref>` and `refs/template-tags/<ref>` are shared by
+  every worktree of a clone, and the next fetch of that ref, from any
+  worktree, moves them to wherever the template's ref now points.
+  A hand-edit that takes the template's text reads it at the sha after `at`
+  on the `Fetched` line, which is the `commit` the run recorded, as the
+  printed `git restore --source=<sha>` lines do.
 - Rename entries in `git status` are read as their destination path. The
   report's `git diff --cached` runs with `--no-renames`, so a deletion paired
   with an unrelated addition cannot hide which file goes.

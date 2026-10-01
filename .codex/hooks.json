@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pnpm -w --silent run guards",
+            "command": "sh -c 'pnpm -w --silent --config.verify-deps-before-run=false run guards || exit 2'",
+            "commandWindows": "pnpm -w --silent --config.verify-deps-before-run=false run guards ; exit 2-2*$?",
             "statusMessage": "guards"
           }
         ]
@@ -17,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pnpm -w --silent run session",
+            "command": "pnpm -w --silent --config.verify-deps-before-run=false run session",
             "statusMessage": "writing rules"
           }
         ]
