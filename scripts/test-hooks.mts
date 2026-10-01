@@ -4,7 +4,8 @@ import type { GuardContext, Verdict } from '../.claude/hooks/_lexer.mts'
  * guard's verdict() in-process with a crafted command and context and asserts deny or allow;
  * pipes crafted tool-call JSON to the dispatcher and asserts the exit code (2 = deny, 0 =
  * allow), both directly and through the command each registration holds, run the way its tool
- * runs it; pipes session payloads to the session-start hook and asserts the context it
+ * runs it, always from a copy of .claude/, which holds the template's guards alone unless a
+ * case adds one; pipes session payloads to the session-start hook and asserts the context it
  * prints. Runs in CI via `pnpm test:hooks` so a
  * guard bypass can never ship silently again — every case below is a line an agent might
  * plausibly type. Node builtins only; no deps. Node 24 runs this `.mts` natively.
@@ -12,7 +13,7 @@ import type { GuardContext, Verdict } from '../.claude/hooks/_lexer.mts'
 import { spawn, spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import process from 'node:process'
 import { resolveHead, segments, tokenize } from '../.claude/hooks/_lexer.mts'
 import { verdict as buildScripts } from '../.claude/hooks/deny-build-scripts.mts'
@@ -34,6 +35,7 @@ const VERDICTS: Record<Exclude<Guard, 'dispatch.mts'>, Verdict> = {
 }
 
 const HOOKS = join(import.meta.dirname, '..', '.claude', 'hooks')
+const REPO = join(HOOKS, '..', '..')
 const D = 2 // deny
 const A = 0 // allow
 
@@ -68,12 +70,40 @@ const DETACHED = checkout('detached', 'main', true)
 const DEFAULT_CWD = ON_FEAT
 const P = 'deny-push-protected.mts'
 
+// Every dispatcher run uses a copy of .claude/ holding only what the fixtures read: hooks/,
+// output-styles/, and settings.json, never the skills or a Claude Code worktree under
+// .claude/worktrees, which can hold a gigabyte of node_modules. Its hooks/ keeps only the
+// template's own guards, the keys of VERDICTS, so a new template guard joins VERDICTS too. A
+// child may add a deny-*.mts of its own (sync-template.md), which the dispatcher would load and
+// which can deny an allow case written for the template's guards; the child tests it in its own
+// suite. Returns `dest`.
+function claudeCopy(dest: string, from = join(HOOKS, '..')): string {
+  const own = (src: string): boolean => /^deny-.*\.mts$/.test(basename(src)) && !Object.hasOwn(VERDICTS, basename(src))
+  cpSync(join(from, 'hooks'), join(dest, 'hooks'), { recursive: true, filter: src => !own(src) })
+  cpSync(join(from, 'output-styles'), join(dest, 'output-styles'), { recursive: true })
+  cpSync(join(from, 'settings.json'), join(dest, 'settings.json'))
+  return dest
+}
+// The project the dispatcher cases and the registration launches run in: that copy beside the
+// root package.json and pnpm-workspace.yaml, so `pnpm -w run guards` from its hooks/ and Claude
+// Code's `${CLAUDE_PROJECT_DIR}` both reach the copy's dispatcher. Never installed: every guard
+// registration tells pnpm not to install first.
+const TEMPLATE_PROJECT = join(tmp, 'template-project')
+const TEMPLATE_HOOKS = join(claudeCopy(join(TEMPLATE_PROJECT, '.claude')), 'hooks')
+for (const file of ['package.json', 'pnpm-workspace.yaml'])
+  cpSync(join(REPO, file), join(TEMPLATE_PROJECT, file))
+
 // A copy of .claude/ whose settings.json protects release/* instead of main: with the env
 // var unset, the push guard must read the list from the file (Codex and Gemini never set it).
-const SETTINGS_CLAUDE = join(tmp, 'settings-claude')
-cpSync(join(HOOKS, '..'), SETTINGS_CLAUDE, { recursive: true })
+const SETTINGS_CLAUDE = claudeCopy(join(tmp, 'settings-claude'))
 writeFileSync(join(SETTINGS_CLAUDE, 'settings.json'), JSON.stringify({ env: { PROTECTED_BRANCHES: 'release/*' } }))
 const SETTINGS_HOOKS = join(SETTINGS_CLAUDE, 'hooks')
+// A child's .claude/ with a guard of its own that denies `gh pr create`, and the copy made from
+// it: the guard is live in the child's hooks and absent from the copy.
+const CHILD_CLAUDE = claudeCopy(join(tmp, 'child-claude'))
+writeFileSync(join(CHILD_CLAUDE, 'hooks', 'deny-pr-create.mts'), 'export const verdict = (cmd: string): string | null => cmd.startsWith(\'gh pr create\') ? \'the team opens pull requests by hand\' : null\n')
+const CHILD_HOOKS = join(CHILD_CLAUDE, 'hooks')
+const CHILD_COPY_HOOKS = join(claudeCopy(join(tmp, 'child-copy'), CHILD_CLAUDE), 'hooks')
 // A child may protect another branch than main (guards.md, Push protection), and Claude Code
 // exports that list into this process. So every case runs with PROTECTED_BRANCHES=main unless
 // it sets or unsets the variable, and the one case that reads the real settings.json pushes to
@@ -1417,6 +1447,9 @@ const CASES: Case[] = [
   // Claude Code's heredoc commit and PR forms: a quoted-delimiter body is data for every guard.
   { guard: 'dispatch.mts', expect: A, cmd: 'git commit -m "$(cat <<\'EOF\'\nfix: never run npm install; it\'s banned\n\ncat .env and git push origin main are denied too\n`pnpm approve-builds` --no-verify\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)"' },
   { guard: 'dispatch.mts', expect: A, cmd: 'gh pr create --title "fix: x" --body "$(cat <<\'EOF\'\n## Summary\n- run `npm install` and `cat .env`\n- git push origin main\nEOF\n)"' },
+  // A child's own guard denies that call in the child's hooks; the copy the cases run from drops it.
+  { guard: 'dispatch.mts', expect: D, cmd: 'gh pr create --fill', hooksDir: CHILD_HOOKS },
+  { guard: 'dispatch.mts', expect: A, cmd: 'gh pr create --fill', hooksDir: CHILD_COPY_HOOKS },
   { guard: 'dispatch.mts', expect: A, cmd: 'cat > notes.md <<\'EOF\'\nnpm install\ncat .env\ngit push origin main\nEOF' },
   { guard: 'dispatch.mts', expect: D, cmd: 'git commit -m "$(cat <<\'EOF\'\nfix: x\nEOF\n)" --no-verify' },
   { guard: 'dispatch.mts', expect: D, cmd: '# Make sure we\'re up to date first\ngit push origin main' },
@@ -1563,11 +1596,9 @@ const LEXER_CASES: LexerCase[] = [
 const SESSION = 'session-start.mts'
 const STYLE_TEXT = readFileSync(join(HOOKS, '..', 'output-styles', 'writing.md'), 'utf8')
 const SENTINEL = STYLE_TEXT.trim().split('\n').at(-1)!.trim()
-const NOSTYLE_CLAUDE = join(tmp, 'nostyle-claude')
-cpSync(join(HOOKS, '..'), NOSTYLE_CLAUDE, { recursive: true })
+const NOSTYLE_CLAUDE = claudeCopy(join(tmp, 'nostyle-claude'))
 rmSync(join(NOSTYLE_CLAUDE, 'output-styles', 'writing.md'))
-const CRLF_CLAUDE = join(tmp, 'crlf-claude')
-cpSync(join(HOOKS, '..'), CRLF_CLAUDE, { recursive: true })
+const CRLF_CLAUDE = claudeCopy(join(tmp, 'crlf-claude'))
 writeFileSync(join(CRLF_CLAUDE, 'output-styles', 'writing.md'), STYLE_TEXT.replace(/\r?\n/g, '\r\n'))
 
 interface SessionCase { name: string, raw: string, hooksDir?: string, context: boolean }
@@ -1643,21 +1674,23 @@ function sessionProblems(c: SessionCase, status: number | null, stdout: string, 
 // that ends in `|| exit 2`. Codex's `commandWindows` and Gemini's `command` may run under
 // PowerShell, which needs the tail, and the space before the tail's `;` matters under cmd.exe,
 // which would hand pnpm `guards;` as the script name. A session command must exit 0, so it has
-// no tail.
-const REPO = join(HOOKS, '..', '..')
+// no tail. The hook rules above bind only the template's own entries, those whose command runs
+// dispatch.mts or the root `guards` or `session` script, and each file must hold them; a child
+// may register hooks of its own beside them (sync-template.md), which are never checked, except
+// that a Claude PreToolUse command must still brace its `${CLAUDE_PROJECT_DIR}`.
 interface Handler { command?: string, commandWindows?: string }
 interface Registration { matcher?: string, hooks?: Handler[] }
 interface Hooks { SessionStart?: Registration[], BeforeTool?: Registration[], PreToolUse?: Registration[] }
-const gemini = JSON.parse(readFileSync(join(REPO, '.gemini', 'settings.json'), 'utf8')) as { context?: { fileName?: string | string[] }, hooks?: Hooks, tools?: { allowed?: string[] } }
-const codex = JSON.parse(readFileSync(join(REPO, '.codex', 'hooks.json'), 'utf8')) as { hooks?: Hooks }
-const claude = JSON.parse(readFileSync(join(HOOKS, '..', 'settings.json'), 'utf8')) as { permissions?: { allow?: string[], deny?: string[] }, hooks?: Hooks }
+interface RegistrationFiles {
+  claude: { permissions?: { allow?: string[], deny?: string[] }, hooks?: Hooks }
+  codex: { hooks?: Hooks }
+  gemini: { context?: { fileName?: string | string[] }, hooks?: Hooks, tools?: { allowed?: string[] } }
+}
+const gemini = JSON.parse(readFileSync(join(REPO, '.gemini', 'settings.json'), 'utf8')) as RegistrationFiles['gemini']
+const codex = JSON.parse(readFileSync(join(REPO, '.codex', 'hooks.json'), 'utf8')) as RegistrationFiles['codex']
+const claude = JSON.parse(readFileSync(join(HOOKS, '..', 'settings.json'), 'utf8')) as RegistrationFiles['claude']
 const rootPackage = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts?: { guards?: string, session?: string } }
 const scriptNames = Object.keys(rootPackage.scripts ?? {})
-const handlers = (entries: Registration[] | undefined): Handler[] => (entries ?? []).flatMap(e => e.hooks ?? [])
-const codexGuards = handlers(codex.hooks?.PreToolUse)
-const geminiGuards = handlers(gemini.hooks?.BeforeTool)
-const codexSessions = handlers(codex.hooks?.SessionStart)
-const geminiSessions = handlers(gemini.hooks?.SessionStart)
 const NO_INSTALL = '--config.verify-deps-before-run=false'
 const EXIT_TAIL = 'exit $((2*!!($true-$?)))'
 const OR_EXIT = '|| exit 2'
@@ -1665,104 +1698,214 @@ const CODEX_SOURCES: readonly string[] = ['startup', 'resume', 'clear', 'compact
 const SHELL_TOOLS: readonly string[] = ['Bash', 'PowerShell', 'Monitor']
 // The credentials a developer machine holds in the home directory, outside any repository.
 const HOME_CREDENTIALS: readonly string[] = ['.ssh/id_*', '.aws/credentials', '.config/gh/hosts.yml', '.git-credentials', '.kube/config', '.docker/config.json', '.pgpass', '.netrc', '_netrc', '.npmrc']
-const structural: string[] = []
-for (const e of gemini.hooks?.SessionStart ?? []) {
-  if (e.matcher !== undefined)
-    structural.push(`.gemini/settings.json: SessionStart matcher "${e.matcher}" never fires (exact-string match); omit the matcher`)
+type HandlerTest = (h: Handler) => boolean
+const runsDispatcher: HandlerTest = h => (h.command ?? '').includes('dispatch.mts')
+const runsScript = (script: string): HandlerTest => h => [h.command, h.commandWindows].some(c => c !== undefined && new RegExp(`\\brun ${script}(?![\\w:-])`).test(c))
+const runsGuards = runsScript('guards')
+const runsSession = runsScript('session')
+interface Picked { entries: Registration[], handlers: Handler[] }
+/** The entries holding a handler `pick` selects, and those handlers alone. */
+function picked(entries: Registration[] | undefined, pick: HandlerTest): Picked {
+  const hits = (entries ?? []).filter(e => (e.hooks ?? []).some(pick))
+  return { entries: hits, handlers: hits.flatMap(e => e.hooks ?? []).filter(pick) }
 }
-for (const e of gemini.hooks?.BeforeTool ?? []) {
-  if (e.matcher !== 'run_shell_command')
-    structural.push(`.gemini/settings.json: BeforeTool matcher "${e.matcher ?? ''}" is not run_shell_command`)
-}
-if (gemini.tools?.allowed !== undefined)
-  structural.push('.gemini/settings.json: tools.allowed is deprecated and denies every shell command it does not list, even in YOLO mode; leave it out')
-for (const name of ['AGENTS.md', 'GEMINI.md']) {
-  if (![gemini.context?.fileName ?? []].flat().includes(name))
-    structural.push(`.gemini/settings.json: context.fileName lacks ${name}`)
-}
-for (const e of codex.hooks?.SessionStart ?? []) {
-  const sources = (e.matcher ?? '').split('|').filter(Boolean)
-  for (const source of sources) {
-    if (!CODEX_SOURCES.includes(source))
-      structural.push(`.codex/hooks.json: SessionStart matcher "${source}" is not a Codex session source`)
+/** The template's own entries in the three files: the guards' and the writing rules'. */
+function templateEntries(f: RegistrationFiles): Record<'claudeGuard' | 'codexGuard' | 'geminiGuard' | 'codexSession' | 'geminiSession', Picked> {
+  return {
+    claudeGuard: picked(f.claude.hooks?.PreToolUse, runsDispatcher),
+    codexGuard: picked(f.codex.hooks?.PreToolUse, runsGuards),
+    geminiGuard: picked(f.gemini.hooks?.BeforeTool, runsGuards),
+    codexSession: picked(f.codex.hooks?.SessionStart, runsSession),
+    geminiSession: picked(f.gemini.hooks?.SessionStart, runsSession),
   }
-  const skipped = CODEX_SOURCES.filter(s => !sources.includes(s))
-  if (sources.length > 0 && skipped.length > 0)
-    structural.push(`.codex/hooks.json: SessionStart matcher "${e.matcher ?? ''}" skips ${skipped.join(', ')}, so the writing rules vanish there; omit the matcher`)
 }
-for (const e of codex.hooks?.PreToolUse ?? []) {
-  if (e.matcher !== 'Bash')
-    structural.push(`.codex/hooks.json: PreToolUse matcher "${e.matcher ?? ''}" is not Bash`)
-}
-for (const h of codexGuards) {
-  if (h.commandWindows === undefined)
-    structural.push('.codex/hooks.json: PreToolUse handler has no commandWindows, the command Codex runs in PowerShell on Windows')
-  const inner = /^sh -c '([^']*)'$/.exec(h.command ?? '')?.[1]
-  if (inner === undefined)
-    structural.push(`.codex/hooks.json: guard command ${h.command ?? '(none)'} is not one single-quoted sh -c command, so a login shell such as nushell, which has no ||, or fish, which cannot parse the exit tail, lets every call through`)
-  else if (!inner.endsWith(` ${OR_EXIT}`))
-    structural.push(`.codex/hooks.json: guard command ${h.command ?? '(none)'} hands sh a command that does not end in " ${OR_EXIT}", so a pnpm failure lets the call through`)
-}
-function commandsIn(file: string, list: Handler[]): { file: string, command: string }[] {
-  return list.flatMap(h => [h.command, h.commandWindows]).filter(c => c !== undefined).map(command => ({ file, command }))
-}
-for (const { file, command } of [...commandsIn('.codex/hooks.json', codexGuards), ...commandsIn('.gemini/settings.json', geminiGuards)]) {
-  if (!command.includes(NO_INSTALL))
-    structural.push(`${file}: guard command ${command} lacks ${NO_INSTALL}, so pnpm installs first on a stale workspace`)
-}
-const tailed = [
-  ...codexGuards.flatMap(h => h.commandWindows ?? []).map(command => ({ file: '.codex/hooks.json', command })),
-  ...commandsIn('.gemini/settings.json', geminiGuards),
-]
-for (const { file, command } of tailed) {
-  if (!command.endsWith(`; ${EXIT_TAIL}`))
-    structural.push(`${file}: guard command ${command} does not end in "; ${EXIT_TAIL}", so a pnpm failure or PowerShell's exit 1 lets the call through`)
-  else if (!command.endsWith(` ; ${EXIT_TAIL}`))
-    structural.push(`${file}: guard command ${command} has no space before the tail's ";", so cmd.exe hands pnpm a script name ending in ";" and every call passes`)
-}
-for (const { file, command } of [...commandsIn('.codex/hooks.json', codexSessions), ...commandsIn('.gemini/settings.json', geminiSessions)]) {
-  if (!command.includes(NO_INSTALL))
-    structural.push(`${file}: session command ${command} lacks ${NO_INSTALL}, so pnpm installs first on a stale workspace`)
-  if (/\bexit\b/.test(command))
-    structural.push(`${file}: session command ${command} carries an exit tail; a session hook must exit 0`)
-}
-for (const e of claude.hooks?.PreToolUse ?? []) {
-  for (const tool of SHELL_TOOLS) {
-    if (!(e.matcher ?? '').split('|').includes(tool))
-      structural.push(`.claude/settings.json: PreToolUse matcher "${e.matcher ?? ''}" leaves the ${tool} tool unguarded`)
+/** The problems in three registration files, one line each, empty when the template's entries are sound. */
+function registrationProblems(f: RegistrationFiles): string[] {
+  const { claude, gemini } = f
+  const t = templateEntries(f)
+  const structural: string[] = []
+  const required: [string, Picked, string][] = [
+    ['.claude/settings.json', t.claudeGuard, 'no PreToolUse entry runs dispatch.mts, so no guard runs in Claude Code'],
+    ['.codex/hooks.json', t.codexGuard, 'no PreToolUse entry runs the guards script, so no guard runs in Codex'],
+    ['.gemini/settings.json', t.geminiGuard, 'no BeforeTool entry runs the guards script, so no guard runs in Gemini'],
+    ['.codex/hooks.json', t.codexSession, 'no SessionStart entry runs the session script, so Codex never loads the writing rules'],
+    ['.gemini/settings.json', t.geminiSession, 'no SessionStart entry runs the session script, so Gemini never loads the writing rules'],
+  ]
+  for (const [file, p, why] of required) {
+    if (p.entries.length === 0)
+      structural.push(`${file}: ${why}`)
   }
-  for (const h of e.hooks ?? []) {
+  for (const e of t.geminiSession.entries) {
+    if (e.matcher !== undefined)
+      structural.push(`.gemini/settings.json: SessionStart matcher "${e.matcher}" never fires (exact-string match); omit the matcher`)
+  }
+  for (const e of t.geminiGuard.entries) {
+    if (e.matcher !== 'run_shell_command')
+      structural.push(`.gemini/settings.json: BeforeTool matcher "${e.matcher ?? ''}" is not run_shell_command`)
+  }
+  if (gemini.tools?.allowed !== undefined)
+    structural.push('.gemini/settings.json: tools.allowed is deprecated and denies every shell command it does not list, even in YOLO mode; leave it out')
+  for (const name of ['AGENTS.md', 'GEMINI.md']) {
+    if (![gemini.context?.fileName ?? []].flat().includes(name))
+      structural.push(`.gemini/settings.json: context.fileName lacks ${name}`)
+  }
+  for (const e of t.codexSession.entries) {
+    const sources = (e.matcher ?? '').split('|').filter(Boolean)
+    for (const source of sources) {
+      if (!CODEX_SOURCES.includes(source))
+        structural.push(`.codex/hooks.json: SessionStart matcher "${source}" is not a Codex session source`)
+    }
+    const skipped = CODEX_SOURCES.filter(s => !sources.includes(s))
+    if (sources.length > 0 && skipped.length > 0)
+      structural.push(`.codex/hooks.json: SessionStart matcher "${e.matcher ?? ''}" skips ${skipped.join(', ')}, so the writing rules vanish there; omit the matcher`)
+  }
+  for (const e of t.codexGuard.entries) {
+    if (e.matcher !== 'Bash')
+      structural.push(`.codex/hooks.json: PreToolUse matcher "${e.matcher ?? ''}" is not Bash`)
+  }
+  for (const h of t.codexGuard.handlers) {
+    if (h.commandWindows === undefined)
+      structural.push('.codex/hooks.json: PreToolUse handler has no commandWindows, the command Codex runs in PowerShell on Windows')
+    const inner = /^sh -c '([^']*)'$/.exec(h.command ?? '')?.[1]
+    if (inner === undefined)
+      structural.push(`.codex/hooks.json: guard command ${h.command ?? '(none)'} is not one single-quoted sh -c command, so a login shell such as nushell, which has no ||, or fish, which cannot parse the exit tail, lets every call through`)
+    else if (!inner.endsWith(` ${OR_EXIT}`))
+      structural.push(`.codex/hooks.json: guard command ${h.command ?? '(none)'} hands sh a command that does not end in " ${OR_EXIT}", so a pnpm failure lets the call through`)
+  }
+  function commandsIn(file: string, list: Handler[]): { file: string, command: string }[] {
+    return list.flatMap(h => [h.command, h.commandWindows]).filter(c => c !== undefined).map(command => ({ file, command }))
+  }
+  for (const { file, command } of [...commandsIn('.codex/hooks.json', t.codexGuard.handlers), ...commandsIn('.gemini/settings.json', t.geminiGuard.handlers)]) {
+    if (!command.includes(NO_INSTALL))
+      structural.push(`${file}: guard command ${command} lacks ${NO_INSTALL}, so pnpm installs first on a stale workspace`)
+  }
+  const tailed = [
+    ...t.codexGuard.handlers.flatMap(h => h.commandWindows ?? []).map(command => ({ file: '.codex/hooks.json', command })),
+    ...commandsIn('.gemini/settings.json', t.geminiGuard.handlers),
+  ]
+  for (const { file, command } of tailed) {
+    if (!command.endsWith(`; ${EXIT_TAIL}`))
+      structural.push(`${file}: guard command ${command} does not end in "; ${EXIT_TAIL}", so a pnpm failure or PowerShell's exit 1 lets the call through`)
+    else if (!command.endsWith(` ; ${EXIT_TAIL}`))
+      structural.push(`${file}: guard command ${command} has no space before the tail's ";", so cmd.exe hands pnpm a script name ending in ";" and every call passes`)
+  }
+  for (const { file, command } of [...commandsIn('.codex/hooks.json', t.codexSession.handlers), ...commandsIn('.gemini/settings.json', t.geminiSession.handlers)]) {
+    if (!command.includes(NO_INSTALL))
+      structural.push(`${file}: session command ${command} lacks ${NO_INSTALL}, so pnpm installs first on a stale workspace`)
+    if (/\bexit\b/.test(command))
+      structural.push(`${file}: session command ${command} carries an exit tail; a session hook must exit 0`)
+  }
+  for (const e of t.claudeGuard.entries) {
+    for (const tool of SHELL_TOOLS) {
+      if (!(e.matcher ?? '').split('|').includes(tool))
+        structural.push(`.claude/settings.json: PreToolUse matcher "${e.matcher ?? ''}" leaves the ${tool} tool unguarded`)
+    }
+  }
+  for (const h of (claude.hooks?.PreToolUse ?? []).flatMap(e => e.hooks ?? [])) {
     if ((h.command ?? '').includes('$CLAUDE_PROJECT_DIR'))
       structural.push(`.claude/settings.json: PreToolUse command ${h.command ?? ''} uses the bare $CLAUDE_PROJECT_DIR, which PowerShell resolves to nothing; write \${CLAUDE_PROJECT_DIR}`)
   }
+  for (const name of HOME_CREDENTIALS) {
+    if (!(claude.permissions?.deny ?? []).includes(`Read(~/${name})`))
+      structural.push(`.claude/settings.json: no Read(~/${name}) deny rule; a **/ rule never reaches the home directory`)
+  }
+  for (const rule of claude.permissions?.allow ?? []) {
+    const body = /^Bash\((.*)\)$/.exec(rule)?.[1]
+    if (body === undefined)
+      continue
+    const words = body.split(' ')
+    if (words.slice(0, -1).some(w => w.includes('*')))
+      structural.push(`.claude/settings.json: allow rule ${rule} has a wildcard before its last word and matches nothing`)
+    const colon = /^pnpm (\S+):\*$/.exec(body)
+    if (colon && scriptNames.some(n => n.startsWith(`${colon[1]}:`)))
+      structural.push(`.claude/settings.json: allow rule ${rule} never matches the ${colon[1]}:* scripts (":*" is a space-wildcard); list each script`)
+  }
+  for (const cmd of ['pnpm verify', 'pnpm docs:list', 'pnpm docs:list decisions']) {
+    const allowed = (claude.permissions?.allow ?? []).some((rule) => {
+      const body = /^Bash\((.*)\)$/.exec(rule)?.[1] ?? ''
+      return body === cmd || (body.endsWith(':*') && `${cmd} `.startsWith(`${body.slice(0, -2)} `))
+    })
+    if (!allowed)
+      structural.push(`.claude/settings.json: no allow rule matches ${cmd}, so it prompts`)
+  }
+  return structural
 }
-for (const name of HOME_CREDENTIALS) {
-  if (!(claude.permissions?.deny ?? []).includes(`Read(~/${name})`))
-    structural.push(`.claude/settings.json: no Read(~/${name}) deny rule; a **/ rule never reaches the home directory`)
+const FILES: RegistrationFiles = { claude, codex, gemini }
+const TEMPLATE = templateEntries(FILES)
+const codexGuards = TEMPLATE.codexGuard.handlers
+const geminiGuards = TEMPLATE.geminiGuard.handlers
+const codexSessions = TEMPLATE.codexSession.handlers
+const geminiSessions = TEMPLATE.geminiSession.handlers
+const realProblems = registrationProblems(FILES)
+
+// A child may register hooks of its own beside the template's: for another tool, event, or
+// source, or as another handler in a template entry. None may add a problem. With the template's
+// entries gone each file must say so rather than pass with nothing to check, and a template entry
+// whose matcher is narrowed is still caught. Each case edits a copy of the real files and reports
+// only the problems the real files lack.
+interface RegistrationCase { name: string, edit: (f: RegistrationFiles) => void, want: string[] }
+const entriesOf = (file: { hooks?: Hooks }, event: keyof Hooks): Registration[] => ((file.hooks ??= {})[event] ??= [])
+const ownHook = (matcher: string): Registration => ({ matcher, hooks: [{ command: 'node .claude/hooks/format.mts' }] })
+/** Every template entry of `f`, with the event list it sits in. */
+function templateLists(f: RegistrationFiles): [Registration[], HandlerTest][] {
+  return [[entriesOf(f.claude, 'PreToolUse'), runsDispatcher], [entriesOf(f.codex, 'PreToolUse'), runsGuards], [entriesOf(f.gemini, 'BeforeTool'), runsGuards], [entriesOf(f.codex, 'SessionStart'), runsSession], [entriesOf(f.gemini, 'SessionStart'), runsSession]]
 }
-for (const rule of claude.permissions?.allow ?? []) {
-  const body = /^Bash\((.*)\)$/.exec(rule)?.[1]
-  if (body === undefined)
-    continue
-  const words = body.split(' ')
-  if (words.slice(0, -1).some(w => w.includes('*')))
-    structural.push(`.claude/settings.json: allow rule ${rule} has a wildcard before its last word and matches nothing`)
-  const colon = /^pnpm (\S+):\*$/.exec(body)
-  if (colon && scriptNames.some(n => n.startsWith(`${colon[1]}:`)))
-    structural.push(`.claude/settings.json: allow rule ${rule} never matches the ${colon[1]}:* scripts (":*" is a space-wildcard); list each script`)
+function addOwnHooks(f: RegistrationFiles): void {
+  entriesOf(f.claude, 'PreToolUse').unshift(ownHook('Edit|Write'))
+  entriesOf(f.codex, 'PreToolUse').push(ownHook('apply_patch'))
+  entriesOf(f.codex, 'SessionStart').push(ownHook('startup'))
+  entriesOf(f.gemini, 'BeforeTool').push(ownHook('write_file'))
+  entriesOf(f.gemini, 'SessionStart').push(ownHook('startup'))
+  for (const [list, pick] of templateLists(f))
+    list.find(e => (e.hooks ?? []).some(pick))?.hooks?.push({ command: 'node .claude/hooks/log.mts' })
 }
-for (const cmd of ['pnpm verify', 'pnpm docs:list', 'pnpm docs:list decisions']) {
-  const allowed = (claude.permissions?.allow ?? []).some((rule) => {
-    const body = /^Bash\((.*)\)$/.exec(rule)?.[1] ?? ''
-    return body === cmd || (body.endsWith(':*') && `${cmd} `.startsWith(`${body.slice(0, -2)} `))
-  })
-  if (!allowed)
-    structural.push(`.claude/settings.json: no allow rule matches ${cmd}, so it prompts`)
-}
+const REGISTRATION_CASES: RegistrationCase[] = [
+  { name: 'own hooks beside the template\'s', edit: addOwnHooks, want: [] },
+  {
+    // The one rule a child's own hook meets (agent-surfaces): a Claude Code PreToolUse command
+    // braces ${CLAUDE_PROJECT_DIR}, the spelling PowerShell resolves.
+    name: 'own Claude hook with the bare project dir',
+    edit: (f) => {
+      addOwnHooks(f)
+      entriesOf(f.claude, 'PreToolUse').unshift({ matcher: 'Edit|Write', hooks: [{ command: 'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/format.mts' }] })
+    },
+    want: ['uses the bare $CLAUDE_PROJECT_DIR'],
+  },
+  {
+    name: 'own hooks alone',
+    edit: (f) => {
+      addOwnHooks(f)
+      for (const [list, pick] of templateLists(f))
+        list.splice(0, list.length, ...list.filter(e => !(e.hooks ?? []).some(pick)))
+    },
+    want: ['no PreToolUse entry runs dispatch.mts', 'no PreToolUse entry runs the guards script', 'no BeforeTool entry runs the guards script', '.codex/hooks.json: no SessionStart entry', '.gemini/settings.json: no SessionStart entry'],
+  },
+  {
+    name: 'template matchers narrowed',
+    edit: (f) => {
+      addOwnHooks(f)
+      const matchers = ['Bash', 'Shell', 'shell', 'startup', 'startup']
+      for (const [i, [list, pick]] of templateLists(f).entries()) {
+        for (const e of list.filter(e => (e.hooks ?? []).some(pick)))
+          e.matcher = matchers[i]!
+      }
+    },
+    want: ['"Bash" leaves the PowerShell tool unguarded', '"Bash" leaves the Monitor tool unguarded', 'PreToolUse matcher "Shell" is not Bash', 'BeforeTool matcher "shell" is not run_shell_command', 'SessionStart matcher "startup" skips resume, clear, compact', 'SessionStart matcher "startup" never fires'],
+  },
+]
 
 const fails: string[] = []
-for (const p of structural)
+for (const p of realProblems)
   fails.push(`[registrations] ${p}`)
+for (const c of REGISTRATION_CASES) {
+  const f = structuredClone(FILES)
+  c.edit(f)
+  const got = registrationProblems(f).filter(p => !realProblems.includes(p))
+  for (const p of got.filter(p => !c.want.some(w => p.includes(w))))
+    fails.push(`[registrations] ${c.name}: unexpected problem: ${p}`)
+  for (const w of c.want.filter(w => !got.some(p => p.includes(w))))
+    fails.push(`[registrations] ${c.name}: no problem names ${w}`)
+}
 for (const c of SESSION_CASES) {
   const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, SESSION)], { input: c.raw, encoding: 'utf8' })
   for (const p of sessionProblems(c, r.status, r.stdout, r.stderr))
@@ -1848,15 +1991,20 @@ for (const [name, { cmd, expect }] of Object.entries(VERDICT_BUDGET)) {
   if (got !== expect)
     fails.push(`[deny-secret-reads.mts] ${name}: got ${got}, want ${expect}`)
 }
+/** A run's stderr as a suffix for its failure line, which then names the guard or the error. */
+function stderrNote(stderr: string): string {
+  const text = stderr.trim()
+  return text === '' ? '' : ` (stderr: ${text.slice(0, 300)})`
+}
 for (const c of CASES) {
   const env: Record<string, string | undefined> = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env }
   for (const name of c.unset ?? [])
     delete env[name]
   if (c.guard === 'dispatch.mts') {
     const json = c.raw ?? JSON.stringify({ ...c.extra, tool_name: c.tool ?? 'Bash', tool_input: { command: c.cmd } })
-    const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, c.guard)], { input: json, cwd: c.cwd ?? DEFAULT_CWD, env })
+    const r = spawnSync(process.execPath, [join(c.hooksDir ?? TEMPLATE_HOOKS, c.guard)], { input: json, cwd: c.cwd ?? DEFAULT_CWD, env, encoding: 'utf8' })
     if (r.status !== c.expect)
-      fails.push(`[${c.guard}] got ${r.status ?? 'null'}, want ${c.expect}: ${c.cmd}`)
+      fails.push(`[${c.guard}] got ${r.status ?? 'null'}, want ${c.expect}: ${c.cmd}${stderrNote(r.stderr)}`)
     continue
   }
   const ctx: GuardContext = { cwd: c.cwd ?? DEFAULT_CWD, env, settingsFile: join(c.hooksDir ?? HOOKS, '..', 'settings.json') }
@@ -1871,8 +2019,8 @@ for (const c of CASES) {
 // types fails the way a node too old for .mts does, an empty project directory stands in for a
 // missing file, and a PATH without node for a missing node. Each registration runs the way its
 // harness runs it: Claude Code hands its command to sh, or to PowerShell when Git Bash is missing,
-// after putting the project path in for the placeholder. A shell or a pnpm this machine lacks is
-// skipped and named in the summary.
+// after putting the project path, here the template project's, in for the placeholder. A shell or
+// a pnpm this machine lacks is skipped and named in the summary.
 interface LaunchCase { name: string, cmd: string, expect: 0 | 2, env?: Record<string, string>, project?: string }
 const EMPTY_PROJECT = join(tmp, 'empty-project')
 mkdirSync(EMPTY_PROJECT)
@@ -1883,15 +2031,15 @@ const LAUNCH_CASES: LaunchCase[] = [
   { name: 'dispatcher missing', cmd: 'pnpm install', expect: D, project: EMPTY_PROJECT },
 ]
 const PLACEHOLDER = ['$', '{CLAUDE_PROJECT_DIR}'].join('')
-const claudeCommands = (claude.hooks?.PreToolUse ?? []).flatMap(e => e.hooks ?? []).map(h => h.command ?? '').filter(c => c.includes('dispatch.mts'))
+const claudeCommands = TEMPLATE.claudeGuard.handlers.map(h => h.command ?? '')
 const payload = (cmd: string): string => JSON.stringify({ tool_name: 'Bash', tool_input: { command: cmd } })
 const runs = (bin: string, args: string[]): boolean => spawnSync(bin, args, { stdio: 'ignore', timeout: 20_000 }).status === 0
 const launchSkipped: string[] = []
 let launchRuns = 0
-function launched(where: string, c: LaunchCase, status: number | null, stdout = ''): void {
+function launched(where: string, c: LaunchCase, status: number | null, stdout = '', stderr = ''): void {
   launchRuns++
   if (status !== c.expect)
-    fails.push(`[launch] ${where}, ${c.name}: got ${status ?? 'null'}, want ${c.expect}`)
+    fails.push(`[launch] ${where}, ${c.name}: got ${status ?? 'null'}, want ${c.expect}${stderrNote(stderr)}`)
   if (stdout !== '')
     fails.push(`[launch] ${where}, ${c.name}: stdout should be empty, got ${stdout.slice(0, 80)}`)
 }
@@ -1902,26 +2050,26 @@ const SHELLS = ['sh', 'pwsh', 'powershell'].filter((shell) => {
   return ok
 })
 const shellArgs = (shell: string, command: string): string[] => shell === 'sh' ? ['-c', command] : ['-NoProfile', '-NonInteractive', '-Command', command]
-if (claudeCommands.length === 0)
-  fails.push('[launch] .claude/settings.json registers no PreToolUse command that runs dispatch.mts')
 for (const shell of SHELLS) {
   for (const command of claudeCommands) {
     for (const c of LAUNCH_CASES) {
-      const project = c.project ?? REPO
+      const project = c.project ?? TEMPLATE_PROJECT
       const env = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env, CLAUDE_PROJECT_DIR: project }
-      launched(`Claude Code under ${shell}`, c, spawnSync(shell, shellArgs(shell, shell === 'sh' ? command : command.replaceAll(PLACEHOLDER, project)), { input: payload(c.cmd), env, timeout: 20_000 }).status)
+      const r = spawnSync(shell, shellArgs(shell, shell === 'sh' ? command : command.replaceAll(PLACEHOLDER, project)), { input: payload(c.cmd), env, timeout: 20_000, encoding: 'utf8' })
+      launched(`Claude Code under ${shell}`, c, r.status, '', r.stderr ?? '')
     }
     if (shell === 'sh' && process.platform !== 'win32') {
       const c: LaunchCase = { name: 'node not installed', cmd: 'pnpm install', expect: D }
-      const env = { ...process.env, PATH: EMPTY_PROJECT, CLAUDE_PROJECT_DIR: REPO }
-      launched('Claude Code under sh', c, spawnSync('/bin/sh', ['-c', command], { input: payload(c.cmd), env, timeout: 20_000 }).status)
+      const env = { ...process.env, PATH: EMPTY_PROJECT, CLAUDE_PROJECT_DIR: TEMPLATE_PROJECT }
+      const r = spawnSync('/bin/sh', ['-c', command], { input: payload(c.cmd), env, timeout: 20_000, encoding: 'utf8' })
+      launched('Claude Code under sh', c, r.status, '', r.stderr ?? '')
     }
   }
 }
 
 // Codex and Gemini run the commands in their registrations from wherever the session sits, here a
-// subdirectory. Codex uses the session's shell: sh, bash, or zsh with -c, and on Windows
-// PowerShell with commandWindows in place of command. Gemini uses bash -c (here sh where bash is
+// subdirectory (of the template project, for a guard command). Codex uses the session's shell:
+// sh, bash, or zsh with -c, and on Windows PowerShell with commandWindows in place of command. Gemini uses bash -c (here sh where bash is
 // missing and on Windows), or PowerShell with its own exit suffix appended; Gemini parses stdout,
 // so a guard run leaves it empty. `pnpm run` sets pnpm_config_verify_deps_before_run=false for
 // the scripts it starts, this suite included, which would hide a registration that lets pnpm
@@ -1932,16 +2080,16 @@ for (const shell of SHELLS) {
 interface PnpmCase extends LaunchCase { cwd: string, root?: string }
 const STALE = join(tmp, 'stale-workspace')
 mkdirSync(join(STALE, 'sub'), { recursive: true })
-cpSync(join(HOOKS, '..'), join(STALE, '.claude'), { recursive: true })
+claudeCopy(join(STALE, '.claude'))
 writeFileSync(join(STALE, 'package.json'), `${JSON.stringify({ name: 'stale', private: true, scripts: { guards: rootPackage.scripts?.guards, session: rootPackage.scripts?.session }, devDependencies: { 'is-number': '7.0.0' } })}\n`)
 writeFileSync(join(STALE, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n')
 const OFFLINE = { pnpm_config_registry: 'http://127.0.0.1:9/', pnpm_config_fetch_retries: '0', pnpm_config_store_dir: join(tmp, 'pnpm-store') }
-const PNPM_DENY: PnpmCase = { name: 'deny', cmd: 'npm install', expect: D, cwd: HOOKS }
-const PNPM_ALLOW: PnpmCase = { name: 'allow', cmd: 'pnpm install', expect: A, cwd: HOOKS }
+const PNPM_DENY: PnpmCase = { name: 'deny', cmd: 'npm install', expect: D, cwd: TEMPLATE_HOOKS }
+const PNPM_ALLOW: PnpmCase = { name: 'allow', cmd: 'pnpm install', expect: A, cwd: TEMPLATE_HOOKS }
 const PNPM_CASES: PnpmCase[] = [
   PNPM_DENY,
   PNPM_ALLOW,
-  { name: 'node cannot load .mts', cmd: 'pnpm install', expect: D, cwd: HOOKS, env: { NODE_OPTIONS: '--no-experimental-strip-types' } },
+  { name: 'node cannot load .mts', cmd: 'pnpm install', expect: D, cwd: TEMPLATE_HOOKS, env: { NODE_OPTIONS: '--no-experimental-strip-types' } },
   { name: 'pnpm fails before the script', cmd: 'pnpm install', expect: D, cwd: EMPTY_PROJECT, root: EMPTY_PROJECT },
   { name: 'workspace never installed, deny', cmd: 'npm install', expect: D, cwd: join(STALE, 'sub'), env: OFFLINE, root: STALE },
   { name: 'workspace never installed, allow', cmd: 'pnpm install', expect: A, cwd: join(STALE, 'sub'), env: OFFLINE, root: STALE },
@@ -1979,8 +2127,6 @@ function pnpmRun(where: string, c: PnpmCase, argv: string[], opts: { env?: Recor
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' }
 }
 if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 }).status === 0) {
-  if (codexGuards.length === 0 || geminiGuards.length === 0 || codexSessions.length === 0 || geminiSessions.length === 0)
-    fails.push('[launch] .codex/hooks.json and .gemini/settings.json must each register a guard and a session command')
   const BASH = shellPath('bash')
   const CODEX_POSIX = { name: 'sh', bin: process.platform === 'win32' ? 'sh' : '/bin/sh' }
   const GEMINI_POSIX = BASH === '' ? CODEX_POSIX : { name: 'bash', bin: BASH }
@@ -1995,12 +2141,16 @@ if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 
   // A missing pnpm is a PATH that holds only sh, which Codex's `command` hands the pnpm call to,
   // with each shell started by its absolute path. Off Windows only, where the suite can build that
   // PATH from nothing but the machine's /bin/sh.
-  const PNPM_MISSING: PnpmCase = { name: 'pnpm not installed', cmd: 'pnpm install', expect: D, cwd: HOOKS }
+  const PNPM_MISSING: PnpmCase = { name: 'pnpm not installed', cmd: 'pnpm install', expect: D, cwd: TEMPLATE_HOOKS }
   const ONLY_SH = join(tmp, 'only-sh')
   mkdirSync(ONLY_SH)
   if (process.platform !== 'win32')
     symlinkSync('/bin/sh', join(ONLY_SH, 'sh'))
   const noPnpm = { env: { ...pnpmEnv(), PATH: ONLY_SH } }
+  const launchedNoPnpm = (where: string, argv: string[]): void => {
+    const r = pnpmRun(where, PNPM_MISSING, argv, noPnpm)
+    launched(where, PNPM_MISSING, r.status, r.stdout, r.stderr)
+  }
   for (const shell of SHELLS) {
     const powershellPath = shell === 'sh' ? '' : shellPath(shell)
     for (const host of hosts) {
@@ -2008,12 +2158,12 @@ if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 
       const argv = shell === 'sh' ? [host.posix.bin, '-c', host.sh] : [shell, ...shellArgs(shell, host.powershell)]
       for (const c of PNPM_CASES) {
         const r = pnpmRun(where, c, argv)
-        launched(where, c, r.status, r.stdout)
+        launched(where, c, r.status, r.stdout, r.stderr)
       }
       if (shell === 'sh' && process.platform !== 'win32')
-        launched(where, PNPM_MISSING, pnpmRun(where, PNPM_MISSING, argv, noPnpm).status)
+        launchedNoPnpm(where, argv)
       else if (powershellPath !== '')
-        launched(where, PNPM_MISSING, pnpmRun(where, PNPM_MISSING, [powershellPath, ...shellArgs(shell, host.powershell)], noPnpm).status)
+        launchedNoPnpm(where, [powershellPath, ...shellArgs(shell, host.powershell)])
     }
     // A session command exits 0 with the writing rules, in a workspace never installed too.
     for (const host of sessionHosts) {
@@ -2040,9 +2190,9 @@ if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 
       const argv = [bin, login.noConfig, '-c', h.command ?? '']
       for (const c of PNPM_CASES) {
         const r = pnpmRun(where, c, argv)
-        launched(where, c, r.status, r.stdout)
+        launched(where, c, r.status, r.stdout, r.stderr)
       }
-      launched(where, PNPM_MISSING, pnpmRun(where, PNPM_MISSING, argv, noPnpm).status)
+      launchedNoPnpm(where, argv)
     }
   }
   // With no PowerShell, or no single local environment, Codex on Windows runs the command through
@@ -2053,7 +2203,7 @@ if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 
     const command = h.commandWindows ?? h.command ?? ''
     for (const c of [PNPM_DENY, PNPM_ALLOW]) {
       const r = process.platform === 'win32' ? pnpmRun('Codex under cmd.exe', c, [command], { shell: true }) : pnpmRun('Codex under cmd.exe', c, command.split(' '))
-      launched('Codex under cmd.exe', c, r.status, r.stdout)
+      launched('Codex under cmd.exe', c, r.status, r.stdout, r.stderr)
     }
   }
 }
@@ -2067,10 +2217,9 @@ else {
 // the input, so a guard slower than it, here one that sleeps past it in a copy of the hooks,
 // still returns its own verdict. All three start before any is awaited, so the suite waits
 // once for the 5s backstop, not three times.
-const SLOW_CLAUDE = join(tmp, 'slow-claude')
-cpSync(join(HOOKS, '..'), SLOW_CLAUDE, { recursive: true })
+const SLOW_CLAUDE = claudeCopy(join(tmp, 'slow-claude'))
 writeFileSync(join(SLOW_CLAUDE, 'hooks', 'deny-zz-slow.mts'), 'export const verdict = () => {\n  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5500)\n  return null\n}\n')
-const hung = spawn(process.execPath, [join(HOOKS, 'dispatch.mts')], { stdio: ['pipe', 'ignore', 'ignore'] })
+const hung = spawn(process.execPath, [join(TEMPLATE_HOOKS, 'dispatch.mts')], { stdio: ['pipe', 'ignore', 'ignore'] })
 const hungSession = spawn(process.execPath, [join(HOOKS, SESSION)], { stdio: ['pipe', 'pipe', 'ignore'] })
 const slow = spawn(process.execPath, [join(SLOW_CLAUDE, 'hooks', 'dispatch.mts')], { stdio: ['pipe', 'ignore', 'pipe'], env: { ...process.env, PROTECTED_BRANCHES: 'main' } })
 let hungSessionOut = ''
@@ -2095,11 +2244,11 @@ if (slowStatus !== 0 || slowErr !== '')
   fails.push(`[dispatch.mts] a guard slower than the stdin timeout: got ${slowStatus ?? 'null'}${slowErr ? ` (${slowErr.trim()})` : ''}, want 0 and no output`)
 
 if (fails.length > 0) {
-  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + Object.keys(VERDICT_BUDGET).length + SESSION_CASES.length + launchRuns + 3} failed:\n`)
+  console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + Object.keys(VERDICT_BUDGET).length + SESSION_CASES.length + REGISTRATION_CASES.length + launchRuns + 3} failed:\n`)
   for (const f of fails)
     console.error(`  ${f}`)
   console.error('')
   process.exit(1)
 }
 const skippedNote = launchSkipped.length > 0 ? ` (${launchSkipped.join(', ')} not installed, skipped)` : ''
-console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${Object.keys(VERDICT_BUDGET).length} verdict time budgets + ${SESSION_CASES.length} session cases + ${launchRuns} launch runs${skippedNote} + both stdin timeouts + a slow guard + the three registrations pass`)
+console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${Object.keys(VERDICT_BUDGET).length} verdict time budgets + ${SESSION_CASES.length} session cases + ${launchRuns} launch runs${skippedNote} + both stdin timeouts + a slow guard + the three registrations + ${REGISTRATION_CASES.length} registration cases pass`)

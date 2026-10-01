@@ -18,6 +18,15 @@ The guards' threat model is [guards](./guards.md). `AGENTS.md`, `CLAUDE.md`,
 and `.claude/settings.json` are the child's own and never synced; every other
 file in the table is.
 
+A child may register hooks of its own in all three files. `pnpm test:hooks`
+holds to the template's rules only the entries that run the dispatcher, the
+`guards` script, or the `session` script, and fails when a file has none. It
+holds a child's own hook to one rule: a Claude Code PreToolUse command must
+brace `${CLAUDE_PROJECT_DIR}`, since PowerShell resolves the bare
+`$CLAUDE_PROJECT_DIR` to nothing. It runs the dispatcher from a copy of
+`.claude/hooks/` holding only the template's guards, so a `deny-*.mts` of the
+child's own never fails it.
+
 Gemini's `context.fileName` lists `GEMINI.md` beside `AGENTS.md`, so each
 developer's own `~/.gemini/GEMINI.md` still loads; a `GEMINI.md` committed to
 the project would load too.
@@ -185,9 +194,9 @@ stash drop prompts. Scripts with a colon in the name are listed one by one
 `pnpm --filter <pkg> <script>` prompts once per repository by design; a
 `--filter` rule wide enough to match would also approve `pnpm --filter x exec`.
 The file is the child's own, yet the synced `pnpm test:hooks` checks it:
-beside the hook registration and the home-directory deny rules, it requires
-allow rules for `pnpm verify` and `pnpm docs:list`, the two commands the docs
-send agents to most. Every other allow rule is the repository's choice.
+beside the guards' hook registration and the home-directory deny rules, it
+requires allow rules for `pnpm verify` and `pnpm docs:list`, the two commands
+the docs send agents to most. Every other allow rule is the repository's choice.
 
 The template gives Gemini no prompt-free list, so an interactive session asks
 before every shell command outside its own built-in read-only set

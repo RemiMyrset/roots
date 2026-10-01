@@ -109,6 +109,11 @@ A file at a path the template once shipped that matches none of its versions
 stays too, listed under `Kept`: it is yours, or a template file you edited;
 `git rm` the template's. Behavior 24 has the rule.
 
+The synced `pnpm test:hooks` runs only the template's guards and leaves your
+own hooks to you, apart from one rule
+([agent-surfaces](./agent-surfaces.md#surfaces)). Test your own guard in a
+suite of your own.
+
 ## Contract
 
 Invocation is `node scripts/sync-template.mts [git-url] [--ref <ref>]`
