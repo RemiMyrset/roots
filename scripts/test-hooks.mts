@@ -22,6 +22,11 @@ import { verdict as nonPnpm } from '../.claude/hooks/deny-non-pnpm.mts'
 import { verdict as pushProtected } from '../.claude/hooks/deny-push-protected.mts'
 import { verdict as secretReads } from '../.claude/hooks/deny-secret-reads.mts'
 
+// A git hook or `git rebase --exec` exports GIT_DIR and its kin, which would aim every git this
+// suite starts, the push guard's included, at the repository running it: drop them first.
+for (const key of Object.keys(process.env).filter(k => /^GIT_/i.test(k)))
+  delete process.env[key]
+
 type Guard = 'deny-non-pnpm.mts' | 'deny-build-scripts.mts' | 'deny-secret-reads.mts' | 'deny-push-protected.mts' | 'deny-hook-bypass.mts' | 'dispatch.mts'
 interface Case { guard: Guard, expect: 0 | 2, cmd: string, env?: Record<string, string>, unset?: string[], cwd?: string, tool?: string, extra?: Record<string, unknown>, hooksDir?: string, raw?: string }
 

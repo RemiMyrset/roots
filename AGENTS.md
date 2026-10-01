@@ -57,7 +57,8 @@ affect passes clean after your last edit. When unsure which apply, run
   tsconfigs, the install hook, verify's drift gate, the secret scan, and `.gitignore`;
   changelogen sends no commit author's email out unless `changelog.excludeAuthors` lists
   names, and the release script refuses a dirty tree; the devcontainer's `mounts` share no
-  volume with another repository's container)
+  volume with another repository's container; each `scripts/test-*.mts` suite drops the
+  inherited `GIT_` variables before it starts a process)
 - Typecheck: `pnpm typecheck`
 - Lint: `pnpm lint`. Run `pnpm lint:fix` after making code changes.
 - Secrets: `pnpm lint:secrets` (secretlint over every tracked file, a force-added gitignored

@@ -16,6 +16,11 @@ import { dirname, join, sep } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
+// A git hook or `git rebase --exec` exports GIT_DIR and its kin, which would aim every git this
+// suite starts, the sync script's included, at the repository running it: drop them first.
+for (const key of Object.keys(process.env).filter(k => /^GIT_/i.test(k)))
+  delete process.env[key]
+
 const SCRIPT = join(import.meta.dirname, 'sync-template.mts')
 const REAL_SCRIPT = readFileSync(SCRIPT, 'utf8')
 const STATE = '.template-sync.json'

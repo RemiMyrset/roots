@@ -302,6 +302,12 @@ your own:
   package's through turbo, so it is in the done gate and in CI with no workflow
   edit. A variable the test reads is declared under the task's `env` in
   `turbo.json`, which is yours.
+- A suite of your own at `scripts/test-*.mts` that starts a process first
+  drops the inherited `GIT_` variables: copy the two lines below the imports of
+  `scripts/test-hooks.mts`. `pnpm test:gates` fails a suite that starts one
+  before them. A git hook or `git rebase --exec` exports `GIT_DIR`, and a
+  `git init` run under it in a temp folder re-initialises the repository
+  running the suite.
 - A step that needs what the synced workflows lack goes in a workflow of your
   own, such as `.github/workflows/project.yml`: a service such as Postgres, a
   secret, a schedule, or typos (crate-ci/typos) spell-checking the docs. The

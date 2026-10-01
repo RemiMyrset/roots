@@ -36,6 +36,11 @@ import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, matchesGlob, relative, resolve } from 'node:path'
 import process from 'node:process'
 
+// A git hook or `git rebase --exec` exports GIT_DIR and its kin, which would aim every git this
+// suite starts, the probes' tools included, at the repository running it: drop them first.
+for (const key of Object.keys(process.env).filter(k => /^GIT_/i.test(k)))
+  delete process.env[key]
+
 const root = join(import.meta.dirname, '..')
 
 // Every pnpm('<script>', …) call in verify.mts, by its first argument — the drift gate's
@@ -348,10 +353,11 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // is staged; .gitignore must ignore every env-file name the secret-read guard denies; the
 // release flow must keep the release skill's word: changelogen sends no commit author's email
 // out unless `changelog.excludeAuthors` lists names, and the release script refuses a dirty
-// tree; and a devcontainer's `mounts` must share no volume with another repository's
-// container. It runs the installed eslint, turbo, typescript, simple-git-hooks, secretlint,
-// lint-staged, and changelogen, so it needs the install that verify and CI run first. The
-// probes that need files write them to a temp directory only.
+// tree; a devcontainer's `mounts` must share no volume with another repository's container;
+// and a test suite must drop the inherited GIT_ variables before it starts a process. It runs
+// the installed eslint, turbo, typescript, simple-git-hooks, secretlint, lint-staged, and
+// changelogen, so it needs the install that verify and CI run first. The probes that need
+// files write them to a temp directory only.
 const failures: string[] = []
 const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
@@ -668,16 +674,43 @@ const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typeche
   }
 }
 
+// Every scripts/test-*.mts suite that starts a child process drops the inherited GIT_ variables
+// before its first one, as the top of this file does. A git hook or `git rebase --exec` exports
+// GIT_DIR and its kin, and under them a `git init` a suite ran in a temp folder re-initialised
+// the repository running it, setting core.bare=true there. The drop is read as a line naming
+// process.env and GIT_ followed by a line that deletes a process.env key; the reader runs first
+// on samples of its own.
+const DROP_GIT_ENV = ['for (const key of Object.keys(process.env).filter(k => /^GIT_/i.test(k)))', '  delete process.env[key]']
+/** Whether a suite's source starts a child process before it drops the inherited GIT_ variables, or never drops them. */
+function spawnsBeforeDrop(source: string): boolean {
+  const spawn = /(?<![.\w])(?:spawn|spawnSync|exec|execSync|execFile|execFileSync|fork)\(/.exec(source)
+  const drop = /process\.env\)[^\n]*\bGIT_[^\n]*\n[^\n]*\bdelete process\.env\[/.exec(source)
+  return spawn !== null && (drop === null || drop.index > spawn.index)
+}
+const dropCases: [string, boolean][] = [
+  [`${DROP_GIT_ENV.join('\n')}\nspawnSync('git', ['init'])\n`, false],
+  [`spawnSync('git', ['init'])\n${DROP_GIT_ENV.join('\n')}\n`, true],
+  [`execFileSync('git', ['init'])\n`, true],
+  [`const word = /a/.exec('a')\n`, false],
+]
+for (const [source, want] of dropCases) {
+  if (spawnsBeforeDrop(source) !== want)
+    failures.push(`the GIT_ drop reader read ${JSON.stringify(source)} as ${want ? 'safe' : 'unsafe'}, want ${want ? 'unsafe' : 'safe'}`)
+}
+const suites = readdirSync(join(root, 'scripts')).filter(f => /^test-.*\.mts$/.test(f)).sort()
+for (const suite of suites.filter(f => spawnsBeforeDrop(readFileSync(join(root, 'scripts', f), 'utf8'))))
+  failures.push(`scripts/${suite} starts a child process before it drops the inherited GIT_ variables, so under a git hook or \`git rebase --exec\` a git it runs, a \`git init\` in a temp folder included, rewrites the repository running the suite; put these two lines right below its imports: \`${DROP_GIT_ENV[0]}\` and \`${DROP_GIT_ENV[1]!.trim()}\``)
+
 // The git probes below run git and node in throwaway repositories under tmp, with a git config
-// of their own (no signing, no user hooks), `bin` first on PATH, and none of the GIT_ variables
-// a surrounding git hook sets, which would point git back at this repository.
+// of their own (no signing, no user hooks) and `bin` first on PATH; the GIT_ variables a
+// surrounding git hook sets are gone since the top of the file.
 // FORCE_NODE_FETCH would route changelogen past the release probe's fetch stub.
 const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH'
 writeFileSync(join(tmp, 'gitconfig'), '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[tag]\n\tgpgSign = false\n[init]\n\tdefaultBranch = main\n')
-/** The environment of a git probe: the caller's minus every GIT_ variable and FORCE_NODE_FETCH, with `bin` first on PATH. */
+/** The environment of a git probe: the caller's minus SKIP_INSTALL_SIMPLE_GIT_HOOKS and FORCE_NODE_FETCH, with `bin` first on PATH. */
 function probeEnv(bin: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
-    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toUpperCase().startsWith('GIT_') && !['SKIP_INSTALL_SIMPLE_GIT_HOOKS', 'FORCE_NODE_FETCH'].includes(k))),
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !['SKIP_INSTALL_SIMPLE_GIT_HOOKS', 'FORCE_NODE_FETCH'].includes(k))),
     [pathKey]: [bin, process.env[pathKey] ?? ''].join(delimiter),
     GIT_CONFIG_GLOBAL: join(tmp, 'gitconfig'),
     GIT_CONFIG_NOSYSTEM: '1',
@@ -1013,4 +1046,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; turbo leaves AGENTS.md alone on an agent's run; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; turbo leaves AGENTS.md alone on an agent's run; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}; ${suites.length} test suite(s) drop the inherited GIT_ variables before they start a process`)

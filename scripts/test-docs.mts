@@ -49,6 +49,11 @@ import { decisionsSidebar, escapeCell, readDecisions, readSpecs, renderDecisions
 import { stripFences } from './docs/root.mts'
 import { SKILLS_SOURCE, SKILLS_TARGET } from './docs/skills.mts'
 
+// A git hook or `git rebase --exec` exports GIT_DIR and its kin, which would aim every git this
+// suite starts, the checkers' included, at the repository running it: drop them first.
+for (const key of Object.keys(process.env).filter(k => /^GIT_/i.test(k)))
+  delete process.env[key]
+
 const FIXTURES = join(import.meta.dirname, 'docs', 'fixtures')
 const CHECKERS = {
   'docs:check': join(import.meta.dirname, 'docs', 'check-docs.mts'),
@@ -1042,12 +1047,12 @@ function runAutomd(cwd: string): Run {
 
 // 18. The property dated names exist for: two branches cut from the same commit, each adding
 // a record on the same day, merge into main with no conflict, and the result passes
-// docs:check. Git runs with an isolated config, and the inherited GIT_ variables are dropped
-// so a hook's GIT_DIR or GIT_INDEX_FILE cannot point it at the outer repository.
+// docs:check. Git runs with an isolated config; the inherited GIT_ variables are gone since
+// the top of the file.
 {
   const gitconfig = join(tmp, 'gitconfig')
   writeFileSync(gitconfig, '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[init]\n\tdefaultBranch = main\n[core]\n\tautocrlf = false\n')
-  const gitEnv: NodeJS.ProcessEnv = { ...Object.fromEntries(Object.entries(withoutCi).filter(([k]) => !k.toUpperCase().startsWith('GIT_'))), GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1' }
+  const gitEnv: NodeJS.ProcessEnv = { ...withoutCi, GIT_CONFIG_GLOBAL: gitconfig, GIT_CONFIG_NOSYSTEM: '1' }
   const git = (cwd: string, ...args: string[]): Run => {
     const r = spawnSync('git', args, { cwd, env: gitEnv, encoding: 'utf8' })
     return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? r.error.message : ''}` }
