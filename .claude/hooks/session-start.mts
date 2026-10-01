@@ -1,14 +1,16 @@
 /**
  * Session-start hook — prints the writing rules (.claude/output-styles/writing.md, frontmatter
  * stripped) as SessionStart context for Codex and Gemini CLI, registered in .codex/hooks.json
- * and .gemini/settings.json as `pnpm -w --silent run session`. Claude Code applies the same
- * file as its output style (`outputStyle` in .claude/settings.json) and does not register this
- * hook: it would inject the text twice and override a /config choice. The payload is never
- * read; nothing in it changes the output. Stdin is drained so the tool's write never meets a
- * closed pipe, with a 5s backstop for a harness that never closes it. Always exits 0 — a
- * session hook must never block a session — through process.exitCode rather than
- * process.exit() (see dispatch.mts for the Windows pipe abort). A missing style file prints
- * one stderr line and no context. Node builtins only, so it runs before `pnpm install`.
+ * and .gemini/settings.json as `pnpm -w --silent --config.verify-deps-before-run=false run
+ * session`, so pnpm never installs first, and with none of the guards' exit tail. Claude Code
+ * applies the same file as its output style (`outputStyle` in .claude/settings.json) and does
+ * not register this hook: it would inject the text twice and override a /config choice. The
+ * payload is never read; nothing in it changes the output. Stdin is drained so the tool's
+ * write never meets a closed pipe, with a 5s backstop for a harness that never closes it.
+ * Always exits 0 — a session hook must never block a session — through process.exitCode
+ * rather than process.exit() (see dispatch.mts for the Windows pipe abort). A missing style
+ * file prints one stderr line and no context. Node builtins only, so it runs before
+ * `pnpm install`.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'

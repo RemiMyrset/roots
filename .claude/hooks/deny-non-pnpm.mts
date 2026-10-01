@@ -1,5 +1,5 @@
 /**
- * deny-non-pnpm guard (imported by dispatch.mts). Blocks npm/yarn/bun/bunx at a
+ * deny-non-pnpm guard (imported by dispatch.mts). Blocks npm/yarn/yarnpkg/bun/bunx at a
  * command head. Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md.
  */
 import type { Verdict } from './_lexer.mts'

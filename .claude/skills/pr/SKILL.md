@@ -21,8 +21,10 @@ decision; `gh pr merge` always prompts, and this skill never runs it.
    chars). Never `--no-verify`; the hooks are the gate, and a guard denies it.
 3. Verify. `pnpm verify` must pass. Fix at the source; never open a PR over a
    red gate.
-4. Push. `git push -u origin <branch>` (`--force-with-lease` only if the branch
-   was rebased and the user knows).
+4. Push. `git push -u origin <branch>` with the name spelled out, or
+   `git push -u origin HEAD`; the guard denies a target held in a shell
+   variable (`"$BRANCH"`). Add `--force-with-lease` only if the branch was
+   rebased and the user knows.
 5. Body. Read `.github/PULL_REQUEST_TEMPLATE.md` and fill it: a two-sentence
    Summary, the three-place-sync boxes ticked only for what this PR did (source
    and tests, spec, decision record, or N/A), the docs-hygiene boxes ticked only

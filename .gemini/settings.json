@@ -13,7 +13,7 @@
           {
             "name": "guards",
             "type": "command",
-            "command": "pnpm -w --silent run guards",
+            "command": "pnpm -w --silent --config.verify-deps-before-run=false run guards ; exit $((2*!!($true-$?)))",
             "timeout": 10000
           }
         ]
@@ -25,7 +25,7 @@
           {
             "name": "writing-rules",
             "type": "command",
-            "command": "pnpm -w --silent run session",
+            "command": "pnpm -w --silent --config.verify-deps-before-run=false run session",
             "timeout": 10000
           }
         ]
