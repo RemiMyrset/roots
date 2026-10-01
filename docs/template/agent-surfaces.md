@@ -214,10 +214,8 @@ hash, so take `n` from a listing run just before.
 
 The prefix rules the skills need still grant side effects no guard checks:
 `git log`, `git diff`, and `git show` accept `--output=<file>`, which overwrites
-the file; `git fetch` accepts `--upload-pack`, which runs a program, and a `+`
-refspec such as `+main:feat/x`, which resets a local branch; and
-`git push . :refs/heads/<branch>` deletes a local branch outside
-`PROTECTED_BRANCHES`.
+the file; and `git fetch` accepts `--upload-pack`, which runs a program, and a
+`+` refspec such as `+main:feat/x`, which resets a local branch.
 
 Scripts with a colon in the name get one rule each (`Bash(pnpm test:hooks)`):
 a trailing `:*` is a space-wildcard, so `Bash(pnpm test:*)` matches

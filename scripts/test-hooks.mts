@@ -1206,6 +1206,19 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval "\'#\' ; npm install"' }, // a quoted # is a command, not a comment
   { guard: P, expect: D, cmd: 'eval \'git push origin main\'' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'eval "cat .env"' },
+  // The word that names eval, env, a wrapper or a runner may itself be quoted or escaped.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'e\'val\' "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'ev\\al \'npm install\'' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'e"nv" -S "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'r\'unuser\' -c "npm install" root' },
+  { guard: B, expect: D, cmd: 'p\'npm\' exec --shell-mode "git commit --no-verify -m x"' },
+  // What a runner runs is read as a command of its own, wrappers and defaulted heads included.
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm exec env -S "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpx runuser -c "npm install" root' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm dlx runuser -lc \'npm install\' root' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'npx eval "npm install"' },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `npx \${x:-\nnpm install# }` },
+  { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pnpm exec eslint . && npx tsc --noEmit' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -S "npm install"' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -S\'npm install\'' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'env -iS "npm install"' },
@@ -1966,11 +1979,15 @@ const BUDGET: Record<string, string> = {
   '20k shell modes': `${'pnpm -c exec "x y"; '.repeat(20_000)}true`,
   '20k wrapper strings': `${'flock /tmp/l -c "x y"; '.repeat(20_000)}true`,
 }
+// The fastest of three runs, so a loaded runner's scheduling noise does not fail a budget that
+// a pathological slowdown still blows by an order of magnitude.
 for (const [name, cmd] of Object.entries(BUDGET)) {
-  const started = performance.now()
-  for (const seg of segments(cmd))
-    resolveHead(tokenize(seg))
-  const took = performance.now() - started
+  const took = Math.min(...[0, 1, 2].map(() => {
+    const started = performance.now()
+    for (const seg of segments(cmd))
+      resolveHead(tokenize(seg))
+    return performance.now() - started
+  }))
   if (took > 500)
     fails.push(`[lexer] ${name} took ${Math.round(took)} ms, want under 500`)
 }

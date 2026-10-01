@@ -1292,7 +1292,8 @@ export function segments(s: string): string[] {
 // one (defaulted()), and the replacement of a pattern substitution that may stand as the head
 // (replaced()) are handed back.
 function reparsed(seg: string): string[] {
-  if (!/eval|env|\$\{|pn|flock|mise|runuser/i.test(seg))
+  // Read with quotes and backslashes dropped: `e'val'` and `r\unuser` name eval and runuser too.
+  if (!/eval|env|\$\{|pn|npx|flock|mise|runuser/i.test(seg.replace(/['"\\]/g, '')))
     return []
   const raw = words(seg)
   const toks = raw.map(unescapeWord)
@@ -1314,23 +1315,21 @@ function reparsed(seg: string): string[] {
     if (string !== null)
       out.push(string)
   }
-  // The runners resolveHead() unwraps, in the same order, up to one in shell mode. Its words,
-  // like eval's, are handed back only when one loses a quote or an escape; plain words already
-  // read as the command they run, the next runner included.
-  for (let h = lead; h < toks.length;) {
-    const s = shellModeAt(toks, h)
-    if (s >= 0) {
-      const args = raw.slice(s)
-      const plain = args.map(dequote)
-      if (plain.some((w, x) => w !== args[x]))
-        out.push(plain.join(' '))
-      break
-    }
-    const e = runs(toks, h)
-    if (e < 0)
-      break
-    h = e
-    while (h < toks.length && skip(toks[h]!)) h++
+  // A runner at the head (pnpm exec, pnpm dlx, pnx, pnpx, npx). In shell mode its words, like
+  // eval's, are handed back only when one loses a quote or an escape. Otherwise the command it
+  // runs is handed back whole, so an eval, `env -S`, wrapper string, defaulted head, or further
+  // runner behind it is read as it is at the start of a segment.
+  const s = shellModeAt(toks, lead)
+  if (s >= 0) {
+    const args = raw.slice(s)
+    const plain = args.map(dequote)
+    if (plain.some((w, x) => w !== args[x]))
+      out.push(plain.join(' '))
+  }
+  else {
+    const e = runs(toks, lead)
+    if (e >= 0 && e < raw.length)
+      out.push(raw.slice(e).join(' '))
   }
   for (const source of [defaulted(raw, lead), replaced(raw, toks, lead)]) {
     if (source !== null)
