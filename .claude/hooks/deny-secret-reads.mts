@@ -60,10 +60,14 @@ function isSecret(arg: string, glob: string): boolean {
     return true
   // Credential files that a developer machine holds outside any repo, keyed by their parent
   // directory so a bare `credentials` or `config` elsewhere is not one: ~/.aws/credentials,
-  // ~/.config/gh/hosts.yml (the gh OAuth token), ~/.kube/config, ~/.docker/config.json.
+  // ~/.config/gh/hosts.yml (the gh OAuth token), ~/.kube/config, ~/.docker/config.json, and
+  // the Windows homes of the gh token and libpq's password file under %APPDATA%
+  // (`GitHub CLI\hosts.yml`, `postgresql\pgpass.conf`).
   const segs = p.toLowerCase().split('/')
   const parent = segs.at(-2) ?? ''
   if ((parent === '.aws' && b === 'credentials') || (parent === 'gh' && segs.at(-3) === '.config' && b === 'hosts.yml') || (parent === '.kube' && b === 'config') || (parent === '.docker' && b === 'config.json'))
+    return true
+  if ((parent === 'github cli' && b === 'hosts.yml') || (parent === 'postgresql' && b === 'pgpass.conf'))
     return true
   // Plaintext credential stores by name: git's credential helper file and libpq's password file.
   if (b === '.git-credentials' || b === '.pgpass')
@@ -87,7 +91,7 @@ const GLOB_PROBES: readonly string[][] = [
   '.env', '.env~', '.env.local', '.env.production', '.envrc', '.netrc', '_netrc', '.npmrc',
   '.git-credentials', '.pgpass', 'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', '.ssh/id_rsa',
   '.ssh/id_dsa', '.ssh/id_ecdsa', '.ssh/id_ed25519', '.aws/credentials', '.config/gh/hosts.yml',
-  '.kube/config', '.docker/config.json',
+  '.kube/config', '.docker/config.json', 'github cli/hosts.yml', 'postgresql/pgpass.conf',
 ].map(p => p.split('/'))
 
 // One path segment of a bash glob as a case-insensitive regex, or null when it holds no glob.

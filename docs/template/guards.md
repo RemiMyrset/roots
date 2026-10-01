@@ -62,7 +62,9 @@ A word made only of unquoted substitutions and parameter expansions
 judged as the command, and so is a name with one glued before it
 (`$(true)npm i`, `${x}npm i`). For the same reason the secret guard reads one
 glued into a file name as a glob that may match nothing (`.env$x` can name
-`.env`), and the push guard judges a target without it too (`main${x}`).
+`.env`). The push guard goes further and denies a push target that holds a
+parameter expansion (`main${x}`, `"$BRANCH"`), whose value it cannot know
+([Push protection](#push-protection)).
 
 A redirection operator standing alone before the command takes the next word
 as its target (`> log npm i`), unless that word is a package manager.
@@ -191,8 +193,9 @@ Also out of scope: long or clustered wrapper flags (`sudo --user root`,
 npx reads with a separate value (`npx --registry URL …`, `npx -reg URL …`), an
 implicit push target git resolves in
 another checkout or under another name (`git -C`, `--git-dir`, Gemini's
-`dir_path`, `push.default=upstream`), a hooks path set through `GIT_CONFIG_*`
-variables, a variable's value as or before the command (`$x i`, `$x"npm" i`),
+`dir_path`, `push.default=upstream`, `push.default=matching`), a hooks path
+set through `GIT_CONFIG_*` variables, a variable's value as or before the
+command (`$x i`, `$x"npm" i`),
 and Gemini's own file tools (`read_file`, `grep_search`), which run
 no shell command and have no Read deny list.
 
@@ -219,17 +222,22 @@ Code, and the shell guard in all three tools. The `.claude/settings.json`
 `*.pfx` / `*.jks` names, plus the credentials a developer machine holds outside
 any repo: SSH private keys (`.ssh/id_*`), `.aws/credentials`,
 `.config/gh/hosts.yml`, `.git-credentials`, `.kube/config`,
-`.docker/config.json`, and `.pgpass`. Those, `.netrc`, `_netrc`, and `.npmrc`
+`.docker/config.json`, and `.pgpass`, and the Windows homes of the gh token
+and the libpq password file under `%APPDATA%` (`GitHub CLI/hosts.yml`,
+`postgresql/pgpass.conf`). Those, `.netrc`, `_netrc`, and `.npmrc`
 are listed twice, as `Read(**/…)` for a copy under the project and `Read(~/…)`
-for the real file: a `**/` rule anchors at the working directory and never
-reaches the home directory. The Bash-path guard `deny-secret-reads`
+for the real file (`Read(~/AppData/Roaming/…)` for the Windows two): a `**/`
+rule anchors at the working directory and never reaches the home directory.
+The Bash-path guard `deny-secret-reads`
 covers the common shell-read forms of the same set (`.env` and `.envrc` matched
 case-insensitively; `.environment` is not matched; an SSH key's `.pub` half is
-readable; `credentials`, `config`, and `hosts.yml` count only under their
-credential directory): direct readers, `git diff`, `git difftool`,
-`git grep`, and `git blame`, `<` redirects (including `$(<file)` and `<>`), `pnpm exec`
-wrappers, and a glob that can expand to one of those names (`.env*`,
-`~/.ssh/*`, `secret?/api.txt`, `?ecrets/api.txt`, `certs/*.pe?`).
+readable; `credentials`, `config`, `hosts.yml`, and `pgpass.conf` count only
+under their credential directory): direct readers, `git diff`, `git difftool`,
+`git grep`, and `git blame`, `<` redirects (including `$(<file)` and `<>`),
+`pnpm exec` wrappers, a glob that can expand to one of those names (`.env*`,
+`~/.ssh/*`, `secret?/api.txt`, `?ecrets/api.txt`, `certs/*.pe?`), and a word
+with one brace list, judged as each word it expands to (`.env{,.local}`,
+`config/{app.json,.env}`).
 A glob counts only where bash expands it: a quoted or escaped `*`, `?`, or `[`
 is text, so a search pattern such as `grep "import .* from"` passes.
 
@@ -265,8 +273,11 @@ and are covered by the guard and the Read list only.
 
 Beyond the shared out-of-scope list, this guard cannot catch a recursive walker
 with no secret literal (`grep -r .`), a filename routed via xargs or a stdin
-pipe, a secret glued to a short option other than `-f` or `-g`, or a glob that opens with a wildcard outside a credential directory
-(`*rc`) or stops short of a key extension (`key.*`). The backstop is
+pipe, a secret glued to a short option other than `-f` or `-g`, a glob that
+opens with a wildcard outside a credential directory (`*rc`) or stops short of
+a key extension (`key.*`), or a brace expansion beyond one list in a word: a
+sequence (`.en{u..w}`), a nested list (`{.e{n,x}v,a}`), or a second list
+(`.e{n,x}{v,y}`). The backstop is
 `.gitignore`, the Read-tool deny list, and human review.
 
 Known over-block (safe direction, never a bypass): a reader whose
@@ -307,23 +318,43 @@ refspec, `heads/main` and `refs/heads/main` counting as `main`, or the current
 branch when no refspec is given or the target is `HEAD`, `@`, or a lone
 substitution such as `"$(git branch --show-current)"`) and when a target cannot
 be resolved (detached HEAD, not a checkout, a substitution inside a longer
-name). Also denied on any branch: bare `--force` / `-f` / a `+refspec`,
+name). A target bash expands is unknown too, so the push is denied when the
+remote or a refspec holds a shell variable outside single quotes (`"$BRANCH"`,
+`HEAD:"$TARGET"`, `"${BRANCH:-main}"`, a `for` loop's `$b`), and when any word
+holds a brace list (`{develop,main}`, `HEAD:{main,x}`, `ma{i..i}n`), which bash
+turns into several words. A reflog entry such as `HEAD@{1}` holds no list and
+passes.
+
+Also denied on any branch: bare `--force` / `-f` / a `+refspec`,
 `--all` / `--branches` / `--mirror` and the unique prefixes git accepts for
-them (`--al`, `--mirr`), and any wildcard refspec (`refs/heads/*`), which the
-guard cannot evaluate against the remote. `--force-with-lease`, `--delete`, and
-tag pushes pass on unprotected targets.
+them (`--al`, `--mirr`), the matching refspec `:`, which updates every remote
+branch that has a local namesake, and any wildcard refspec (`refs/heads/*`),
+which the guard cannot evaluate against the remote. `--force-with-lease`,
+`--delete` (`:feat/x` too), and tag pushes pass on unprotected targets.
 
 `pnpm release` and `changelogen --push` are denied outright: their push happens
 inside changelogen where a `git push` rule cannot see it.
 
-The remote must be a configured name (`origin`, `upstream`): a URL or a path in
-its place is denied, because pushing there sidesteps the remotes the list is
-written for.
+The remote must be a name the checkout configures (`origin`, `upstream`),
+whether it is the first word, the first after `--`, or `--repo`'s value: a URL
+or a path in its place is denied, because pushing there sidesteps the remotes
+the list is written for. A path is anything with a `/`, a `\`, or a `:`
+(`host:repo.git`, `C:\clones\x`), `.` and `..`, and a bare name with no
+`remote.<name>.url` in the git config, which git reads as a path
+(`git push mirror feat/x` pushes into `./mirror`).
+
+Known over-block (safe direction, never a bypass): a variable is denied
+whatever it holds, so `git push -u origin "$BRANCH"` is denied on a feature
+branch too, and so is a refspec whose source alone holds one
+(`"$SHA":feat/x`). Spell the branch out or push `HEAD`. An option's value is
+never a target, so `--force-with-lease=feat/x:$SHA` and `-o "$OPT"` pass.
 
 Out of scope, beyond the shared list: `cd elsewhere && git push` resolves the
-current branch in the project directory and ignores the `cd` target, a lone
-substitution is taken for the current branch whatever it prints, and the
-remote's own default-branch name is never consulted. Configure the list.
+current branch and the remotes in the project directory and ignores the `cd`
+target, a lone substitution is taken for the current branch whatever it
+prints, a configured remote's URL is never checked (`git remote set-url`,
+`-c remote.origin.url=…`, `url.<base>.insteadOf`), and the remote's own
+default-branch name is never consulted. Configure the list.
 
 The server-side gate is a GitHub branch ruleset, created during first run with
 the command below; this guard complements it and never replaces it.

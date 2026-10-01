@@ -38,7 +38,9 @@ const D = 2 // deny
 const A = 0 // allow
 
 // Throwaway checkouts for the push guard's implicit-target resolution (`git push`, `HEAD`):
-// one on `main`, one on a feature branch, one detached. Created up front, removed at exit.
+// one on `main`, one on a feature branch, one detached, each with `origin` and `upstream`
+// configured, since the guard allows only a remote the cwd configures. Created up front,
+// removed at exit.
 const tmp = mkdtempSync(join(tmpdir(), 'hooks-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 function checkout(name: string, branch: string, detach = false): string {
@@ -50,6 +52,8 @@ function checkout(name: string, branch: string, detach = false): string {
       throw new Error(`git ${args.join(' ')} failed in ${dir}`)
   }
   git('init', '-q', '-b', branch)
+  git('remote', 'add', 'origin', 'https://example.com/origin.git')
+  git('remote', 'add', 'upstream', 'https://example.com/upstream.git')
   if (detach) {
     git('commit', '-q', '--allow-empty', '-m', 'init')
     git('checkout', '-q', '--detach')
@@ -59,6 +63,9 @@ function checkout(name: string, branch: string, detach = false): string {
 const ON_MAIN = checkout('on-main', 'main')
 const ON_FEAT = checkout('on-feat', 'feat/x')
 const DETACHED = checkout('detached', 'main', true)
+// A case without a cwd runs on the feature branch, so its verdict never depends on the branch
+// or the remotes of the checkout running the suite.
+const DEFAULT_CWD = ON_FEAT
 const P = 'deny-push-protected.mts'
 
 // A copy of .claude/ whose settings.json protects release/* instead of main: with the env
@@ -346,6 +353,15 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.docker/config.json' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/.pgpass' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep token < ~/.config/gh/hosts.yml' },
+  // Their Windows homes under %APPDATA%: the gh token and libpq's password file.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat "$APPDATA/GitHub CLI/hosts.yml"' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \'C:\\Users\\me\\AppData\\Roaming\\GitHub CLI\\hosts.yml\'' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat "$APPDATA/postgresql/pgpass.conf"' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \'C:\\Users\\me\\AppData\\Roaming\\postgresql\\pgpass.conf\'' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/AppData/Roaming/GitHub\\ CLI/*' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ~/AppData/Roaming/postgresql/*.conf' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat pgpass.conf' }, //           no postgresql parent
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat docs/postgresql/notes.md' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat ~/.ssh/id_rsa.pub' }, //    the public half
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat ~/.ssh/config' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat credentials.md' }, //       no .aws parent
@@ -387,6 +403,20 @@ const CASES: Case[] = [
   { guard: P, expect: D, cmd: 'git push git@example.com:x/y.git main:keep' },
   { guard: P, expect: D, cmd: 'git push ../other-repo feat/x' },
   { guard: P, expect: A, cmd: 'git push upstream feat/x' },
+  // git reads these as paths too: a backslash or drive-letter path, `.`, `..`, a user-less
+  // scp-like URL, and a bare name the cwd has no remote for (./mirror), in any position git
+  // takes the remote from.
+  { guard: P, expect: D, cmd: 'git push \'C:\\clones\\roots\' feat/x' },
+  { guard: P, expect: D, cmd: 'git push C:/clones/roots feat/x' },
+  { guard: P, expect: D, cmd: 'git push .. feat/x' },
+  { guard: P, expect: D, cmd: 'git push . feat/x' },
+  { guard: P, expect: D, cmd: 'git push host:repo.git feat/x' },
+  { guard: P, expect: D, cmd: 'git push mirror feat/x' },
+  { guard: P, expect: D, cmd: 'git push -- ../other feat/x' },
+  { guard: P, expect: D, cmd: 'git push --repo=../other' },
+  { guard: P, expect: D, cmd: 'git push --repo ../other' },
+  { guard: P, expect: A, cmd: 'git push -- origin feat/x' },
+  { guard: P, expect: A, cmd: 'git push --repo=origin' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \'C:\\repo\\.env\'' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat "C:\\repo\\.env"' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat \'secrets\\token\'' },
@@ -497,6 +527,12 @@ const CASES: Case[] = [
   { guard: P, expect: D, cmd: 'git push -fu origin feat/x' }, //       clustered short flags
   { guard: P, expect: D, cmd: 'git push origin +feat/x' }, //         refspec `+` is a force push
   { guard: P, expect: D, cmd: 'git push origin +feat/x:feat/x' },
+  // `:` is the matching refspec: every branch with a namesake on the remote, main included.
+  { guard: P, expect: D, cmd: 'git push origin :', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin :' },
+  { guard: P, expect: D, cmd: 'git push origin ":"' },
+  { guard: P, expect: D, cmd: 'git push origin feat/x :' },
+  { guard: P, expect: D, cmd: 'git push origin -- :' },
   // Implicit targets resolve through the CURRENT branch of the cwd.
   { guard: P, expect: D, cmd: 'git push', cwd: ON_MAIN },
   { guard: P, expect: D, cmd: 'git push origin', cwd: ON_MAIN },
@@ -530,6 +566,34 @@ const CASES: Case[] = [
   { guard: P, expect: D, cmd: 'git push origin \'refs/heads/*\'', cwd: ON_FEAT },
   { guard: P, expect: D, cmd: 'git push origin \'feat/*:feat/*\'', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin feat/star', cwd: ON_FEAT }, // no glob, no protected target
+  // A brace list expands into several words, shifting every word after it, so any word holding
+  // one leaves the target unknown; a quoted one is text.
+  { guard: P, expect: D, cmd: 'git push origin {develop,main}', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin {develop,main}', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin HEAD:{main,x}', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push {origin,main}', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin ma{i..i}n', cwd: ON_FEAT }, //         a sequence
+  { guard: P, expect: D, cmd: 'git push -o {a,b} origin feat/x', cwd: ON_FEAT }, //   an option's value
+  { guard: P, expect: A, cmd: 'git push origin HEAD@{1}:feat/x', cwd: ON_FEAT }, //   a reflog entry, no list
+  { guard: P, expect: A, cmd: 'git push origin \'{develop,main}\'', cwd: ON_FEAT },
+  // A shell variable's value is unknown here, so a remote or refspec holding one is denied on
+  // any branch (declared over-block); single quotes and an option's value expand nothing judged.
+  { guard: P, expect: D, cmd: 'git push -u origin "$BRANCH"', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push -u origin "$BRANCH"', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'BRANCH=$(git branch --show-current); git push -u origin "$BRANCH"', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: `git push origin "\${BRANCH:-main}"`, cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: `git push origin "\${BRANCH:-main}"`, cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin HEAD:"$TARGET"', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'git push origin HEAD:"$TARGET"', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'for b in main; do git push origin $b; done', cwd: ON_MAIN },
+  { guard: P, expect: D, cmd: 'for b in main; do git push origin $b; done', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'ARGS="origin main"; git push $ARGS', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push "$R" feat/x', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin --delete "$B"', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push --repo "$R"', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push origin \'feat/$x\'', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push --force-with-lease=feat/x:$SHA origin feat/x', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push -o "$OPT" origin feat/x', cwd: ON_FEAT },
   // --recurse-submodules takes only the =value spelling; the bare word must not eat the remote.
   { guard: P, expect: D, cmd: 'git push --recurse-submodules origin main', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push --recurse-submodules=check origin feat/x', cwd: ON_FEAT },
@@ -955,7 +1019,7 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat \${x:-'}'} ~/.ssh/id_*` },
   { guard: P, expect: D, cmd: `\\git push origin main\\\n\${x//a/}`, cwd: ON_FEAT },
   { guard: P, expect: D, cmd: `git push origin main\${x}`, cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push origin "$BRANCH"', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git push origin "$BRANCH"', cwd: ON_FEAT },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: '"$x" npm install' }, //                     a quoted empty word is a word
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: `"\${EDITOR:-vi}" notes.md; pnpm install` },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: `cat "$FILE" config/\${ENV}.json; pnpm install` },
@@ -1254,6 +1318,11 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat .prettierrc*' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'grep \'[a-z]*\' notes.txt' },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: 'ls .env*' }, //                 lists names, reads nothing
+  // A brace list names one word per member, each judged with the text around the list.
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .env{,.local}' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat {.env,.env.local}' },
+  { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat config/{app.json,.env}' },
+  { guard: 'deny-secret-reads.mts', expect: A, cmd: 'cat src/{a,b}.ts' },
   // Only a glob bash expands can reach a file: a quoted or escaped one is a pattern or a name.
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'grep foo .*' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat ".env"*' },
@@ -1765,12 +1834,12 @@ for (const c of CASES) {
     delete env[name]
   if (c.guard === 'dispatch.mts') {
     const json = c.raw ?? JSON.stringify({ ...c.extra, tool_name: c.tool ?? 'Bash', tool_input: { command: c.cmd } })
-    const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, c.guard)], { input: json, cwd: c.cwd ?? process.cwd(), env })
+    const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, c.guard)], { input: json, cwd: c.cwd ?? DEFAULT_CWD, env })
     if (r.status !== c.expect)
       fails.push(`[${c.guard}] got ${r.status ?? 'null'}, want ${c.expect}: ${c.cmd}`)
     continue
   }
-  const ctx: GuardContext = { cwd: c.cwd ?? process.cwd(), env, settingsFile: join(c.hooksDir ?? HOOKS, '..', 'settings.json') }
+  const ctx: GuardContext = { cwd: c.cwd ?? DEFAULT_CWD, env, settingsFile: join(c.hooksDir ?? HOOKS, '..', 'settings.json') }
   const why = VERDICTS[c.guard](c.cmd, ctx)
   const got = why === null ? A : D
   if (got !== c.expect)
