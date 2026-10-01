@@ -19,7 +19,7 @@ const COMMIT_VALUE_OPT: ReadonlySet<string> = new Set(['--author', '--date', '--
 const COMMIT_VALUE_SHORT = 'mFcCtU'
 const COMMIT_OPTARG_SHORT = 'uS'
 // git accepts unambiguous abbreviations of long options; `--no-veri` is the shortest unique one.
-const NO_VERIFY_RE = /^--no-veri(?:f(?:y)?)?$/
+const NO_VERIFY_RE = /^--no-veri(?:fy?)?$/
 const HOOKS_PATH_RE = /^core\.hookspath=/i
 const SKIP_ENV_RE = /^(?:SKIP_SIMPLE_GIT_HOOKS=|HUSKY=0$|HUSKY_SKIP_HOOKS=)/
 // A skip variable exported by name alone (`export SKIP_SIMPLE_GIT_HOOKS`): its value was set earlier.

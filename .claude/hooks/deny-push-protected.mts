@@ -152,10 +152,32 @@ const PUSH_VALUE_OPT: ReadonlySet<string> = new Set(['-o', '--push-option', '--r
 // git push's long options. git takes any unique prefix of one (`--al` is `--all`, `--mirr`
 // `--mirror`) and rejects an ambiguous one (`--forc`), so a prefix is read as its option.
 const PUSH_LONG: readonly string[] = [
-  '--verbose', '--quiet', '--repo', '--all', '--branches', '--mirror', '--delete', '--tags',
-  '--dry-run', '--porcelain', '--force', '--force-with-lease', '--force-if-includes',
-  '--recurse-submodules', '--thin', '--receive-pack', '--exec', '--set-upstream', '--progress',
-  '--prune', '--verify', '--follow-tags', '--signed', '--atomic', '--push-option', '--ipv4',
+  '--verbose',
+  '--quiet',
+  '--repo',
+  '--all',
+  '--branches',
+  '--mirror',
+  '--delete',
+  '--tags',
+  '--dry-run',
+  '--porcelain',
+  '--force',
+  '--force-with-lease',
+  '--force-if-includes',
+  '--recurse-submodules',
+  '--thin',
+  '--receive-pack',
+  '--exec',
+  '--set-upstream',
+  '--progress',
+  '--prune',
+  '--verify',
+  '--follow-tags',
+  '--signed',
+  '--atomic',
+  '--push-option',
+  '--ipv4',
   '--ipv6',
 ]
 function longOption(name: string): string {
@@ -284,8 +306,16 @@ function pnpmScript(toks: string[], i: number): string {
   let k = i + 1
   while (k < toks.length) {
     const t = unquote(toks[k]!)
-    if (t.startsWith('-')) { if (PNPM_VALUE_FLAG.has(t)) k++; k++; continue }
-    if (t === 'run' || t === 'run-script') { k++; continue }
+    if (t.startsWith('-')) {
+      if (PNPM_VALUE_FLAG.has(t))
+        k++
+      k++
+      continue
+    }
+    if (t === 'run' || t === 'run-script') {
+      k++
+      continue
+    }
     return t
   }
   return ''

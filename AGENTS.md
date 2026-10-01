@@ -96,7 +96,8 @@ Other commands, never part of done and never run to prove it:
   and body lines under 100 (commitlint), and NEVER bypass a git hook (guard-enforced):
   fix the failing check.
 - ALWAYS give every exported symbol a `/** */` block saying what it is for and what
-  a caller cannot see from the signature (presence is lint-enforced; content is on you).
+  a caller cannot see from the signature (presence is lint-enforced, a tool config's
+  default export aside; content is on you).
 - NEVER push to a protected branch: `PROTECTED_BRANCHES` in the `env` block of
   `.claude/settings.json`, default `main` (guard-enforced; the GitHub ruleset is the
   server-side boundary). Feature branches push and open PRs freely; merging is a

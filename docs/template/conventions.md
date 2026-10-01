@@ -100,7 +100,11 @@ portability requirement. The choices, each with its why:
 - Unit tests live in a sibling `test/` directory beside `src/`, never colocated:
   the unjs and antfu house layout. Every exported symbol carries a `/** */`
   block; ESLint `jsdoc/require-jsdoc` enforces presence, review enforces
-  content.
+  content. The rule reads the block at the declaration, so a local export list
+  (`export { a }`) is banned; the guard sources under `.claude/hooks` are
+  linted too, though antfu ignores `.claude`. A tool config's default export
+  (`vitest.config.ts`, a VitePress `config.ts`) is exempt: its tool reads it,
+  and no caller does.
 - `secretlint` with the recommended preset runs on staged files at commit, in
   `pnpm verify`, and in CI: npm-native, no binary, no licence. It is the
   write-side counterpart to the secret-read guard.

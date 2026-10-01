@@ -90,7 +90,9 @@ function isMonitorSocket(raw: string): boolean {
 }
 
 let input = ''
-process.stdin.on('data', (d) => { input += d }).on('end', () => {
+process.stdin.on('data', (d) => {
+  input += d
+}).on('end', () => {
   clearTimeout(watchdog)
   const cmd = commandOf(input)
   if (cmd === null && isMonitorSocket(input)) {

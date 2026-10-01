@@ -339,17 +339,18 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // The second half holds the gates to what AGENTS.md says they enforce: ESLint must reject each
 // probe below, linted from stdin under a path that is never written; turbo's hash must cover
 // the node-version file (the major) and CI's turbo cache key the exact node; the pre-commit
-// hook must run ESLint on every file type a repo rule covers; every package tsconfig must take
+// hook must run ESLint on every file type `pnpm lint` checks; every package tsconfig must take
 // in every TypeScript file of its package; the install hook must set up the git hooks in a
 // checkout and leave a linked worktree alone; verify's docs drift gate must skip only
 // outside a git checkout, failing on any other git error; the secret scan must fail on a
-// force-added `.env` and pass an untracked one; .gitignore must ignore every env-file name
-// the secret-read guard denies; the release flow must keep the release skill's word:
-// changelogen sends no commit author's email out unless `changelog.excludeAuthors` lists
-// names, and the release script refuses a dirty tree; and a devcontainer's `mounts` must share
-// no volume with another repository's container. It runs the installed eslint, turbo,
-// typescript, simple-git-hooks, secretlint, and changelogen, so it needs the install that
-// verify and CI run first. The probes that need files write them to a temp directory only.
+// force-added `.env` and pass an untracked one, and the pre-commit scan must fail on it once it
+// is staged; .gitignore must ignore every env-file name the secret-read guard denies; the
+// release flow must keep the release skill's word: changelogen sends no commit author's email
+// out unless `changelog.excludeAuthors` lists names, and the release script refuses a dirty
+// tree; and a devcontainer's `mounts` must share no volume with another repository's
+// container. It runs the installed eslint, turbo, typescript, simple-git-hooks, secretlint,
+// lint-staged, and changelogen, so it needs the install that verify and CI run first. The
+// probes that need files write them to a temp directory only.
 const failures: string[] = []
 const tmp = mkdtempSync(join(tmpdir(), 'gates-'))
 process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
@@ -475,17 +476,45 @@ const specifierProbe = [
   `export const d = await import('./d.mjs')`,
   '',
 ].join('\n')
+// A `/** */` block on every export: a value, an interface, and a default export without one,
+// beside one that has it. A local export list would hide its symbols from the rule, so the list
+// itself is refused; a re-export stays legal. A tool config's default export is exempt, a named
+// export in it is not, and a guard source under .claude/hooks is linted like any other.
+const docBlockProbe = [
+  '/** A documented value. */',
+  'export const documented = 1',
+  '',
+  'export const value = 1',
+  'export interface Shape { a: number }',
+  'export default { value }',
+  '',
+].join('\n')
+const exportListProbe = [
+  'const local = 1',
+  'export { local }',
+  `export { base } from './base.ts'`,
+  `export type { Shape } from './shape.ts'`,
+  '',
+].join('\n')
 const probes: Probe[] = [
   { what: 'relative imports ending in .js or .mjs', file: 'scripts/gate-probe.mts', source: specifierProbe, expect: { 'no-restricted-imports': [2], 'no-restricted-syntax': [5] } },
   { what: 'a JavaScript source file', file: 'scripts/gate-probe.mjs', source: 'export const e = 1\n', expect: { 'no-restricted-syntax': [1] } },
   { what: 'a whole package under trustPolicyExclude', file: 'pnpm-workspace.yaml', source: 'trustPolicyExclude:\n  - vite@5.4.21\n  - vite\n', expect: { 'no-restricted-syntax': [3] } },
+  { what: 'exports without a /** */ block', file: 'scripts/gate-probe.mts', source: docBlockProbe, expect: { 'jsdoc/require-jsdoc': [4, 5, 6] } },
+  { what: 'a local export list', file: 'scripts/gate-probe.mts', source: exportListProbe, expect: { 'no-restricted-syntax': [2] } },
+  { what: 'a tool config without a /** */ block', file: 'packages/gate-probe/vitest.config.ts', source: 'export const shared = 1\nexport default { shared }\n', expect: { 'jsdoc/require-jsdoc': [1] } },
+  { what: 'a guard source without a /** */ block', file: '.claude/hooks/gate-probe.mts', source: 'export const verdict = 1\n', expect: { 'jsdoc/require-jsdoc': [1] } },
 ]
-interface LintMessage { ruleId: string | null, line: number }
+interface LintMessage { ruleId: string | null, line: number, message: string }
 for (const probe of probes) {
   const lint = runTool('eslint/bin/eslint.js', ['--stdin', '--stdin-filename', probe.file, '--format', 'json'], probe.source)
   const messages = parseJson<{ messages: LintMessage[] }[]>(lint.stdout)?.[0]?.messages
   if (!messages) {
     failures.push(`eslint printed no result for ${probe.file}: ${lint.stderr.trim().split('\n')[0] ?? ''}`)
+    continue
+  }
+  if (messages.some(m => m.ruleId === null && /\bignored\b/.test(m.message))) {
+    failures.push(`eslint.config.ts ignores ${probe.file}, so no rule reaches ${probe.what}; take it out of the ignores`)
     continue
   }
   for (const [rule, lines] of Object.entries(probe.expect)) {
@@ -497,9 +526,10 @@ for (const probe of probes) {
 
 // The pre-commit hook lints what CI lints, or a rule fails only in CI: the pnpm catalog and key
 // order rules on package.json and pnpm-workspace.yaml, the TypeScript-only rule on a .js/.mjs
-// file, and the TypeScript rules on .cts. lint-staged matches a pattern without a `/` against
-// the basename. Skipped when the repository keeps no lint-staged config in package.json.
-const LINT_STAGED_PROBES = ['package.json', 'pnpm-workspace.yaml', 'tsconfig.json', 'src/index.ts', 'src/view.tsx', 'scripts/task.mts', 'scripts/task.cts', 'scripts/task.mjs', 'scripts/task.js']
+// file, the TypeScript rules on .cts, the markdown rules and fenced code on a page, and the
+// TOML rules. lint-staged matches a pattern without a `/` against the basename. Skipped when
+// the repository keeps no lint-staged config in package.json.
+const LINT_STAGED_PROBES = ['package.json', 'pnpm-workspace.yaml', 'tsconfig.json', 'src/index.ts', 'src/view.tsx', 'scripts/task.mts', 'scripts/task.cts', 'scripts/task.mjs', 'scripts/task.js', 'docs/page.md', 'mise.toml']
 const lintStaged = (parseJson<{ 'lint-staged'?: unknown }>(readFileSync(join(root, 'package.json'), 'utf8')) ?? {})['lint-staged']
 let lintStagedChecked = 0
 if (typeof lintStaged === 'object' && lintStaged !== null) {
@@ -729,6 +759,23 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
     const forced = scan()
     if (add.status !== 0 || forced.status === 0 || !forced.out.includes('GITHUB_TOKEN'))
       failures.push(`scripts/lint-secrets.mts did not flag a force-added .env holding a GitHub token (exit ${forced.status}), so a tracked secret .gitignore matches reaches CI unscanned: ${add.out.trim()}${forced.out.trim()}`)
+    // The pre-commit scan: the installed lint-staged, run with this repository's lint-staged
+    // config on the same .env, now staged, must fail it too, since secretlint skips a path
+    // .gitignore matches unless told not to.
+    if (add.status === 0 && typeof lintStaged === 'object' && lintStaged !== null) {
+      const manifest = join(root, 'node_modules', 'lint-staged', 'package.json')
+      const bin = existsSync(manifest) ? parseJson<{ bin?: string | { 'lint-staged'?: string } }>(readFileSync(manifest, 'utf8'))?.bin : undefined
+      const cli = typeof bin === 'string' ? bin : bin?.['lint-staged']
+      if (cli === undefined) {
+        failures.push('package.json keeps a lint-staged config, but node_modules/lint-staged names no bin to run; run `pnpm install`')
+      }
+      else {
+        writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ 'lint-staged': lintStaged })}\n`)
+        const commit = runIn(env, repo, process.execPath, join(root, 'node_modules', 'lint-staged', cli))
+        if (commit.status === 0 || !commit.out.includes('GITHUB_TOKEN'))
+          failures.push(`package.json lint-staged did not flag a staged .env that .gitignore matches, holding a GitHub token (exit ${commit.status}), so \`git add -f .env\` commits it; scan every staged file with \`"*": "secretlint --no-glob --no-gitignore"\`${commit.status === 0 ? '' : `: ${commit.out.trim()}`}`)
+      }
+    }
   }
 }
 
@@ -940,4 +987,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets fails a force-added .env and passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}`)

@@ -12,25 +12,63 @@
 /** The package managers the rulebook bans, by command name as base() reads it (`yarnpkg` is yarn's alias). */
 export const BANNED: ReadonlySet<string> = new Set(['npm', 'yarn', 'yarnpkg', 'bun', 'bunx'])
 
-// Pass-through wrappers whose argv IS the real command: skip them to find the head. An
-// allowlist can never be exhaustive (proxychains/firejail/setarch/catchsegv/...); unknown
-// wrapper words are documented out-of-scope in docs/template/guards.md. bash's reserved words
-// that start a command are a closed set, so every one of them is here.
+/**
+ * Pass-through wrappers whose argv IS the real command: skip them to find the head. An
+ * allowlist can never be exhaustive (proxychains/firejail/setarch/catchsegv/...); unknown
+ * wrapper words are documented out-of-scope in docs/template/guards.md. bash's reserved words
+ * that start a command are a closed set, so every one of them is here.
+ */
 export const WRAP: ReadonlySet<string> = new Set([
-  'sudo', 'doas', 'runuser', 'env', 'command', 'exec', 'eval', 'time', 'timeout', 'nice',
-  'ionice', 'taskset', 'chrt', 'nohup', 'setsid', 'stdbuf', 'unbuffer', 'flock', 'xargs',
-  'then', 'do', 'else', 'elif', 'if', 'while', 'until', '!', 'builtin', 'corepack', 'mise',
-  'busybox', 'coproc',
+  'sudo',
+  'doas',
+  'runuser',
+  'env',
+  'command',
+  'exec',
+  'eval',
+  'time',
+  'timeout',
+  'nice',
+  'ionice',
+  'taskset',
+  'chrt',
+  'nohup',
+  'setsid',
+  'stdbuf',
+  'unbuffer',
+  'flock',
+  'xargs',
+  'then',
+  'do',
+  'else',
+  'elif',
+  'if',
+  'while',
+  'until',
+  '!',
+  'builtin',
+  'corepack',
+  'mise',
+  'busybox',
+  'coproc',
 ])
 
 // The words that open a compound command, after which `coproc NAME` names the coprocess
 // (`coproc X { …; }`); before any other word, NAME is the command itself (`coproc npm i`).
 const COMPOUND: ReadonlySet<string> = new Set(['{', 'while', 'until', 'if', 'for', 'select', 'case', '[['])
 
-// pnpm global flags that take a separate value (between `pnpm` and its subcommand).
+/** pnpm global flags that take a separate value (between `pnpm` and its subcommand). */
 export const PNPM_VALUE_FLAG: ReadonlySet<string> = new Set([
-  '--filter', '-F', '--filter-prod', '-C', '--dir', '--config',
-  '--workspace-concurrency', '--reporter', '--loglevel', '--store-dir',
+  '--filter',
+  '-F',
+  '--filter-prod',
+  '-C',
+  '--dir',
+  '--config',
+  '--workspace-concurrency',
+  '--reporter',
+  '--loglevel',
+  '--store-dir',
 ])
 
 /**
@@ -80,6 +118,11 @@ export const WRAP_VALUE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Ma
  */
 export const WRAP_POSITIONAL: ReadonlySet<string> = new Set(['timeout', 'flock', 'taskset'])
 
+/**
+ * A word with every `'` and `"` in it dropped, wherever it sits, so `"np"m` reads as `npm`. A
+ * backslash stays, and a quoted quote is dropped too: this approximates bash's quote removal
+ * for comparing names and flags, never for recovering a value.
+ */
 export function unquote(t: string): string {
   return t.replace(/['"]/g, '')
 }
@@ -88,9 +131,14 @@ export function unquote(t: string): string {
 // `$1`, `$@`): text whose value is unknown here and may be empty. A `${…}` holding a quote, a
 // backslash, or a backtick stays text: bash ends it past a quoted `}` (`${x:-'}'}`), which this
 // pattern cannot follow, and reading it short would desync globTokens from tokenize.
-const EXPANSION = String.raw`\$\(\)|\$\{[^{}'"\\\x60]*\}|\$(?:[A-Za-z_]\w*|[\d@*#?$!-])`
-const EXPANSIONS = new RegExp(EXPANSION, 'g')
-const LEADING_EXPANSIONS = new RegExp(String.raw`^(?:\(|${EXPANSION})+`)
+const EXPANSION = String.raw`\$\(\)|\$\{[^{}'"\\\x60]*\}|\$(?:[a-z_]\w*|[\d@*#?$!-])`
+const EXPANSIONS = new RegExp(EXPANSION, 'gi')
+const LEADING_EXPANSIONS = new RegExp(String.raw`^(?:\(|${EXPANSION})+`, 'i')
+
+// The opening of a parameter expansion whose value can be the text after it: `${x:-`, `${x-`,
+// `${x:=`, `${x:+`, and the same for an array element or a special parameter.
+const DEFAULTED = /^\$\{(?:[A-Z_]\w*(?:\[[^\]]*\])?|\d+|[@*#?$!-]):?[-=+]/i
+const DEFAULTED_ALL = new RegExp(DEFAULTED.source.slice(1), `${DEFAULTED.flags}g`)
 
 /** A word with every substitution and parameter expansion in it dropped, as when each is empty. */
 export function withoutExpansions(t: string): string {
@@ -116,11 +164,13 @@ export function base(t: string): string {
 /** pnpm's own shorthands for `pnpm dlx`, which resolveHead() unwraps like it. */
 export const PNPM_DLX: ReadonlySet<string> = new Set(['pnpx', 'pnx'])
 
-// Would consuming `tok` as a wrapper positional / value-flag argument hide a command the guards
-// must inspect? If so, refuse to consume it and let it fall through as the head (fail toward
-// deny). Covers the banned package managers and pnpm (its shorthands too) and corepack — the
-// heads the lexer natively knows; a reader head (deny-secret-reads) mis-consumed by a
-// duration-less `timeout` is left as a documented, shell-rejected non-exploitable edge.
+/**
+ * Would consuming `tok` as a wrapper positional / value-flag argument hide a command the guards
+ * must inspect? If so, refuse to consume it and let it fall through as the head (fail toward
+ * deny). Covers the banned package managers and pnpm (its shorthands too) and corepack — the
+ * heads the lexer natively knows; a reader head (deny-secret-reads) mis-consumed by a
+ * duration-less `timeout` is left as a documented, shell-rejected non-exploitable edge.
+ */
 export function wouldHideHead(tok: string): boolean {
   const b = base(tok)
   return BANNED.has(b) || b === 'pnpm' || PNPM_DLX.has(b) || b === 'corepack'
@@ -134,7 +184,7 @@ export function wouldHideHead(tok: string): boolean {
  * the head: defaulted() reads the command it runs (`${x:-npm} i`).
  */
 export function skip(t: string): boolean {
-  return t === '{' || t === '}' || (t !== '' && withoutExpansions(t) === '' && !DEFAULTED.test(t)) || /^[A-Za-z_]\w*=/.test(t) || WRAP.has(base(t))
+  return t === '{' || t === '}' || (t !== '' && withoutExpansions(t) === '' && !DEFAULTED.test(t)) || /^[A-Z_]\w*=/i.test(t) || WRAP.has(base(t))
     || /^(?:\d*[<>]|&>)/.test(t) || /^\d+$/.test(t) || t.startsWith('-')
 }
 
@@ -159,17 +209,25 @@ function startsShell(toks: string[]): boolean {
   if (i < argv.length)
     return false
   let wrap = ''
+  // A short-flag cluster holding `i` or `s`: the letters before the first one exclude it, so the
+  // match stays linear.
   for (const t of argv) {
     const flag = unquote(t)
     if (WRAP.has(base(t)))
       wrap = base(t)
-    else if (wrap === 'sudo' && /^(?:-[A-Za-z]*[is][A-Za-z]*|--shell|--login)$/.test(flag))
+    else if (wrap === 'sudo' && /^(?:-[A-Za-hj-rt-z]*[is][A-Za-z]*|--shell|--login)$/.test(flag))
       return true
-    else if (wrap === 'doas' && /^-[A-Za-z]*s[A-Za-z]*$/.test(flag))
+    else if (wrap === 'doas' && /^-[A-Za-rt-z]*s[A-Za-z]*$/.test(flag))
       return true
   }
   return false
 }
+
+// How many times segments() lexes again what a segment hands back to the parser (reparsed()).
+// Each pass removes one layer of quotes (`eval "eval 'npm i'"` takes two) or one expansion
+// (`${x:-${y:-npm i}}`), and the bound keeps a hostile nesting linear: past it, what is still
+// handed back is lexed once more flat(), so the chain still ends at the command it runs.
+const REPARSE = 8
 
 // Whether a segment starts such a shell itself or in what it hands back to the parser
 // (reparsed(): `eval "bash -s" <<'EOF'`), read again as segments() reads it.
@@ -279,9 +337,13 @@ function leadOf(cur: string): Lead {
     return { shell: false, runs: false, final: long || (i + 1 < toks.length && head !== 'pnpm') }
   for (let k = i + 1; k < toks.length; k++) {
     const t = unquote(toks[k]!)
-    if (/^-[a-z]*c[a-z]*$/i.test(t))
+    if (/^-[abd-z]*c[a-z]*$/i.test(t))
       return { shell: true, runs: true, final: true }
-    if (/^[-+]o$/i.test(t)) { k++; continue } // `bash -o pipefail -c …`
+    // `bash -o pipefail -c …`
+    if (/^[-+]o$/i.test(t)) {
+      k++
+      continue
+    }
     if (!/^[-+]/.test(t))
       return { shell: true, runs: false, final: true }
   }
@@ -403,12 +465,6 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
   // `${| cmd; }`), whose body ends at a `}` that bash reads as a reserved word. Any other `${`
   // is a parameter expansion, and so is every one when `funsubs` is off.
   const funsub = (k: number): boolean => funsubs && /[ \t\n|]/.test(s[past(k + 1)] ?? '')
-  // Open the substitution whose `{` sits at k, and return where its body starts, past a `|`.
-  const openFunsub = (k: number): number => {
-    const at = past(k + 1)
-    open('}', true, false)
-    return s[at] === '|' ? at : k
-  }
   const pending: Heredoc[] = [] // heredocs whose body starts at the next newline
   const bodies: Heredoc[] = [] // heredocs whose body is read, judged once the input ends
   // Per output index: whether a shell heads that segment. Tokenized at most once, so many
@@ -440,6 +496,12 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     f.hash = f.scan && up.q === '' && (up.scan ? up.hash : true)
     stack.push(f)
     ws = true
+  }
+  // Open the substitution whose `{` sits at k, and return where its body starts, past a `|`.
+  const openFunsub = (k: number): number => {
+    const at = past(k + 1)
+    open('}', true, false)
+    return s[at] === '|' ? at : k
   }
   // A segment ends: its text goes out and the frame starts a new command. A group closed in it
   // flows into the segments that follow.
@@ -609,7 +671,11 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     // closes it whatever quote, substitution, or expansion is open inside, and those close with
     // it (`` `echo $[ '` ``). That scan pairs a backslash with what follows it, in single quotes
     // too, so `\\` there escapes nothing after it.
-    if (f.tick >= 0 && c === '\\' && (s[n + 1] === '`' || (s[n + 1] === '\\' && f.q === '\''))) { f.cur += c + s[n + 1]!; n++; continue }
+    if (f.tick >= 0 && c === '\\' && (s[n + 1] === '`' || (s[n + 1] === '\\' && f.q === '\''))) {
+      f.cur += c + s[n + 1]!
+      n++
+      continue
+    }
     if (f.tick >= 0 && c === '`') {
       const t = f.tick
       while (stack.length - 1 > t) pop()
@@ -623,7 +689,11 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       continue
     }
     if (f.q === '$') {
-      if (c === '\\') { f.cur += c + (s[n + 1] ?? ''); n++; continue }
+      if (c === '\\') {
+        f.cur += c + (s[n + 1] ?? '')
+        n++
+        continue
+      }
       f.cur += c
       if (c === '\'')
         f.q = ''
@@ -632,12 +702,34 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     if (f.q === '"' || f.q === 'h') {
       // Inside double quotes and an expanding heredoc body, `$(` and backticks still run a
       // command; `(`, `;`, `|`, and the other quote are literal.
-      if (c === '\\') { f.cur += c + (s[n + 1] ?? ''); n++; continue }
-      if (c === '$' && s[past(n + 1)] === '(') { n = past(n + 1); open(')', true, s[past(n + 1)] === '('); continue }
-      if (c === '$' && s[past(n + 1)] === '[') { n = past(n + 1); open(']', true, true); continue }
-      if (c === '`') { open('`', true, false); continue }
-      if (c === '$' && s[past(n + 1)] === '$' && s[past(past(n + 1) + 1)] !== '(') { f.cur += '$$'; n = past(n + 1); continue }
-      if (c === '$' && s[past(n + 1)] === '{' && funsub(past(n + 1))) { n = openFunsub(past(n + 1)); continue }
+      if (c === '\\') {
+        f.cur += c + (s[n + 1] ?? '')
+        n++
+        continue
+      }
+      if (c === '$' && s[past(n + 1)] === '(') {
+        n = past(n + 1)
+        open(')', true, s[past(n + 1)] === '(')
+        continue
+      }
+      if (c === '$' && s[past(n + 1)] === '[') {
+        n = past(n + 1)
+        open(']', true, true)
+        continue
+      }
+      if (c === '`') {
+        open('`', true, false)
+        continue
+      }
+      if (c === '$' && s[past(n + 1)] === '$' && s[past(past(n + 1) + 1)] !== '(') {
+        f.cur += '$$'
+        n = past(n + 1)
+        continue
+      }
+      if (c === '$' && s[past(n + 1)] === '{' && funsub(past(n + 1))) {
+        n = openFunsub(past(n + 1))
+        continue
+      }
       // Inside double quotes, a `${…}` is read as unquoted text until its `}`, so a quote in it
       // nests (`"${x:-"a b"}"`); `dq` records the depth at which the double quote resumes.
       if (c === '$' && s[past(n + 1)] === '{' && f.q === '"') {
@@ -653,20 +745,52 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         f.q = ''
       continue
     }
-    if (c === '\\') { f.cur += c + (s[n + 1] ?? ''); n++; ws = false; continue }
-    if (c === '\'' || c === '"') { f.q = c; f.cur += c; ws = false; continue }
+    if (c === '\\') {
+      f.cur += c + (s[n + 1] ?? '')
+      n++
+      ws = false
+      continue
+    }
+    if (c === '\'' || c === '"') {
+      f.q = c
+      f.cur += c
+      ws = false
+      continue
+    }
     const next = past(n + 1)
-    if (c === '$' && s[next] === '\'') { f.q = '$'; f.cur += '$\''; n = next; ws = false; continue }
+    if (c === '$' && s[next] === '\'') {
+      f.q = '$'
+      f.cur += '$\''
+      n = next
+      ws = false
+      continue
+    }
     // bash 3.2 ends an unquoted `${…}` at its `}` whatever `$(`, `<(`, `>(`, or `$[` is open
     // inside it, so in that reading none of them opens a frame there.
     const plain = old && f.brace > 0
-    if (c === '$' && s[next] === '(' && !plain) { n = next; open(')', true, f.arith || s[past(n + 1)] === '('); continue }
+    if (c === '$' && s[next] === '(' && !plain) {
+      n = next
+      open(')', true, f.arith || s[past(n + 1)] === '(')
+      continue
+    }
     // `$[…]` is arithmetic, which bash ends at the `]` that matches its `[`, whatever `${` is
     // open inside (`$[ ${x) ]`), so the frame's close drops that expansion with it.
-    if (c === '$' && s[next] === '[' && !plain) { n = next; open(']', true, true); continue }
-    if (f.close === ']' && c === '[') { f.bracket++; f.cur += c; ws = false; continue }
+    if (c === '$' && s[next] === '[' && !plain) {
+      n = next
+      open(']', true, true)
+      continue
+    }
+    if (f.close === ']' && c === '[') {
+      f.bracket++
+      f.cur += c
+      ws = false
+      continue
+    }
     if (f.close === ']' && c === ']') {
-      if (f.bracket === 0) { pop(); continue }
+      if (f.bracket === 0) {
+        pop()
+        continue
+      }
       f.bracket--
       f.cur += c
       ws = false
@@ -691,13 +815,37 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       continue
     }
     // In an array, a `[` that starts a word opens a span bash reads whole, up to its matching `]`.
-    if (f.array && c === '[' && (ws || f.bracket > 0)) { f.bracket++; f.cur += c; ws = false; continue }
-    if (f.array && c === ']' && f.bracket > 0) { f.bracket--; f.cur += c; ws = false; continue }
+    if (f.array && c === '[' && (ws || f.bracket > 0)) {
+      f.bracket++
+      f.cur += c
+      ws = false
+      continue
+    }
+    if (f.array && c === ']' && f.bracket > 0) {
+      f.bracket--
+      f.cur += c
+      ws = false
+      continue
+    }
     // `$$` is the shell's PID, so a `{` after it opens no expansion (`$${x; …}`). Before a `(`
     // the second `$` still opens a substitution: PowerShell runs `$$(…)`.
-    if (c === '$' && s[next] === '$' && s[past(next + 1)] !== '(') { f.cur += '$$'; n = next; ws = false; continue }
-    if (c === '$' && s[next] === '{' && funsub(next)) { n = openFunsub(next); continue }
-    if (c === '$' && s[next] === '{') { f.brace++; f.cur += '${'; n = next; ws = false; continue }
+    if (c === '$' && s[next] === '$' && s[past(next + 1)] !== '(') {
+      f.cur += '$$'
+      n = next
+      ws = false
+      continue
+    }
+    if (c === '$' && s[next] === '{' && funsub(next)) {
+      n = openFunsub(next)
+      continue
+    }
+    if (c === '$' && s[next] === '{') {
+      f.brace++
+      f.cur += '${'
+      n = next
+      ws = false
+      continue
+    }
     // A `}` ends a `${ …; }` substitution where bash reads it as a reserved word, as it ends a
     // group: where a command starts (after a `;`, `&`, a newline, or a subshell's `)`:
     // `${ cmd; }`, `${ (cmd)}`), or after a word that ends a compound command (a group's `}`,
@@ -709,7 +857,10 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       f.cur += ' '
       ws = true
     }
-    if (c === '}' && shut && ws && (f.cmd || f.closer) && f.braces.length === 0) { pop(); continue }
+    if (c === '}' && shut && ws && (f.cmd || f.closer) && f.braces.length === 0) {
+      pop()
+      continue
+    }
     if (c === '}' && f.brace > 0) {
       if (f.dq.at(-1) === f.brace) {
         f.dq.pop()
@@ -720,10 +871,18 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       ws = false
       continue
     }
-    if (c === '`') { open('`', true, false); continue }
+    if (c === '`') {
+      open('`', true, false)
+      continue
+    }
     // A process substitution still runs inside an unquoted expansion (`${x:-<(cmd)}`); inside
     // double quotes it is text, and so it is to the scan of bash 3.2 and 4.4 (`old`).
-    if (f.brace > 0 && !f.arith && !old && f.dq.length === 0 && (c === '<' || c === '>') && s[next] === '(') { f.cur += c; n = next; open(')', false, false, true); continue }
+    if (f.brace > 0 && !f.arith && !old && f.dq.length === 0 && (c === '<' || c === '>') && s[next] === '(') {
+      f.cur += c
+      n = next
+      open(')', false, false, true)
+      continue
+    }
     // Any other operator or blank in a parameter expansion is text, since bash reads one up to
     // its `}` (`${x//(/}`, `${x:-a b}`, `${x:-a;b}`). One that never closes runs to the end of
     // the input, as an unclosed quote does: bash rejects that command and runs nothing after it.
@@ -736,13 +895,20 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     // stays structural here, and in that bash 3.2 count the parentheses do (`scan`), with a `#`
     // after a blank still opening a comment there (`hash`), as bash 3.2 reads one.
     if (f.scan && f.brace > 0 && f.dq.length === 0 && !f.arith && (c === '(' || c === ')')) {
-      if (c === ')' && f.paren === 0) { pop(); continue }
+      if (c === ')' && f.paren === 0) {
+        pop()
+        continue
+      }
       f.paren += c === '(' ? 1 : -1
       f.cur += c
       ws = false
       continue
     }
-    if (f.brace > 0 && !f.arith && /[()<>;&| \t\n]/.test(c)) { f.cur += c; ws = false; continue }
+    if (f.brace > 0 && !f.arith && /[()<>;&| \t\n]/.test(c)) {
+      f.cur += c
+      ws = false
+      continue
+    }
     if (c === '(') {
       if (!/[<>]/.test(prior(n)))
         rejects(n)
@@ -769,16 +935,30 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       }
       // Inside `[[ … ]]` a `(` groups, except a process substitution (`<(…)`), which runs. Inside
       // `$[…]` it groups too, and bash's scan for the `]` passes over it (`$[ (${x ]`).
-      if (f.close === ']' || ((f.test || f.paren > 0) ? !/[<>]/.test(prior(n)) : glued(n))) { f.paren++; f.cur += c; ws = false; continue }
+      if (f.close === ']' || ((f.test || f.paren > 0) ? !/[<>]/.test(prior(n)) : glued(n))) {
+        f.paren++
+        f.cur += c
+        ws = false
+        continue
+      }
       open(')', false, f.arith || s[next] === '(', /[<>=]/.test(prior(n)), prior(n) === '=' && !f.arith)
       continue
     }
     if (c === ')') {
       endWord()
-      if (f.paren > 0) { f.paren--; f.cur += c; ws = false; continue }
+      if (f.paren > 0) {
+        f.paren--
+        f.cur += c
+        ws = false
+        continue
+      }
       // bash's scan for the end of a `$((…))` counts this `)` even inside a `$[…]` in it, so the
       // `$[` ends here and the `)` is read again in the arithmetic around it (`$(( $[${x))`).
-      if (f.close === ']' && stack.at(-2)?.arith === true && stack.at(-2)?.close === ')') { pop(); n--; continue }
+      if (f.close === ']' && stack.at(-2)?.arith === true && stack.at(-2)?.close === ')') {
+        pop()
+        n--
+        continue
+      }
       // A case pattern ends at its `)`, and the commands after it start a new segment.
       if (f.pat) {
         f.pat = false
@@ -786,7 +966,10 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         cut()
         continue
       }
-      if (f.close === ')') { pop(); continue }
+      if (f.close === ')') {
+        pop()
+        continue
+      }
     }
     // A comment runs to the end of the line; inside backticks, to the first unescaped backtick.
     // Inside `[[ … ]]` and a word's own parentheses, bash reads a `#` as text, and so it does
@@ -810,7 +993,12 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       if (c === '&' || s[next] !== '(')
         rejects(n)
     }
-    if (c === '<' && s[next] === '<' && s[past(next + 1)] === '<') { f.cur += '<<<'; n = past(next + 1); ws = false; continue }
+    if (c === '<' && s[next] === '<' && s[past(next + 1)] === '<') {
+      f.cur += '<<<'
+      n = past(next + 1)
+      ws = false
+      continue
+    }
     // A heredoc operator (`<<`, `<<-`) and its delimiter word; `<<` in arithmetic is a shift.
     // The word ends where bash ends it: at a space, a tab, or an operator character, and at a CR
     // only right before the newline, since a heredocEnd() line drops that CR too. A quoted part
@@ -826,16 +1014,28 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       let quoted = false
       let wq = ''
       const from = k
-      while (k < s.length && (drop < 0 || k < drop) && (wq !== '' || s[k] !== '\n')) {
+      const end = drop < 0 ? s.length : Math.min(drop, s.length)
+      while (k < end && (wq !== '' || s[k] !== '\n')) {
         const d = s[k]!
         // Inside backticks, bash finds the closing backtick first, whatever quote is open, and a
         // backslash escapes a backtick or a backslash after it in any quote.
         if (f.tick >= 0 && d === '`')
           break
         if (wq) {
-          if (f.tick >= 0 && d === '\\' && (s[k + 1] === '`' || s[k + 1] === '\\')) { delim += s[k + 1]!; k += 2; continue }
-          if (wq === '"' && d === '\\' && s[k + 1] === '\n') { k += 2; continue }
-          if (wq === '"' && d === '\\' && /["$`\\]/.test(s[k + 1] ?? '')) { delim += s[k + 1]!; k += 2; continue }
+          if (f.tick >= 0 && d === '\\' && (s[k + 1] === '`' || s[k + 1] === '\\')) {
+            delim += s[k + 1]!
+            k += 2
+            continue
+          }
+          if (wq === '"' && d === '\\' && s[k + 1] === '\n') {
+            k += 2
+            continue
+          }
+          if (wq === '"' && d === '\\' && /["$`\\]/.test(s[k + 1] ?? '')) {
+            delim += s[k + 1]!
+            k += 2
+            continue
+          }
           if (d === wq)
             wq = ''
           else
@@ -843,9 +1043,22 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
           k++
           continue
         }
-        if (d === '\\' && s[k + 1] === '\n') { k += 2; continue }
-        if (d === '\'' || d === '"') { wq = d; quoted = true; k++; continue }
-        if (d === '\\') { quoted = true; delim += s[k + 1] ?? ''; k += 2; continue }
+        if (d === '\\' && s[k + 1] === '\n') {
+          k += 2
+          continue
+        }
+        if (d === '\'' || d === '"') {
+          wq = d
+          quoted = true
+          k++
+          continue
+        }
+        if (d === '\\') {
+          quoted = true
+          delim += s[k + 1] ?? ''
+          k += 2
+          continue
+        }
         if (/[ \t;&|()<>`]/.test(d) || (d === '\r' && s[k + 1] === '\n'))
           break
         delim += d
@@ -862,7 +1075,11 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       continue
     }
     // `&` inside `2>&1`, `<&3`, and `&>file`, and `|` inside `>|file`, belong to a redirect.
-    if ((c === '&' && (afterOp || s[next] === '>')) || (c === '|' && afterOp && prior(n) === '>')) { f.cur += c; ws = false; continue }
+    if ((c === '&' && (afterOp || s[next] === '>')) || (c === '|' && afterOp && prior(n) === '>')) {
+      f.cur += c
+      ws = false
+      continue
+    }
     if (c === '\n') {
       endWord()
       // A line ending in `|` or `|&` continues its pipeline after any heredoc bodies, so
@@ -974,12 +1191,6 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
   }
   return out
 }
-
-// How many times segments() lexes again what a segment hands back to the parser (reparsed()).
-// Each pass removes one layer of quotes (`eval "eval 'npm i'"` takes two) or one expansion
-// (`${x:-${y:-npm i}}`), and the bound keeps a hostile nesting linear: past it, what is still
-// handed back is lexed once more flat(), so the chain still ends at the command it runs.
-const REPARSE = 8
 
 // Source with every quote, backslash, defaulted-expansion opening, and `}` dropped.
 function flat(source: string): string {
@@ -1131,7 +1342,7 @@ function reparsed(seg: string): string[] {
 
 // The opening of a pattern substitution, `${x/`, `${x//`, `${x/#`, or `${x/%`, for a name, an
 // array element, or a special parameter.
-const PATSUB = /^\$\{(?:[A-Za-z_]\w*(?:\[[^\]]*\])?|\d+|[@*#?$!-])\/[/#%]?/
+const PATSUB = /^\$\{(?:[A-Z_]\w*(?:\[[^\]]*\])?|\d+|[@*#?$!-])\/[/#%]?/i
 
 // Where the pattern of the substitution in `w`, read from `n`, ends: at the `/` that opens its
 // replacement, outside quotes and not escaped, or -1 when the expansion's `}` at `close` comes
@@ -1231,7 +1442,7 @@ function wrappedString(raw: string[], toks: string[], k: number, b: string, lead
 const PNPM_RUN_VALUE: ReadonlySet<string> = new Set([...PNPM_VALUE_FLAG, '--package', '--allow-build', '--resume-from', '--cpu', '--os', '--libc'])
 
 // pnpm's shell mode: `-c`, alone or in a cluster of one-letter flags (`-rc`), or `--shell-mode`.
-const PNPM_SHELL_MODE = /^(?:-[a-z]*c[a-z]*|--shell-mode(?:=(?!false$).*)?)$/
+const PNPM_SHELL_MODE = /^(?:-[abd-z]*c[a-z]*|--shell-mode(?:=(?!false$).*)?)$/
 
 // Where the command string starts that pnpm runs in a shell for `pnpm [flags] exec|dlx|x
 // [flags] …` or `pnx|pnpx [flags] …` with its shell mode among the flags before or after the
@@ -1262,11 +1473,6 @@ function shellModeAt(toks: string[], i: number): number {
     return -1
   return unquote(toks[e] ?? '') === '--' ? e + 1 : e
 }
-
-// The opening of a parameter expansion whose value can be the text after it: `${x:-`, `${x-`,
-// `${x:=`, `${x:+`, and the same for an array element or a special parameter.
-const DEFAULTED = /^\$\{(?:[A-Za-z_]\w*(?:\[[^\]]*\])?|\d+|[@*#?$!-]):?[-=+]/
-const DEFAULTED_ALL = new RegExp(DEFAULTED.source.slice(1), 'g')
 
 // The command an unquoted expansion with a default runs when it stands as the head
 // (`${x:-npm i}`): bash splits its value into words and runs them, so the default, the rest of
@@ -1556,14 +1762,26 @@ function unescapeWord(raw: string): string {
       continue
     }
     if (q === '"') {
-      if (c === '\\' && /["$`\\]/.test(raw[n + 1] ?? '')) { out += raw[n + 1]; n++; continue }
+      if (c === '\\' && /["$`\\]/.test(raw[n + 1] ?? '')) {
+        out += raw[n + 1]
+        n++
+        continue
+      }
       if (c === '"')
         q = null
       out += c
       continue
     }
-    if (c === '\'' || c === '"') { q = c; out += c; continue }
-    if (c === '\\') { out += raw[n + 1] ?? ''; n++; continue }
+    if (c === '\'' || c === '"') {
+      q = c
+      out += c
+      continue
+    }
+    if (c === '\\') {
+      out += raw[n + 1] ?? ''
+      n++
+      continue
+    }
     out += c
   }
   return out
@@ -1580,7 +1798,7 @@ export function tokenize(seg: string): string[] {
 }
 
 // The length of the substitution or parameter expansion that starts at s[n], or 0.
-const STICKY_EXPANSION = new RegExp(EXPANSION, 'y')
+const STICKY_EXPANSION = new RegExp(EXPANSION, 'iy')
 function expansionAt(s: string, n: number): number {
   STICKY_EXPANSION.lastIndex = n
   return STICKY_EXPANSION.exec(s)?.[0].length ?? 0
@@ -1700,14 +1918,20 @@ function leadScan(toks: string[]): { i: number, probe: boolean } {
       const miseFlags = WRAP_VALUE_FLAGS.get('mise')
       while (i < toks.length) {
         const a = toks[i]!
-        if (a === '--') { i++; break }
+        if (a === '--') {
+          i++
+          break
+        }
         if (a.startsWith('-')) {
           i++
           if (miseFlags?.has(a) && i < toks.length && !wouldHideHead(toks[i]!))
             i++
           continue
         }
-        if (/^[\w@./+-]+@[\w./+-]*$/.test(a) && !wouldHideHead(a)) { i++; continue }
+        if (/^[\w@./+-]+@[\w./+-]*$/.test(a) && !wouldHideHead(a)) {
+          i++
+          continue
+        }
         break
       }
       curWrap = 'mise'
@@ -1722,13 +1946,13 @@ function leadScan(toks: string[]): { i: number, probe: boolean } {
     }
     const b = base(t)
     if (WRAP.has(b)) {
-      if (unquote(t) === 'command' && /^-[vV]$/.test(unquote(toks[i + 1] ?? '')))
+      if (unquote(t) === 'command' && /^-v$/i.test(unquote(toks[i + 1] ?? '')))
         probe = true
       curWrap = b
       i++
       // `coproc NAME { …; }` names the coprocess; the name is skipped only before a compound
       // command, as bash reads it, and never when it would hide a head.
-      if (b === 'coproc' && /^[A-Za-z_]\w*$/.test(toks[i] ?? '') && COMPOUND.has(toks[i + 1] ?? '') && !wouldHideHead(toks[i]!))
+      if (b === 'coproc' && /^[A-Z_]\w*$/i.test(toks[i] ?? '') && COMPOUND.has(toks[i + 1] ?? '') && !wouldHideHead(toks[i]!))
         i++
       if (WRAP_POSITIONAL.has(b)) {
         const vf = WRAP_VALUE_FLAGS.get(b)
@@ -1760,8 +1984,19 @@ function leadScan(toks: string[]): { i: number, probe: boolean } {
 // (`--registry URL`); those long flags are out of scope like long wrapper flags. `-c` /
 // `--call` takes a command string.
 const NPX_VALUE_FLAG: ReadonlySet<string> = new Set([
-  '-p', '--package', '--cache', '--userconfig', '--shell', '-w', '--workspace',
-  '-n', '--node-arg', '--npm', '-C', '-L', '-m',
+  '-p',
+  '--package',
+  '--cache',
+  '--userconfig',
+  '--shell',
+  '-w',
+  '--workspace',
+  '-n',
+  '--node-arg',
+  '--npm',
+  '-C',
+  '-L',
+  '-m',
 ])
 
 /**
@@ -1801,11 +2036,16 @@ function runs(toks: string[], i: number): number {
   let e = i + 1
   while (e < toks.length) {
     const t = unquote(toks[e]!)
-    if (t.startsWith('-')) { if (PNPM_VALUE_FLAG.has(t)) e++; e++; continue }
+    if (t.startsWith('-')) {
+      if (PNPM_VALUE_FLAG.has(t))
+        e++
+      e++
+      continue
+    }
     break
   }
   if (!dlx) {
-    if (e >= toks.length || !/^(exec|dlx|x)$/.test(unquote(toks[e]!)))
+    if (e >= toks.length || !/^(?:exec|dlx|x)$/.test(unquote(toks[e]!)))
       return -1
     e++
   }
@@ -1844,7 +2084,7 @@ export function exportedWords(toks: string[]): string[] {
   const { i, head } = resolveHead(toks)
   const words = toks.slice(i + 1).map(unquote)
   const exports = head === 'export' || (/^(?:declare|typeset|local)$/.test(head) && words.some(w => /^-[A-Za-z]*x/.test(w)))
-  return exports ? words.filter(w => /^[A-Za-z_]\w*(?:=|$)/.test(w)) : []
+  return exports ? words.filter(w => /^[A-Z_]\w*(?:=|$)/i.test(w)) : []
 }
 
 // `git` global options that take a SEPARATE value token (the `--opt=value` spelling is one token).

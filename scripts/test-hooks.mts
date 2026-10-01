@@ -1131,6 +1131,7 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x:+npm install}` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x:-} \${y:-npm} install` }, // an empty default leaves the next word
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x:-\${y:-npm install}}` },
+  { guard: 'deny-non-pnpm.mts', expect: D, cmd: `${`\${x:-`.repeat(12)}npm install${'}'.repeat(12)}` }, // past the reparse bound
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `eval \${x:-npm install}` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `sudo \${x:-npm} install` },
   { guard: P, expect: D, cmd: `\${B:-git} push origin main`, cwd: ON_FEAT },

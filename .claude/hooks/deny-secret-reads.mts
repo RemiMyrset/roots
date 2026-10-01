@@ -13,11 +13,57 @@ import type { Verdict } from './_lexer.mts'
 import { gitSubcommand, globTokens, resolveHead, segments, tokenize, unquote } from './_lexer.mts'
 
 const READERS: ReadonlySet<string> = new Set([
-  'cat', 'head', 'tail', 'less', 'more', 'bat', 'nl', 'tac', 'grep', 'egrep', 'fgrep', 'rg',
-  'sed', 'awk', 'cut', 'od', 'xxd', 'hexdump', 'strings', 'base64', 'dd', 'source', '.',
-  'read', 'mapfile', 'readarray', 'sort', 'uniq', 'paste', 'join', 'comm', 'fold', 'expand',
-  'unexpand', 'pr', 'column', 'rev', 'shuf', 'look', 'csplit', 'split', 'diff', 'sdiff',
-  'cmp', 'fmt', 'ptx', 'tsort', 'numfmt', 'zcat', 'bzcat', 'xzcat',
+  'cat',
+  'head',
+  'tail',
+  'less',
+  'more',
+  'bat',
+  'nl',
+  'tac',
+  'grep',
+  'egrep',
+  'fgrep',
+  'rg',
+  'sed',
+  'awk',
+  'cut',
+  'od',
+  'xxd',
+  'hexdump',
+  'strings',
+  'base64',
+  'dd',
+  'source',
+  '.',
+  'read',
+  'mapfile',
+  'readarray',
+  'sort',
+  'uniq',
+  'paste',
+  'join',
+  'comm',
+  'fold',
+  'expand',
+  'unexpand',
+  'pr',
+  'column',
+  'rev',
+  'shuf',
+  'look',
+  'csplit',
+  'split',
+  'diff',
+  'sdiff',
+  'cmp',
+  'fmt',
+  'ptx',
+  'tsort',
+  'numfmt',
+  'zcat',
+  'bzcat',
+  'xzcat',
 ])
 // Readers where `-o FILE` is genuinely an OUTPUT operand (skip that value from the secret
 // scan). For grep/od/strings `-o` is a boolean flag whose next token is the INPUT file.
@@ -88,10 +134,30 @@ function isSecret(arg: string, glob: string): boolean {
 // Secret paths a glob is tested against, matched segment by segment from the end: a glob that
 // can expand to one reads it (`.env*`, `~/.ssh/*`, `~/.docker/*.json`).
 const GLOB_PROBES: readonly string[][] = [
-  '.env', '.env~', '.env.local', '.env.production', '.envrc', '.netrc', '_netrc', '.npmrc',
-  '.git-credentials', '.pgpass', 'id_rsa', 'id_dsa', 'id_ecdsa', 'id_ed25519', '.ssh/id_rsa',
-  '.ssh/id_dsa', '.ssh/id_ecdsa', '.ssh/id_ed25519', '.aws/credentials', '.config/gh/hosts.yml',
-  '.kube/config', '.docker/config.json', 'github cli/hosts.yml', 'postgresql/pgpass.conf',
+  '.env',
+  '.env~',
+  '.env.local',
+  '.env.production',
+  '.envrc',
+  '.netrc',
+  '_netrc',
+  '.npmrc',
+  '.git-credentials',
+  '.pgpass',
+  'id_rsa',
+  'id_dsa',
+  'id_ecdsa',
+  'id_ed25519',
+  '.ssh/id_rsa',
+  '.ssh/id_dsa',
+  '.ssh/id_ecdsa',
+  '.ssh/id_ed25519',
+  '.aws/credentials',
+  '.config/gh/hosts.yml',
+  '.kube/config',
+  '.docker/config.json',
+  'github cli/hosts.yml',
+  'postgresql/pgpass.conf',
 ].map(p => p.split('/'))
 
 // One path segment of a bash glob as a case-insensitive regex, or null when it holds no glob.
@@ -184,7 +250,7 @@ function secretAt(toks: string[], globs: string[], k: number): boolean {
 
 // The file a `<` redirect at word j reads (`<.env`, `< .env`, `<>.env`, `$(<.env)`), or null.
 function redirectSource(toks: string[], j: number): string | null {
-  const m = /^\d*<+(.*)$/.exec(toks[j]!)
+  const m = /^\d*<+(?!<)(.*)$/.exec(toks[j]!)
   if (!m)
     return null
   return m[1]!.replace(/^>/, '').replace(/\)+$/, '') || toks[j + 1] || null
@@ -197,11 +263,42 @@ const FIND_EXEC = /^-(?:exec|ok)(?:dir)?$/
 // Anything else takes none and can be true or false: a primary missing here at worst shifts
 // a word into a primary of its own, which is judged as unknown, the safe side.
 const FIND_ONE_ARG: ReadonlySet<string> = new Set([
-  ...FIND_TESTS, '-regex', '-iregex', '-lname', '-ilname', '-type', '-xtype', '-size', '-perm',
-  '-user', '-group', '-uid', '-gid', '-newer', '-anewer', '-cnewer', '-samefile', '-inum',
-  '-links', '-mtime', '-atime', '-ctime', '-mmin', '-amin', '-cmin', '-used', '-fstype',
-  '-context', '-maxdepth', '-mindepth', '-regextype', '-fprint', '-fprint0', '-fls',
-  '-files0-from', '-printf',
+  ...FIND_TESTS,
+  '-regex',
+  '-iregex',
+  '-lname',
+  '-ilname',
+  '-type',
+  '-xtype',
+  '-size',
+  '-perm',
+  '-user',
+  '-group',
+  '-uid',
+  '-gid',
+  '-newer',
+  '-anewer',
+  '-cnewer',
+  '-samefile',
+  '-inum',
+  '-links',
+  '-mtime',
+  '-atime',
+  '-ctime',
+  '-mmin',
+  '-amin',
+  '-cmin',
+  '-used',
+  '-fstype',
+  '-context',
+  '-maxdepth',
+  '-mindepth',
+  '-regextype',
+  '-fprint',
+  '-fprint0',
+  '-fls',
+  '-files0-from',
+  '-printf',
 ])
 const FIND_TRUE: ReadonlySet<string> = new Set(['-prune', '-true', '-print', '-print0', '-printf', '-ls', '-maxdepth', '-mindepth', '-depth', '-xdev', '-mount', '-follow', '-daystart', '-noleaf', '-regextype'])
 
@@ -252,7 +349,7 @@ function execReaches(words: string[], target: number): boolean {
     p += 2
   while (p < words.length && !/^[-(!,]/.test(words[p]!))
     p++
-  const primary = (): Outcomes => {
+  function primary(): Outcomes {
     const at = p
     const w = words[p++] ?? ''
     if (FIND_EXEC.test(w)) {
@@ -268,7 +365,7 @@ function execReaches(words: string[], target: number): boolean {
       return outcome(true, false)
     return w === '-false' ? outcome(false, false) : outcome(true, false) | outcome(false, false)
   }
-  const unary = (): Outcomes => {
+  function unary(): Outcomes {
     const w = words[p]
     if (w === '!' || w === '-not') {
       p++
@@ -283,7 +380,7 @@ function execReaches(words: string[], target: number): boolean {
     }
     return primary()
   }
-  const and = (): Outcomes => {
+  function and(): Outcomes {
     let r = unary()
     while (p < words.length && !/^(?:-o|-or|\)|,)$/.test(words[p]!)) {
       if (words[p] === '-a' || words[p] === '-and')
@@ -293,7 +390,7 @@ function execReaches(words: string[], target: number): boolean {
     }
     return r
   }
-  const or = (): Outcomes => {
+  function or(): Outcomes {
     let r = and()
     while (words[p] === '-o' || words[p] === '-or') {
       p++
@@ -301,7 +398,7 @@ function execReaches(words: string[], target: number): boolean {
     }
     return r
   }
-  const list = (): Outcomes => {
+  function list(): Outcomes {
     let r = or()
     while (words[p] === ',') {
       p++
@@ -365,7 +462,10 @@ export const verdict: Verdict = (cmd) => {
       continue
     for (let k = i + 1; k < toks.length; k++) {
       const word = unquote(toks[k]!)
-      if (OUTPUT_O.has(head) && /^(?:-o|--output)$/.test(word)) { k++; continue }
+      if (OUTPUT_O.has(head) && /^(?:-o|--output)$/.test(word)) {
+        k++
+        continue
+      }
       if (OUTPUT_O.has(head) && word.startsWith('--output='))
         continue
       if (secretAt(toks, globs, k))

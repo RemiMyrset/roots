@@ -305,16 +305,18 @@ stops a secret already in the working tree from reaching git.
 private keys, tokens), every tracked file (a force-added gitignored one
 included) and every untracked file `.gitignore` does not exclude, so a
 developer's real untracked `.env` stays unread. `pnpm verify` and CI run it
-after ESLint, and the pre-commit hook runs secretlint on each staged file
-`.gitignore` does not match ([Hook bypass](#hook-bypass) lists the hooks).
+after ESLint, and the pre-commit hook runs secretlint on every staged file, a
+force-added gitignored one included ([Hook bypass](#hook-bypass) lists the
+hooks).
 
 secretlint applies the `.gitignore` cascade to every path it is given and
 passes when that leaves nothing to scan, so `scripts/lint-secrets.mts` runs it
 twice: over every file, `.gitignore` honoured, then over the tracked files
-git's ignore rules match, `.gitignore` off. A finding is fixed by removing the
-secret and rotating it, never by loosening `.secretlintrc.json`; a deliberate
-false positive in a test fixture gets an inline `secretlint-disable` comment
-with a reason.
+git's ignore rules match, `.gitignore` off. The pre-commit hook passes
+`--no-gitignore`, since every file it hands secretlint is staged. A finding is
+fixed by removing the secret and rotating it, never by loosening
+`.secretlintrc.json`; a deliberate false positive in a test fixture gets an
+inline `secretlint-disable` comment with a reason.
 
 ## Push protection
 
@@ -467,12 +469,12 @@ a file tool, which runs no shell command. Review catches it.
 
 The git hooks are installed by `scripts/prepare.mts` at `pnpm install` through
 simple-git-hooks, in the main checkout only: a linked worktree shares its
-hooks. Pre-commit runs lint-staged: ESLint with `--fix` on staged TypeScript
-and JavaScript, ESLint without it on staged JSON and YAML (the pnpm catalog
-fix would write an unstaged `pnpm-workspace.yaml`, so the rule fails the
-commit and `pnpm lint:fix` then `pnpm install` repair it), the portability
-checker when a markdown file is staged, and secretlint on every staged file
-`.gitignore` does not match.
+hooks. Pre-commit runs lint-staged: ESLint with `--fix` on staged TypeScript,
+JavaScript, TOML, and markdown, ESLint without it on staged JSON and YAML (the
+pnpm catalog fix would write an unstaged `pnpm-workspace.yaml`, so the rule
+fails the commit and `pnpm lint:fix` then `pnpm install` repair it), the
+portability checker when a markdown file is staged, and secretlint on every
+staged file. Every file type `pnpm lint` checks in CI is checked here too.
 It runs with `CI=1` so the antfu config lints the same way it does in CI
 rather than in editor mode; commit-msg runs commitlint. `deny-hook-bypass` keeps them in force. It denies
 `--no-verify` (and its unique abbreviations) on `git commit`, `git push`, and
