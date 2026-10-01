@@ -462,7 +462,15 @@ rather than in editor mode; commit-msg runs commitlint. `deny-hook-bypass` keeps
 dry-run and passes); a `core.hooksPath` override through `git -c` or
 `--config-env`; and the `SKIP_SIMPLE_GIT_HOOKS`, `HUSKY=0`, and
 `HUSKY_SKIP_HOOKS` environment prefixes, whether inline, via `env`, or
-exported (`export`, `declare -x`).
+exported (`export`, `declare -x`). Exporting one of these names alone
+(`export SKIP_SIMPLE_GIT_HOOKS`) is denied whatever value it was set to
+earlier.
+
+A short-option word on `git commit` is read letter by letter, the way git
+reads it: an `n` before any value letter is `-n` (`-an`, `-anm x`). A letter
+after `-m`, `-F`, `-c`, `-C`, `-t`, or `-U` is that option's value, as is a
+letter after `-u` or `-S`, whose optional value is always glued on. So
+`-m"done"`, `-uno`, and `-Snkey` pass.
 
 Quoted mentions (`-m "no --no-verify here"`) pass: words split where bash
 splits them, so a quoted message is one word, and a quote closed mid-word keeps
@@ -471,6 +479,8 @@ never closes, the rest of the command splits at any whitespace, so every word
 from there on is scanned (fail closed).
 
 Out of scope, beyond the shared list: a `git config core.hooksPath` run as an
-earlier command, editing `.git/hooks` directly, and uninstalling
-`simple-git-hooks`, all multi-step evasions the threat model already excludes.
+earlier command, editing `.git/hooks` directly, uninstalling
+`simple-git-hooks`, and `set -a` before an unexported assignment
+(`set -a; declare SKIP_SIMPLE_GIT_HOOKS=1`), all multi-step evasions the threat
+model already excludes.
 The backstop is the same CI that the hooks pre-run locally.

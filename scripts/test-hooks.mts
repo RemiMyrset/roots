@@ -634,6 +634,20 @@ const CASES: Case[] = [
   { guard: B, expect: D, cmd: 'git commit --no-veri -m x' }, // git accepts the unique abbreviation
   { guard: B, expect: D, cmd: 'git commit -n -m x' },
   { guard: B, expect: D, cmd: 'git commit -anm x' },
+  // git reads a short-option word letter by letter; a letter after -m, -u or -S is their value.
+  { guard: B, expect: D, cmd: 'git commit -an -m x' },
+  { guard: B, expect: D, cmd: 'git commit -na -m x' },
+  { guard: B, expect: D, cmd: 'git commit -u -n -m x' }, // -u takes only a glued value
+  { guard: B, expect: D, cmd: 'git commit -mx -n' },
+  { guard: B, expect: D, cmd: 'git commit -m -- -n' }, // -- is the message, so -n is a flag
+  { guard: B, expect: A, cmd: 'git commit -m"initial commit"' },
+  { guard: B, expect: A, cmd: 'git commit -m"done"' },
+  { guard: B, expect: A, cmd: 'git commit -mdone' },
+  { guard: B, expect: A, cmd: 'git commit -am"initial"' },
+  { guard: B, expect: A, cmd: 'git commit -uno -m x' },
+  { guard: B, expect: A, cmd: 'git commit -Snkey -m x' },
+  { guard: B, expect: A, cmd: 'git commit -Cnext' },
+  { guard: B, expect: A, cmd: 'git status -uno' },
   { guard: B, expect: D, cmd: 'git push --no-verify origin feat/x' },
   { guard: B, expect: D, cmd: 'git merge --no-verify feat/x' },
   { guard: B, expect: D, cmd: 'git -c core.hooksPath=/dev/null commit -m x' },
@@ -646,7 +660,13 @@ const CASES: Case[] = [
   { guard: B, expect: D, cmd: 'declare -x SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' },
   { guard: B, expect: D, cmd: 'typeset -gx HUSKY=0; git push origin feat/x' },
   { guard: B, expect: A, cmd: 'declare SKIP_SIMPLE_GIT_HOOKS=1; git commit -m x' }, // not exported: git never sees it
+  // Exporting by name alone exports the value set earlier.
+  { guard: B, expect: D, cmd: 'declare SKIP_SIMPLE_GIT_HOOKS=1; export SKIP_SIMPLE_GIT_HOOKS; git commit -m x' },
+  { guard: B, expect: D, cmd: 'declare HUSKY=0; export HUSKY; git push origin feat/x' },
+  { guard: B, expect: D, cmd: 'export HUSKY_SKIP_HOOKS; git commit -m x' },
+  { guard: B, expect: D, cmd: 'declare -x SKIP_SIMPLE_GIT_HOOKS; git commit -m x' },
   { guard: B, expect: A, cmd: 'export CI=1; git commit -m x' },
+  { guard: B, expect: A, cmd: 'export CI; git commit -m x' },
   { guard: B, expect: D, cmd: 'pnpm build && git commit --no-verify -m x' },
   { guard: B, expect: A, cmd: 'git commit -m x' },
   { guard: B, expect: A, cmd: 'git commit -am "fix: no --no-verify here"' }, // quoted mention
