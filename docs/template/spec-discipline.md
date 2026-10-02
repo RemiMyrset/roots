@@ -43,9 +43,10 @@ codebase has shape.
 - Renamed route, changed status code, new flag, changed exit code → spec edit.
 - Swapping a load-bearing dependency or reversing a decision → a new record
   that supersedes; edit only the old record's Status line.
-- New or renamed developer-facing command → README, plus the AGENTS.md
-  Commands list when it is part of the done gate (the one sanctioned
-  restatement).
+- New or renamed developer-facing command → the AGENTS.md Commands list, the
+  one home of every command; its done-gate entries are the one sanctioned
+  restatement. The README names at most `pnpm install`, `pnpm verify`, and
+  `pnpm sync:template`, and links the list.
 
 When you catch yourself updating a second doc to keep it consistent, stop and
 link to the canonical home instead. That second doc is derived.

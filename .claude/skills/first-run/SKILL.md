@@ -1,13 +1,14 @@
 ---
 name: first-run
-description: Initialize a repository just created from the template by running the README "First run" checklist. Prove the done gate, name the project, replace the template's pitch, pages, licence, and owner values with yours, apply the GitHub settings with gh, delete the section, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when README.md still has the template's First run callout, the one that names the first-run skill, and this checkout is not the template itself. Never pushes.
+description: Initialize a repository just created from the template by running the "First run" checklist on its Getting started page, docs/public/getting-started.md. Prove the done gate, name the project, replace the template's README, pitch, pages, licence, and owner values with yours, apply the GitHub settings with gh, replace the checklist page with a stub, and propose the commit. Use when the user says "first run", "initialize from template", "set up this repo", or "initialize this repo". Also use unprompted when docs/public/getting-started.md, or README.md in a child made from an older template, still has the template's First run callout, the one that names the first-run skill, and this checkout is not the template itself. Never pushes.
 ---
 
 # First run
 
-The README section is the checklist; this skill executes it. Nothing in the tree
-depends on the template's name, so every step is plain editing plus a few `gh`
-calls. Ask before any step whose input you would otherwise have to invent.
+The `## First run` section of `docs/public/getting-started.md` is the
+checklist; this skill executes it. Nothing in the tree depends on the
+template's name, so every step is plain editing plus a few `gh` calls. Ask
+before any step whose input you would otherwise have to invent.
 
 0. Go on only in a child. `<origin>` is the `OWNER/REPO` that
    `git remote get-url origin` names; pass it to each `gh` call in this
@@ -24,16 +25,20 @@ calls. Ask before any step whose input you would otherwise have to invent.
      adds `--template=false` to `gh repo edit`.
    - The template itself: origin points at `github.com/RemiMyrset/roots`, or
      `gh repo view <origin> --json isTemplate -q .isTemplate` prints `true`.
-     Stop and say so; there the section is the product. A clone meant to
+     Stop and say so; there the checklist is the product. A clone meant to
      become a new repository needs `git remote set-url origin <new-url>`
      first, then a new run.
-   - `README.md` has no `## First run` heading with the callout under it
-     that names this skill. Either first run is already done, or the section
-     is the repository's own, not the template's checklist; stop and say so.
+   - Neither `docs/public/getting-started.md` nor, in a child made from an
+     older template, `README.md` has a `## First run` heading with the
+     callout under it that names this skill. Either first run is already
+     done, or the page is the repository's own, not the template's checklist;
+     stop and say so. In the older layout the steps below still apply: step 4
+     replaces the README with the skeleton and step 7 replaces the Getting
+     started page, whatever it holds.
 1. Environment. `node --version` must print v24 or later (`.node-version`
    pins 24) and `pnpm --version` must print a version. If either fails, say
-   the machine is not set up yet, point to the README's `## Setup` section,
-   and stop; that is the environment, not a template defect.
+   the machine is not set up yet, point to `docs/template/setup.md`, and
+   stop; that is the environment, not a template defect.
 2. Derive identity, then ask for what cannot be derived. `<owner>` and
    `<repo>` are the two halves of `<origin>` from step 0. The slug is the
    repo name and must match `^[\w.-]+$`.
@@ -67,21 +72,17 @@ calls. Ask before any step whose input you would otherwise have to invent.
    - `CHANGELOG.md`, when present: delete it. It is the template's release
      history, with links into the template's repository; the first
      `pnpm release` writes this repository's own.
-   - `README.md`: the H1 becomes `# <slug>` (or the title the user gives); the
-     two paragraphs under it become one paragraph, the pitch. Delete the
-     sections `## Who it is for, and not for` and `## What is in the box` and
-     the `mermaid` block under `## Layout`; they describe the template, not
-     this repository. Under `## Where things live`, delete the parenthetical
-     that names the template's own site, make the public-site address
-     `https://<owner>.github.io/<repo>/` with `<owner>` lowercased, and keep
-     the provenance line.
+   - `README.md` describes the template, not this repository: replace the
+     whole file with `readme-skeleton.md`, which sits beside this file, and
+     fill in its placeholders. `<slug>` is the H1 (or the title the user
+     gives), `<pitch>` the pitch, and `<owner>` and `<repo>` the halves of
+     `<origin>`, with `<owner>` lowercased in the public-site address. The
+     skeleton keeps the provenance line.
    - `docs/public/index.md` becomes `# <slug> documentation`, one paragraph
      with the pitch, and `Start with [Getting started](./getting-started.md).`
-     `docs/public/getting-started.md` becomes `# Getting started` with three
-     numbered steps: install node 24 and pnpm then `pnpm install`;
-     `pnpm verify` is what "done" means; replace this page with the product's
-     first steps. Both pages spoke about the template; the public site
-     publishes whatever is here.
+     It spoke about the template; the public site publishes whatever is here.
+     `docs/public/getting-started.md` holds the checklist, so step 7
+     replaces it last.
    - `LICENSE`, by the user's choice. MIT: `Copyright (c) <year> <holder>`.
      Another licence: replace the file with
      `gh api licenses/<key> --jq .body` (`gh api licenses --jq '.[].key'`
@@ -103,7 +104,7 @@ calls. Ask before any step whose input you would otherwise have to invent.
      `[<address>](mailto:<address>)`, with the address the user gave.
    - Package scope, only if the user wants something other than `@repo/`:
      `grep -rl '@repo/' --exclude-dir=node_modules --exclude-dir=.claude --exclude-dir=.agents .`
-     (the README's command) lists every file. Edit each except
+     (the checklist's command) lists every file. Edit each except
      `pnpm-lock.yaml`, then `pnpm install` (the lockfile is regenerated,
      never hand-edited; CI installs with `--frozen-lockfile`). Leave the
      skills alone: they are synced, name `@repo/` only as the default, and the
@@ -127,9 +128,11 @@ calls. Ask before any step whose input you would otherwise have to invent.
    `gh api -X PUT repos/<owner>/<repo>/private-vulnerability-reporting`,
    which turns on the button `SECURITY.md` names. If not authenticated, print
    the commands for the user instead.
-7. Delete the `## First run` section from `README.md`, from that heading to the
-   line before the next `## ` heading, then run `pnpm docs:portability` and
-   `pnpm verify` once more.
+7. Replace `docs/public/getting-started.md` last, since step 0 detects a
+   fresh child by it. It becomes `# Getting started` with three numbered
+   steps: install node 24 and pnpm then `pnpm install`; `pnpm verify` is what
+   "done" means; replace this page with the product's first steps. Then run
+   `pnpm docs:portability` and `pnpm verify` once more.
 8. Hand off: summarize the edits and propose
    `git commit -am "chore: initialize from roots"` (run it only if asked; never
    push). Print what waits for after the user's push, with `<owner>/<repo>`
@@ -147,7 +150,7 @@ calls. Ask before any step whose input you would otherwise have to invent.
    purpose (the sync URL, the bootstrap command); never edit them. When
    `<owner>`, compared case-insensitively, does not contain `myrset`,
    `git grep -n -i myrset -- . ':!docs/template' ':!.claude/skills' ':!.agents/skills' ':!scripts/sync-template.mts'`
-   must print only the provenance line in the README; `myrset` also catches
+   must print only the provenance line in `README.md`; `myrset` also catches
    the `LICENSE` holder, spelled `Remi Myrset`. When `<owner>` contains it,
    as RemiMyrset or an organization named `myrset-labs` does, the new owner
    values match too, so run

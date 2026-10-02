@@ -1,4 +1,5 @@
 # Default reviewers for every path. `@RemiMyrset` is the template's owner; the first-run
-# checklist (README "First run"; the `first-run` skill) replaces it with your GitHub
-# user or team. Later rows override earlier ones; add path-specific owners below.
+# checklist (First run in docs/public/getting-started.md; the `first-run` skill) replaces
+# it with your GitHub user or team. Later rows override earlier ones; add path-specific
+# owners below.
 * @RemiMyrset

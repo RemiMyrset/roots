@@ -5,14 +5,12 @@ and the growth paths roots leaves open.
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `pnpm docs:gen` | the `.agents/skills` mirror and any automd region a page keeps (mutates files) |
-| `pnpm docs:check` | structural lint: record/spec formats, Source/Tests paths, staleness, skill frontmatter |
-| `pnpm docs:list` | the decisions table and the spec list, read from the files (read-only; `decisions` or `specs` prints one) |
-| `pnpm docs:portability` | portability lint (GitHub, VitePress, Obsidian), blocking |
-| `pnpm docs:internal:dev` / `docs:internal:build` | internal handbook site: preview / build |
-| `pnpm docs:public:dev` / `docs:public:build` | public site: preview / build |
+The docs commands are listed with every other command in the Commands section
+of the rulebook, `AGENTS.md`. `pnpm docs:gen` writes the `.agents/skills`
+mirror and any automd region a page keeps. `pnpm docs:check` lints record and
+spec formats, Source and Tests paths, staleness, and skill frontmatter.
+`pnpm docs:portability` holds every page to what GitHub, VitePress, and
+Obsidian all render.
 
 All but `docs:list` and the two `dev` previews run inside the done gate,
 `pnpm verify`. CI (`.github/workflows/docs.yml`) runs gen behind the drift

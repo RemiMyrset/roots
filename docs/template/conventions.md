@@ -37,7 +37,8 @@ portability requirement. The choices, each with its why:
   a child, so a fix lands once. `docs/internal/` and `docs/public/` are the
   child's own. `docs/internal/` starts clean: the decisions and specs folders
   hold only their index and template files. The two public pages describe the
-  template until the README's First run checklist replaces them.
+  template, and Getting started holds the First run checklist, until first run
+  replaces both with stubs.
 - Decisions are MADR 4 minimal, the maintained published standard, and
   append-only. Metadata is visible bold bullets because YAML frontmatter is
   invisible in VitePress and noisy on GitHub.
