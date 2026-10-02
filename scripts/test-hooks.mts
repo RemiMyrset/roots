@@ -579,18 +579,22 @@ const CASES: Case[] = [
   { guard: P, expect: A, cmd: 'git push -u origin HEAD', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin HEAD:feat/y', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin --tags', cwd: ON_MAIN }, // tags only: no branch target to resolve
-  // An earlier command that changes the branch, the remotes, or the directory has not run when
-  // the guard resolves a target, so an implicit target or a new remote after one is unknown.
-  { guard: P, expect: D, cmd: 'git switch main && git push', cwd: ON_FEAT, why: 'changes earlier in this command' },
+  // A command that changes the branch, the remotes, or the directory has not run when the guard
+  // resolves a target, so an implicit target or a new remote in the same call is unknown,
+  // wherever the move sits: before the push, after it, inside eval, or in a heredoc a shell reads.
+  { guard: P, expect: D, cmd: 'git switch main && git push', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'eval "git switch main" && git push', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'bash <<\'EOF\'\ngit switch main\nEOF\ngit push', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'git push -u origin HEAD && git switch main', cwd: ON_FEAT, why: 'changes in this command' },
   { guard: P, expect: D, cmd: 'git checkout main && git merge feat/x && git push origin HEAD', cwd: ON_FEAT },
   { guard: P, expect: D, cmd: 'git switch -q main && git merge -q --ff-only feat/x && git push -q origin HEAD', cwd: ON_FEAT },
   { guard: P, expect: D, cmd: 'git switch -c feat/new && git push -u origin HEAD', cwd: ON_MAIN, why: 'push in its own call or name the remote and branch' },
-  { guard: P, expect: D, cmd: 'git checkout -b fix/y && git commit -m x && git push', cwd: ON_MAIN, why: 'changes earlier in this command' },
+  { guard: P, expect: D, cmd: 'git checkout -b fix/y && git commit -m x && git push', cwd: ON_MAIN, why: 'changes in this command' },
   { guard: P, expect: D, cmd: 'gh pr checkout 12 && git push', cwd: ON_FEAT },
   { guard: P, expect: D, cmd: 'cd ../other && git push origin @', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git remote add fork ../remote.git && git push -u fork feat/x', cwd: ON_FEAT, why: 'changes earlier in this command' },
+  { guard: P, expect: D, cmd: 'git remote add fork ../remote.git && git push -u fork feat/x', cwd: ON_FEAT, why: 'changes in this command' },
   { guard: P, expect: A, cmd: 'git switch -c feat/new && git push -u origin feat/new', cwd: ON_MAIN },
-  { guard: P, expect: A, cmd: 'git push -u origin HEAD && git switch main', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git push -u origin feat/x && git switch main', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git remote add fork ../remote.git && git push -u origin feat/x', cwd: ON_FEAT },
   // `@` is HEAD, `heads/main` is main, and git takes a unique prefix of a long option.
   { guard: P, expect: D, cmd: 'git push origin @', cwd: ON_MAIN },

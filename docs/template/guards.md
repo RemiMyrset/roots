@@ -339,14 +339,16 @@ holds a brace list (`{develop,main}`, `HEAD:{main,x}`, `ma{i..i}n`), which bash
 turns into several words. A reflog entry such as `HEAD@{1}` holds no list and
 passes.
 
-The guard resolves a target before any command of the call runs. So after an
-earlier command in the same call that changes the branch (`git switch`,
-`git checkout`, `git worktree`, `gh pr checkout`), the remotes
-(`git remote add` or `rename`), or the directory (`cd`, `pushd`, `popd`), an
-implicit target and a remote the checkout does not configure yet are unknown,
-and the push is denied with a reason that says to push in its own call or name
-the remote and branch. `git switch -c feat/x && git push -u origin feat/x`
-passes; `git switch main && git push` does not.
+The guard resolves a target before any command of the call runs. So when any
+command in the same call changes the branch (`git switch`, `git checkout`,
+`git worktree`, `gh pr checkout`), the remotes (`git remote add` or `rename`),
+or the directory (`cd`, `pushd`, `popd`), an implicit target and a remote the
+checkout does not configure yet are unknown, and the push is denied with a
+reason that says to push in its own call or name the remote and branch. The
+move counts wherever it sits, before or after the push, inside `eval`, or in a
+heredoc a shell reads. `git switch -c feat/x && git push -u origin feat/x`
+passes; `git switch main && git push` and
+`git push -u origin HEAD && git switch main` do not.
 
 Also denied on any branch: bare `--force` / `-f` / a `+refspec`,
 `--all` / `--branches` / `--mirror` and the unique prefixes git accepts for
