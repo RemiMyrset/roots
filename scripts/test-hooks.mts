@@ -28,7 +28,8 @@ for (const key of Object.keys(process.env).filter(k => /^GIT_/i.test(k)))
   delete process.env[key]
 
 type Guard = 'deny-non-pnpm.mts' | 'deny-build-scripts.mts' | 'deny-secret-reads.mts' | 'deny-push-protected.mts' | 'deny-hook-bypass.mts' | 'dispatch.mts'
-interface Case { guard: Guard, expect: 0 | 2, cmd: string, env?: Record<string, string>, unset?: string[], cwd?: string, tool?: string, extra?: Record<string, unknown>, hooksDir?: string, raw?: string }
+// `why`, when set, is text the deny reason must hold.
+interface Case { guard: Guard, expect: 0 | 2, cmd: string, why?: string, env?: Record<string, string>, unset?: string[], cwd?: string, tool?: string, extra?: Record<string, unknown>, hooksDir?: string, raw?: string }
 
 // The guards under test, in-process; the dispatcher is spawned because its contract is a process.
 const VERDICTS: Record<Exclude<Guard, 'dispatch.mts'>, Verdict> = {
@@ -578,6 +579,27 @@ const CASES: Case[] = [
   { guard: P, expect: A, cmd: 'git push -u origin HEAD', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin HEAD:feat/y', cwd: ON_FEAT },
   { guard: P, expect: A, cmd: 'git push origin --tags', cwd: ON_MAIN }, // tags only: no branch target to resolve
+  // A command that changes the branch, the remotes, or the directory has not run when the guard
+  // resolves a target, so an implicit target or a new remote in the same call is unknown,
+  // wherever the move sits: before the push, after it, inside eval, or in a heredoc a shell reads.
+  { guard: P, expect: D, cmd: 'git switch main && git push', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'eval "git switch main" && git push', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'bash <<\'EOF\'\ngit switch main\nEOF\ngit push', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'git push -u origin HEAD && git switch main', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'git checkout main && git merge feat/x && git push origin HEAD', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git switch -q main && git merge -q --ff-only feat/x && git push -q origin HEAD', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git switch -c feat/new && git push -u origin HEAD', cwd: ON_MAIN, why: 'push in its own call or name the remote and branch' },
+  { guard: P, expect: D, cmd: 'git checkout -b fix/y && git commit -m x && git push', cwd: ON_MAIN, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'gh pr checkout 12 && git push', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'cd ../other && git push origin @', cwd: ON_FEAT },
+  { guard: P, expect: D, cmd: 'git remote add fork ../remote.git && git push -u fork feat/x', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'git worktree add ../w && git push', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'pushd .. && git push', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'popd && git push origin HEAD', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: D, cmd: 'git remote rename origin up && git push up feat/x', cwd: ON_FEAT, why: 'changes in this command' },
+  { guard: P, expect: A, cmd: 'git switch -c feat/new && git push -u origin feat/new', cwd: ON_MAIN },
+  { guard: P, expect: A, cmd: 'git push -u origin feat/x && git switch main', cwd: ON_FEAT },
+  { guard: P, expect: A, cmd: 'git remote add fork ../remote.git && git push -u origin feat/x', cwd: ON_FEAT },
   // `@` is HEAD, `heads/main` is main, and git takes a unique prefix of a long option.
   { guard: P, expect: D, cmd: 'git push origin @', cwd: ON_MAIN },
   { guard: P, expect: D, cmd: 'git push -u origin @', cwd: ON_MAIN },
@@ -2041,6 +2063,8 @@ for (const c of CASES) {
   const got = why === null ? A : D
   if (got !== c.expect)
     fails.push(`[${c.guard}] got ${got}${why ? ` (${why})` : ''}, want ${c.expect}: ${c.cmd}`)
+  else if (c.why !== undefined && !(why ?? '').includes(c.why))
+    fails.push(`[${c.guard}] reason ${JSON.stringify(why)} lacks ${JSON.stringify(c.why)}: ${c.cmd}`)
 }
 
 // A dispatcher that cannot start must still deny: no harness blocks on exit 1, and Claude Code

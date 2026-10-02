@@ -8,7 +8,11 @@
  * `HEAD`, `@`, a lone command substitution) resolve through `git symbolic-ref` in the cwd; an
  * unresolvable target is denied, and so is one bash expands into a value unknown here: a remote
  * or refspec holding a shell variable (`"$BRANCH"`), and any word holding a brace list
- * (`{develop,main}`). Redirections are not refspecs: bash never passes them to git.
+ * (`{develop,main}`). Redirections are not refspecs: bash never passes them to git. A command
+ * in the same call that changes the branch, the remotes, or the directory (`git switch`,
+ * `git checkout`, `git worktree`, `gh pr checkout`, `git remote add`, `cd`) has not run when the
+ * guard resolves a target, so in such a call an implicit target or an unconfigured remote is
+ * unknown, wherever the move sits.
  * Shared lexing in ./_lexer.mts. Scope and out-of-scope: docs/template/guards.md.
  */
 import type { GuardContext, Verdict } from './_lexer.mts'
@@ -187,8 +191,26 @@ function longOption(name: string): string {
   return hits.length === 1 ? hits[0]! : name
 }
 
-// Returns the deny reason for a `git push` argv (tokens after `push`), or null to allow.
-function pushVerdict(words: string[], ctx: GuardContext): string | null {
+// The reason for an implicit target or a new remote in a call where any command moves.
+const MOVED = 'the branch, remote, or directory changes in this command, so the push target is unknown; push in its own call or name the remote and branch'
+
+// Whether a command changes what a push in the same call resolves against: the branch
+// (`git switch`, `git checkout`, `git worktree`, `gh pr checkout`), the remotes (`git remote add`
+// or `rename`), or the directory (`cd`, `pushd`, `popd`).
+function moves(toks: string[], i: number, head: string): boolean {
+  if (head === 'cd' || head === 'pushd' || head === 'popd')
+    return true
+  if (head === 'gh')
+    return toks.slice(i + 1, i + 3).map(unquote).join(' ') === 'pr checkout'
+  if (head !== 'git')
+    return false
+  const { sub, args } = gitSubcommand(toks, i)
+  return sub === 'switch' || sub === 'checkout' || sub === 'worktree' || (sub === 'remote' && /^(?:add|rename)$/.test(unquote(args[0] ?? '')))
+}
+
+// Returns the deny reason for a `git push` argv (tokens after `push`), or null to allow. `moved`
+// is set when any command of the call moves (moves()).
+function pushVerdict(words: string[], ctx: GuardContext, moved: boolean): string | null {
   const protectedRefs = protection(ctx)
   const args = withoutRedirects(words)
   // A brace list shifts every word after it, so one in any word, an option's value included
@@ -252,7 +274,7 @@ function pushVerdict(words: string[], ctx: GuardContext): string | null {
   if (remote !== undefined && (/[/\\:]/.test(remote) || remote === '.' || remote === '..'))
     return `"${remote}" is a URL or path, not a configured remote; pushing there bypasses the protected-branch list. Use a named remote`
   if (remote !== undefined && !configuredRemote(remote, ctx.cwd))
-    return `"${remote}" is not a remote configured here (\`git remote -v\` lists them), so git reads it as a path; pushing there bypasses the protected-branch list. Use a named remote`
+    return moved ? MOVED : `"${remote}" is not a remote configured here (\`git remote -v\` lists them), so git reads it as a path; pushing there bypasses the protected-branch list. Use a named remote`
   const targets: string[] = []
   for (const spec of refspecs) {
     if (spec.startsWith('+'))
@@ -272,6 +294,8 @@ function pushVerdict(words: string[], ctx: GuardContext): string | null {
     targets.push(target)
   }
   if (refspecs.length === 0 && !tags) {
+    if (moved)
+      return MOVED
     const cur = currentBranch(ctx.cwd)
     if (!cur)
       return 'the current branch could not be resolved (detached HEAD or not a git checkout), so the push target is unknown'
@@ -281,6 +305,8 @@ function pushVerdict(words: string[], ctx: GuardContext): string | null {
     // A lone substitution (`"$(git branch --show-current)"`) names the current branch, as HEAD
     // and its shorthand `@` do; one inside a longer name leaves the target unknown.
     if (t === 'HEAD' || t === '@' || branchName(t) === SUBST) {
+      if (moved)
+        return MOVED
       const cur = currentBranch(ctx.cwd)
       if (!cur)
         return 'HEAD is not on a branch, so the push target is unknown'
@@ -321,18 +347,26 @@ function pnpmScript(toks: string[], i: number): string {
   return ''
 }
 
-/** Denies a push whose target is protected, any whole-repo or bare-force push, and the release script. */
+/**
+ * Denies a push whose target is protected or, in a call where any command moves the branch,
+ * remotes, or directory, implicit; any whole-repo or bare-force push; and the release script.
+ */
 export const verdict: Verdict = (cmd, ctx) => {
-  for (const seg of segments(cmd)) {
+  const parsed = segments(cmd).map((seg) => {
     const toks = tokenize(seg)
-    const { i, head, probe } = resolveHead(toks)
-    if (probe)
+    return { toks, ...resolveHead(toks) }
+  })
+  // Any move counts, wherever it sits: segments() lists what eval and a heredoc a shell reads run
+  // after the outer commands, so their order says nothing about when bash runs them.
+  const moved = parsed.some(({ toks, i, head, probe }) => !probe && moves(toks, i, head))
+  for (const { toks, i, head, probe } of parsed) {
+    if (probe || moves(toks, i, head))
       continue
     if (head === 'git') {
       const { sub, args } = gitSubcommand(toks, i)
       if (sub !== 'push')
         continue
-      const why = pushVerdict(args, ctx)
+      const why = pushVerdict(args, ctx, moved)
       if (why)
         return `${why}.`
     }
