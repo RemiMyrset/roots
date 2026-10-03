@@ -32,7 +32,7 @@ generated `.agents/skills/` mirror); path-scoped rules live in `.claude/rules/`
 | Agent guard threat model | [guards](./docs/template/guards.md) |
 | How each agent tool reads the rulebook, guards, skills, and writing rules | [agent-surfaces](./docs/template/agent-surfaces.md) |
 | Template sync recipe and contract | [sync-template](./docs/template/sync-template.md) |
-| Setup and install | [README.md](./README.md) |
+| Setup and install | [setup](./docs/template/setup.md) |
 | Branch names and the PR flow | [CONTRIBUTING.md](./CONTRIBUTING.md) |
 <!-- This table is the canonical-home map. Add one row per fact as homes appear
      (ports, env vars, glossary, deploy runbook, architecture overview, runbooks/,
@@ -71,7 +71,9 @@ affect passes clean after your last edit. When unsure which apply, run
 
 Other commands, never part of done and never run to prove it:
 
-- Install: `pnpm install` (node 24 per `.node-version`; `corepack enable` provides pnpm)
+- Install: `pnpm install` (node 24 and pnpm first, as [setup](./docs/template/setup.md) says)
+- Test, watch: `pnpm --filter <package> test:watch` (vitest in watch mode; it never exits)
+- Sample app: `pnpm --filter @repo/example-app start` (runs the sample CLI against the sample package)
 - Docs, preview: `pnpm docs:internal:dev` / `pnpm docs:public:dev` (dev servers; they never exit)
 - Docs, list: `pnpm docs:list` (decisions and specs, read from the files; `decisions` or `specs` prints one)
 - Sync: `pnpm sync:template` (only when asked; stages the template's mechanics; the sync-template skill)
@@ -130,8 +132,7 @@ before touching behavior.
 - `packages/example-package`: `@repo/example-package`, sample library; replace
   it with (or rename it to) your first real package.
 - `apps/example-app`: `@repo/example-app`, sample CLI consuming the package over
-  `workspace:*` (`pnpm --filter @repo/example-app start`); replace it with your
-  first real app.
+  `workspace:*`; replace it with your first real app.
 <!-- One line per package and its purpose, nothing else. A stale map is worse
      than none; agents follow it literally. -->
 

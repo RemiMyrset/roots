@@ -1,7 +1,7 @@
 # roots
 
-A GitHub template for pnpm + Turborepo TypeScript monorepos that AI coding
-agents can work in safely from day one.
+A GitHub template for TypeScript monorepos on pnpm and Turborepo, where AI
+coding agents do much of the work.
 
 - One rulebook, `AGENTS.md`, read by Claude Code, Codex, and Gemini CLI, and
   pre-tool guards that stop the common agent mistakes in all three.
@@ -18,5 +18,4 @@ The repository and rulebook are at
 [Getting started](./getting-started.md).
 
 In your repository, replace this page and Getting started with your product's
-docs, as the First run checklist in the
-[README](https://github.com/RemiMyrset/roots#first-run) says.
+docs, as the [First run](./getting-started.md#first-run) checklist says.

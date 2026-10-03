@@ -6,7 +6,7 @@ following them is a matter of running the commands.
 1. **Read the rulebook.** [AGENTS.md](./AGENTS.md) is the contract for humans and
    AI agents alike: pnpm only, TypeScript only, no classes, a doc block on every
    export, portable markdown. It links to the canonical home of every rule.
-2. **Set up.** Node 24 (`.node-version`; `corepack enable` gives you pnpm), then
+2. **Set up.** Node 24 and pnpm as [setup](./docs/template/setup.md) says, then
    `pnpm install`. The git hooks install themselves.
 3. **Branch.** `feat/`, `fix/`, `docs/`, `chore/`, or `refactor/` plus a short
    kebab-case slug. Never commit to `main`: by convention every change reaches

@@ -4,6 +4,8 @@ The [roots](https://github.com/RemiMyrset/roots) template owns every file in
 this folder. They are the repository-level rules and agent material every child
 of the template shares.
 
+- [setup](./setup.md): node 24, pnpm, the supported platforms, and the trust
+  prompts, before the first `pnpm install`.
 - [conventions](./conventions.md): what roots is, why it is shaped this way, and
   what that costs.
 - [spec-discipline](./spec-discipline.md): one fact, one home; three-place sync.
