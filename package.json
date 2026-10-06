@@ -54,16 +54,11 @@
     "lint-staged": "catalog:",
     "mermaid": "catalog:",
     "secretlint": "catalog:",
-    "simple-git-hooks": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:",
     "vitepress": "catalog:",
     "vitepress-plugin-llms": "catalog:",
     "vitepress-plugin-mermaid": "catalog:"
-  },
-  "simple-git-hooks": {
-    "pre-commit": "CI=1 pnpm lint-staged",
-    "commit-msg": "pnpm exec commitlint --edit $1"
   },
   "lint-staged": {
     "*.{ts,mts,cts,tsx,js,mjs,cjs,jsx,vue,toml}": "eslint --fix --no-warn-ignored --cache --cache-location node_modules/.cache/eslint/",

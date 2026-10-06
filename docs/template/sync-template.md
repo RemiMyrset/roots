@@ -69,9 +69,9 @@ for a new verify gate never marks its AGENTS.md Commands line optional:
 The synced paths, grouped: the CI, docs, labels, labeler, and Pages workflows
 with the label list and the path-label map, the agent-task issue template, and
 the PR template; the docs generators and checkers, the verify gate, the secret
-scan, the git-hook installer, the four test suites, and the sync script
-itself; the guards, rules, skills, and writing rules under `.claude/`, the
-Codex and Gemini registrations, and the generated `.agents/` mirror; and
+scan, the git hooks and their installer, the four test suites, and the sync
+script itself; the guards, rules, skills, and writing rules under `.claude/`,
+the Codex and Gemini registrations, and the generated `.agents/` mirror; and
 `docs/template/`. The exact list is `MECHANICS` in the script.
 
 The synced scripts are `.mts` on purpose. `.mts` runs as ESM whatever the
@@ -303,9 +303,9 @@ stdout, in order:
    `changed on the template since ...`, `changed on both sides since ...`,
    `differs`, and `customized locally` (behavior 14). The entries are
    `packageManager`, then the blocks `scripts`, `devDependencies`,
-   `simple-git-hooks`, `lint-staged`, `commitlint`, and `engines`, in that
-   order; a value that is not a string prints as its JSON text. Labels say
-   "since the baseline" on a first sync and "since last sync" afterwards.
+   `lint-staged`, `commitlint`, and `engines`, in that order; a value that
+   is not a string prints as its JSON text. Labels say "since the baseline"
+   on a first sync and "since last sync" afterwards.
    Then the same for the top-level settings of `pnpm-workspace.yaml` under
    `Workspace`, in file order: a scalar as its key (`minimumReleaseAge`), a
    map entry as `<key>.<name>` (`catalog.vite`, `allowBuilds.esbuild`), and a
@@ -514,9 +514,9 @@ stderr.
     recorded. An `origin` that fails the URL pattern is never recorded.
 26. Given a template that changed what a synced gate relies on outside the
     synced paths, when run, then `packageManager` and the `devDependencies`,
-    `simple-git-hooks`, `lint-staged`, `commitlint`, and `engines` blocks of
-    `package.json` are compared like its `scripts` (behavior 14), and so is
-    every top-level setting of `pnpm-workspace.yaml` but the `packages` globs
+    `lint-staged`, `commitlint`, and `engines` blocks of `package.json` are
+    compared like its `scripts` (behavior 14), and so is every top-level
+    setting of `pnpm-workspace.yaml` but the `packages` globs
     under `Workspace`, skipped with a reason when either side has no
     `pnpm-workspace.yaml`. A file the template added since the
     sync point outside the synced paths (every `MECHANICS` and `include`

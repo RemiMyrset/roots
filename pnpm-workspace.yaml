@@ -41,12 +41,10 @@ packages:
 # native binary (vite 5 via vitepress and vite 7 via vitest both depend on it).
 # @parcel/watcher: automd imports it only in --watch mode, its prebuilt binary arrives
 # as an optional dependency, and its install script is a no-op unless building from
-# source — so no build script is needed. simple-git-hooks is invoked explicitly via
-# the prepare script, its postinstall is unnecessary.
+# source — so no build script is needed.
 allowBuilds:
   '@parcel/watcher': false
   esbuild: true
-  simple-git-hooks: false
 
 # Catalog-first (enforced by pnpm/json-enforce-catalog): every dependency
 # version lives here once; packages reference "catalog:".
@@ -65,7 +63,6 @@ catalog:
   lint-staged: ^16.0.0
   mermaid: ^11.0.0
   secretlint: ^13.0.0
-  simple-git-hooks: ^2.13.0
   turbo: ^2.0.0
   typescript: ^5.9.0
   # vitest 4 peers on vite >=6; without an explicit vite entry pnpm would

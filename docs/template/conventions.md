@@ -115,6 +115,17 @@ portability requirement. The choices, each with its why:
 - `secretlint` with the recommended preset runs on staged files at commit, in
   `pnpm verify`, and in CI: npm-native, no binary, no licence. It is the
   write-side counterpart to the secret-read guard.
+- The git hooks are tracked shell scripts under `.githooks/`, and
+  `pnpm install` points `core.hooksPath` at them; there is no hook manager.
+  Git resolves that relative path against the working tree that runs the hook,
+  so each linked worktree, where agents work in parallel, runs its own
+  branch's hooks, and a hook edit applies without a reinstall.
+  simple-git-hooks shipped first and was dropped: it wrote each command into
+  the main checkout's `.git/hooks` at install, so worktrees ran a stale copy,
+  and every install deleted the hooks it did not own. lefthook was rejected:
+  by default its hook passes when it cannot find its binary, and it adds
+  environment switches and local override files that skip the hooks. The
+  install and the bypass guard are in [guards](./guards.md#hook-bypass).
 - No update bot. The `update-deps` skill refreshes dependencies and action
   pins when someone asks, through one pull request that passes the done gate,
   and pnpm's `minimumReleaseAge` keeps every install on releases at least two
@@ -149,6 +160,11 @@ nothing to maintain by hand.
 Against that, the docs toolchain requires node 24 and pnpm even in repos whose
 product stack is something else. Template changes never apply automatically:
 the follow-ups report is advisory, and a child that never syncs keeps drifting.
+
+With `core.hooksPath` set, git no longer runs `.git/hooks`: a hook another
+tool installs there, git-lfs's included, stays off until it is committed under
+`.githooks/`. Git also skips a hook without its executable bit, so
+`pnpm test:gates` fails one committed without it.
 
 A dated decision has no short number to cite, and tools built for MADR's
 `NNNN-` names skip or flag it: madrlint's MADR41 and MADR44 rules, the

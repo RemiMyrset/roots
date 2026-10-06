@@ -346,8 +346,8 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // the node-version file (the major) and CI's turbo cache key the exact node, and a turbo run an
 // agent starts must leave AGENTS.md alone; the pre-commit hook must run ESLint on every file
 // type `pnpm lint` checks; every package tsconfig must take in every TypeScript file of its
-// package; the install hook must set up the git hooks in a
-// checkout and leave a linked worktree alone; verify's docs drift gate must skip only
+// package; the install hook must point git at .githooks so that a linked worktree runs its own
+// branch's hooks, and every hook there must be executable in the index; verify's docs drift gate must skip only
 // outside a git checkout, failing on any other git error; the secret scan must fail on a
 // force-added `.env` and pass an untracked one, and the pre-commit scan must fail on it once it
 // is staged; .gitignore must ignore every env-file name the secret-read guard denies; the
@@ -355,7 +355,7 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // out unless `changelog.excludeAuthors` lists names, and the release script refuses a dirty
 // tree; a devcontainer's `mounts` must share no volume with another repository's container;
 // and a test suite must drop the inherited GIT_ variables before it starts a process. It runs
-// the installed eslint, turbo, typescript, simple-git-hooks, secretlint, lint-staged, and
+// the installed eslint, turbo, typescript, secretlint, lint-staged, and
 // changelogen, so it needs the install that verify and CI run first. The probes that need
 // files write them to a temp directory only.
 const failures: string[] = []
@@ -707,10 +707,10 @@ for (const suite of suites.filter(f => spawnsBeforeDrop(readFileSync(join(root, 
 // FORCE_NODE_FETCH would route changelogen past the release probe's fetch stub.
 const pathKey = Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH'
 writeFileSync(join(tmp, 'gitconfig'), '[user]\n\tname = t\n\temail = t@t\n[commit]\n\tgpgsign = false\n[tag]\n\tgpgSign = false\n[init]\n\tdefaultBranch = main\n')
-/** The environment of a git probe: the caller's minus SKIP_INSTALL_SIMPLE_GIT_HOOKS and FORCE_NODE_FETCH, with `bin` first on PATH. */
+/** The environment of a git probe: the caller's minus FORCE_NODE_FETCH, with `bin` first on PATH. */
 function probeEnv(bin: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
-    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !['SKIP_INSTALL_SIMPLE_GIT_HOOKS', 'FORCE_NODE_FETCH'].includes(k))),
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'FORCE_NODE_FETCH')),
     [pathKey]: [bin, process.env[pathKey] ?? ''].join(delimiter),
     GIT_CONFIG_GLOBAL: join(tmp, 'gitconfig'),
     GIT_CONFIG_NOSYSTEM: '1',
@@ -729,14 +729,17 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
   return { status: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}${r.error?.message ?? ''}` }
 }
 
-// The install hook, run the way `pnpm install` runs it (the installed binaries on PATH): in a
-// checkout it installs the git hooks; in a linked worktree, whose .git is a file, it leaves them
-// to the main checkout instead of letting simple-git-hooks fail on `.git/hooks`.
+// The install hook, run the way `pnpm install` runs it: it points git at the tracked .githooks,
+// a path git resolves against the working tree that runs the hook. So a linked worktree runs its
+// own branch's hooks: with a failing pre-commit on disk there only, a commit in the worktree
+// fails and one in the main checkout passes. Git skips a hook without its executable bit, so
+// every hook under .githooks here must be committed as 100755.
 {
   const repo = join(tmp, 'hooks-repo')
-  mkdirSync(repo)
-  writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ 'simple-git-hooks': { 'pre-commit': 'true' } })}\n`)
-  const setup = [inRepo(repo, 'git', 'init', '-q'), inRepo(repo, 'git', 'add', '-A'), inRepo(repo, 'git', 'commit', '-q', '-m', 'init'), inRepo(repo, 'git', 'worktree', 'add', '-q', join(tmp, 'hooks-worktree'))]
+  const worktree = join(tmp, 'hooks-worktree')
+  mkdirSync(join(repo, '.githooks'), { recursive: true })
+  writeFileSync(join(repo, '.githooks', 'pre-commit'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  const setup = [inRepo(repo, 'git', 'init', '-q'), inRepo(repo, 'git', 'add', '-A'), inRepo(repo, 'git', 'update-index', '--chmod=+x', '.githooks/pre-commit'), inRepo(repo, 'git', 'commit', '-q', '-m', 'init'), inRepo(repo, 'git', 'worktree', 'add', '-q', worktree)]
   const broken = setup.find(r => r.status !== 0)
   if (broken) {
     failures.push(`could not set up the git repository for the install hook probe: ${broken.out.trim()}`)
@@ -744,13 +747,26 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
   else {
     const prepare = join(root, 'scripts', 'prepare.mts')
     const main = inRepo(repo, process.execPath, prepare)
-    if (main.status !== 0 || !existsSync(join(repo, '.git', 'hooks', 'pre-commit')))
-      failures.push(`scripts/prepare.mts installed no pre-commit hook in a checkout (exit ${main.status}): ${main.out.trim()}`)
-    const worktree = inRepo(join(tmp, 'hooks-worktree'), process.execPath, prepare)
-    if (worktree.status !== 0 || /\[ERROR\]|Error/.test(worktree.out))
-      failures.push(`scripts/prepare.mts failed in a linked worktree (exit ${worktree.status}): ${worktree.out.trim()}`)
+    const hooksPath = inRepo(repo, 'git', 'config', '--get', 'core.hooksPath').out.trim()
+    if (main.status !== 0 || hooksPath !== '.githooks')
+      failures.push(`scripts/prepare.mts left core.hooksPath at "${hooksPath}" in a checkout, not .githooks (exit ${main.status}): ${main.out.trim()}`)
+    const linked = inRepo(worktree, process.execPath, prepare)
+    if (linked.status !== 0)
+      failures.push(`scripts/prepare.mts failed in a linked worktree (exit ${linked.status}): ${linked.out.trim()}`)
+    writeFileSync(join(worktree, '.githooks', 'pre-commit'), '#!/bin/sh\nexit 1\n')
+    for (const dir of [repo, worktree])
+      writeFileSync(join(dir, 'probe.txt'), 'probe\n')
+    const commitIn = (dir: string): number | null => [inRepo(dir, 'git', 'add', 'probe.txt'), inRepo(dir, 'git', 'commit', '-q', '-m', 'probe')].find(r => r.status !== 0)?.status ?? 0
+    if (commitIn(worktree) === 0)
+      failures.push('a commit in a linked worktree passed although its own .githooks/pre-commit fails, so git ran another checkout\'s hooks or none; scripts/prepare.mts must set core.hooksPath to the relative .githooks')
+    if (commitIn(repo) !== 0)
+      failures.push('a commit in the main checkout failed on the pre-commit of a linked worktree, so the checkouts share one hooks folder; scripts/prepare.mts must set core.hooksPath to the relative .githooks')
   }
 }
+const hookModes = inRepo(root, 'git', 'ls-files', '--stage', '--', '.githooks')
+const hookFiles = hookModes.status === 0 ? hookModes.out.split('\n').filter(Boolean) : []
+for (const line of hookFiles.filter(l => !l.startsWith('100755 ')))
+  failures.push(`${line.split('\t')[1]} is not executable in the index, so git skips it; run \`git update-index --chmod=+x ${line.split('\t')[1]}\``)
 
 // verify's docs drift gate, run as `verify --only docs:gen` with a pnpm on PATH that does
 // nothing: in a checkout it passes; outside one it skips with a note; and in a checkout git
@@ -1046,4 +1062,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; turbo leaves AGENTS.md alone on an agent's run; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare installs the git hooks and skips a linked worktree; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}; ${suites.length} test suite(s) drop the inherited GIT_ variables before they start a process`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; turbo leaves AGENTS.md alone on an agent's run; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare points git at .githooks, a linked worktree runs its own hooks, and ${hookFiles.length} hook(s) there are executable; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}; ${suites.length} test suite(s) drop the inherited GIT_ variables before they start a process`)
