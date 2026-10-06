@@ -1,0 +1,3 @@
+#!/bin/sh
+# Run from here through core.hooksPath, set by scripts/prepare.mts; docs/template/guards.md, Hook bypass.
+exec pnpm exec commitlint --edit "$1"

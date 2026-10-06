@@ -66,6 +66,8 @@ const MECHANICS = [
   'scripts/docs',
   'scripts/lint-secrets.mts',
   'scripts/prepare.mts',
+  '.githooks/pre-commit',
+  '.githooks/commit-msg',
   'scripts/sync-template.mts',
   'scripts/test-hooks.mts',
   'scripts/test-sync.mts',
@@ -485,7 +487,7 @@ type Entries = Record<string, string>
 // gate and the workflows run, the devDependencies behind them, the commit-time checks and the
 // commit message rules, and the node range. `packageManager`, the pnpm the workflows install,
 // is compared as a top-level field (block '').
-const MANIFEST_BLOCKS = ['scripts', 'devDependencies', 'simple-git-hooks', 'lint-staged', 'commitlint', 'engines'] as const
+const MANIFEST_BLOCKS = ['scripts', 'devDependencies', 'lint-staged', 'commitlint', 'engines'] as const
 const MANIFEST_FIELDS = ['packageManager'] as const
 const WORKSPACE = 'pnpm-workspace.yaml'
 

@@ -477,10 +477,15 @@ a file tool, which runs no shell command. Review catches it.
 
 ## Hook bypass
 
-The git hooks are installed by `scripts/prepare.mts` at `pnpm install` through
-simple-git-hooks, in the main checkout only: a linked worktree shares its
-hooks. Pre-commit runs lint-staged: ESLint with `--fix` on staged TypeScript,
-JavaScript, TOML, and markdown, ESLint without it on staged JSON and YAML (the
+The git hooks are tracked shell scripts under `.githooks/`. At `pnpm install`,
+`scripts/prepare.mts` sets `core.hooksPath` to `.githooks` in the repository's
+local config, which every linked worktree shares and which outranks a global
+value. Git resolves the relative path against the working tree that runs the
+hook, so each worktree runs its own branch's hooks, and an edit to a hook takes
+effect without a reinstall. With git-lfs, run `git lfs install` after
+`pnpm install` and commit the hooks it writes into `.githooks/`. Pre-commit
+runs lint-staged: ESLint with `--fix` on staged TypeScript, JavaScript, TOML,
+and markdown, ESLint without it on staged JSON and YAML (the
 pnpm catalog fix would write an unstaged `pnpm-workspace.yaml`, so the rule
 fails the commit and `pnpm lint:fix` then `pnpm install` repair it), the
 portability checker when a markdown file is staged, and secretlint on every
@@ -509,8 +514,8 @@ never closes, the rest of the command splits at any whitespace, so every word
 from there on is scanned (fail closed).
 
 Out of scope, beyond the shared list: a `git config core.hooksPath` run as an
-earlier command, editing `.git/hooks` directly, uninstalling
-`simple-git-hooks`, and `set -a` before an unexported assignment
-(`set -a; declare SKIP_SIMPLE_GIT_HOOKS=1`), all multi-step evasions the threat
-model already excludes.
+earlier command, `git config --unset core.hooksPath`, editing a hook under
+`.githooks` (review sees it in the diff), and `set -a` before an unexported
+assignment (`set -a; declare SKIP_SIMPLE_GIT_HOOKS=1`), all multi-step evasions
+the threat model already excludes.
 The backstop is the same CI that the hooks pre-run locally.

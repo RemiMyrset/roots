@@ -1087,8 +1087,9 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 }
 
 // 26. What a synced gate needs beyond the synced paths is reported three-way like the scripts:
-// packageManager and the devDependencies, lint-staged, simple-git-hooks, commitlint, and engines
-// blocks of package.json, the top-level settings of pnpm-workspace.yaml (catalog, allowBuilds,
+// packageManager and the devDependencies, lint-staged, commitlint, and engines blocks of
+// package.json (never a block the sync does not compare, such as the simple-git-hooks one the
+// template dropped), the top-level settings of pnpm-workspace.yaml (catalog, allowBuilds,
 // trustPolicyExclude, scalars), and a file the template added outside the synced paths. A value
 // changed on both sides is labelled so, with the baseline's value. The template's own records,
 // release history, samples, and synced files are never listed, nor is the repository's own
@@ -1136,7 +1137,7 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('gate needs have a root-tree baseline', r.stdout.includes('(root tree)'), r.stdout)
   check('devDependency the template added is missing here', r.stdout.includes('  devDependencies.secretlint  missing here\n    template: catalog:\n'), r.stdout)
   check('lint-staged entry the template added is missing here', r.stdout.includes('  lint-staged.*  missing here\n    template: ["secretlint --no-glob"]\n'), r.stdout)
-  check('git hook the template changed is listed with both values', r.stdout.includes('  simple-git-hooks.pre-commit  changed on the template since the baseline\n    template: CI=1 pnpm lint-staged\n    yours:    pnpm lint-staged\n'), r.stdout)
+  check('a package.json block the sync does not compare is never listed', !r.stdout.includes('simple-git-hooks'), r.stdout)
   check('commit message rules the template added are missing here, as JSON text', r.stdout.includes('  commitlint.extends  missing here\n    template: ["@commitlint/config-conventional"]\n  commitlint.rules  missing here\n    template: {"subject-max-length":[2,"always",50]}\n'), r.stdout)
   check('node range the template raised is listed with both values', r.stdout.includes('  engines.node  changed on the template since the baseline\n    template: >=24.5.0\n    yours:    >=24\n'), r.stdout)
   check('devDependency removed here is customized', r.stdout.includes('devDependencies.vitepress (absent here)'), r.stdout)
