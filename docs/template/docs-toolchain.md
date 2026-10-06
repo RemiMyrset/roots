@@ -207,21 +207,26 @@ The CLI keeps your credentials out, not your checkout: it mounts your host
 folder writable, as VS Code does. Code an agent writes there runs on your host
 the next time a host tool loads it:
 
-- git runs the commands `.git/config` names and the hooks in `.git/hooks`: a
-  `core.fsmonitor` or a `post-index-change` hook at your next `git status`,
-  and at your next commit the commit hooks with the lint-staged, ESLint, and
-  commitlint configs they load.
+- git runs the commands `.git/config` and the files it includes name, and the
+  hooks in the folder `core.hooksPath` names (`.githooks` here; `.git/hooks`
+  when unset): a `core.fsmonitor` or a `post-index-change` hook at your next
+  `git status`, and at your next commit the commit hooks with the lint-staged,
+  ESLint, and commitlint configs they load.
 - `devcontainer up` runs the `initializeCommand` in
   `.devcontainer/devcontainer.json` every time, and a mount or `runArgs` entry
   added there takes effect at the next rebuild.
 - pnpm runs the package scripts, and the files under `node_modules` they call,
   the next time you run it outside the container.
 
-So after an unattended run, read `.git/config`, and every file in `.git/hooks`
-that lacks a `.sample` suffix, with `cat` before any git command. Then review
-everything the run changed, its commits included, before you commit, run pnpm,
-or run `devcontainer up` in that folder on your host. `git status` does not
-show `node_modules`, so delete it before your first pnpm command there.
+So after an unattended run, read `.git/config` and every file its
+`include.path` entries name, every file in the folder its `core.hooksPath`
+names, and every file in `.git/hooks` that lacks a `.sample` suffix, with
+`cat` before any git command: a hook added or changed under `.githooks` can
+run at your next `git status`, before it shows you the change.
+Then review everything the run changed, its commits included, before you
+commit, run pnpm, or run `devcontainer up` in that folder on your host.
+`git status` does not show `node_modules`, so delete it before your first pnpm
+command there.
 
 Egress control is the opt-in second step because it needs Linux container
 privileges. Anthropic's reference `init-firewall.sh` (the `.devcontainer/`

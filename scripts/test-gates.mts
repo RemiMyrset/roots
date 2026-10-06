@@ -30,8 +30,8 @@
  * nudge counts an edit under docs/template/ as a spec or decision edit.
  * Node builtins only in this first half.
  */
-import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, matchesGlob, relative, resolve } from 'node:path'
 import process from 'node:process'
@@ -347,7 +347,8 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // agent starts must leave AGENTS.md alone; the pre-commit hook must run ESLint on every file
 // type `pnpm lint` checks; every package tsconfig must take in every TypeScript file of its
 // package; the install hook must point git at .githooks so that a linked worktree runs its own
-// branch's hooks, and every hook there must be executable in the index; verify's docs drift gate must skip only
+// branch's hooks, and never fail the install where git cannot, and the pre-commit and
+// commit-msg hooks there must be tracked and executable; verify's docs drift gate must skip only
 // outside a git checkout, failing on any other git error; the secret scan must fail on a
 // force-added `.env` and pass an untracked one, and the pre-commit scan must fail on it once it
 // is staged; .gitignore must ignore every env-file name the secret-read guard denies; the
@@ -732,8 +733,11 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
 // The install hook, run the way `pnpm install` runs it: it points git at the tracked .githooks,
 // a path git resolves against the working tree that runs the hook. So a linked worktree runs its
 // own branch's hooks: with a failing pre-commit on disk there only, a commit in the worktree
-// fails and one in the main checkout passes. Git skips a hook without its executable bit, so
-// every hook under .githooks here must be committed as 100755.
+// fails and one in the main checkout passes. The value lives in an included file, never in
+// .git/config itself, where the simple-git-hooks of an older branch reads it and writes its hooks
+// into .githooks; an earlier prepare's value there is moved out. A second install writes nothing,
+// since a rewrite of .git/config races the git commands of parallel worktrees. Git skips a hook
+// without its executable bit, so every hook under .githooks here must be committed as 100755.
 {
   const repo = join(tmp, 'hooks-repo')
   const worktree = join(tmp, 'hooks-worktree')
@@ -746,10 +750,67 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
   }
   else {
     const prepare = join(root, 'scripts', 'prepare.mts')
+    inRepo(repo, 'git', 'config', '--local', 'core.hooksPath', '.githooks')
     const main = inRepo(repo, process.execPath, prepare)
     const hooksPath = inRepo(repo, 'git', 'config', '--get', 'core.hooksPath').out.trim()
     if (main.status !== 0 || hooksPath !== '.githooks')
       failures.push(`scripts/prepare.mts left core.hooksPath at "${hooksPath}" in a checkout, not .githooks (exit ${main.status}): ${main.out.trim()}`)
+    const local = inRepo(repo, 'git', 'config', '--local', '--get', 'core.hooksPath').out.trim()
+    if (local !== '')
+      failures.push(`scripts/prepare.mts left core.hooksPath "${local}" in .git/config itself, where the simple-git-hooks of an older branch reads it and writes its hooks into that folder; set it in an included file`)
+    const config = join(repo, '.git', 'config')
+    const before = { text: readFileSync(config, 'utf8'), mtime: statSync(config).mtimeMs }
+    const again = inRepo(repo, process.execPath, prepare)
+    if (again.status !== 0 || readFileSync(config, 'utf8') !== before.text || statSync(config).mtimeMs !== before.mtime)
+      failures.push(`scripts/prepare.mts rewrote .git/config on an install that had nothing to change (exit ${again.status}), which races the git commands of parallel worktrees: ${again.out.trim()}`)
+    // Where git cannot set the path, the install goes on without hooks and says so: git refuses a
+    // checkout another user owns, and a container may copy .git without git.
+    const cannot = [
+      ['git refuses a checkout another user owns', { ...gitEnv, GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' }],
+      ['no git is on PATH', { ...gitEnv, [pathKey]: join(tmp, 'no-git') }],
+    ] as const
+    for (const [where, env] of cannot) {
+      const r = runIn(env, repo, process.execPath, prepare)
+      if (r.status !== 0 || !r.out.includes('git hooks not set'))
+        failures.push(`scripts/prepare.mts failed the install, or said nothing, where ${where} (exit ${r.status}): ${r.out.trim()}`)
+    }
+    // Installs racing in a fresh clone, as agents setting up worktrees at once do, leave one
+    // include entry and say nothing: the one that loses the race finds the work done. A race is
+    // not certain in one round, so three rounds of eight run.
+    for (let round = 0; round < 3; round++) {
+      const race = join(tmp, `hooks-race-${round}`)
+      mkdirSync(join(race, '.githooks'), { recursive: true })
+      inRepo(race, 'git', 'init', '-q')
+      const raced = await Promise.all(Array.from({ length: 8 }, () => new Promise<string>((done) => {
+        const child = spawn(process.execPath, [prepare], { cwd: race, env: gitEnv })
+        let out = ''
+        child.stdout.on('data', (d) => {
+          out += String(d)
+        })
+        child.stderr.on('data', (d) => {
+          out += String(d)
+        })
+        child.on('close', () => done(out))
+      })))
+      const entries = inRepo(race, 'git', 'config', '--local', '--get-all', 'include.path').out.split(/\r?\n/).filter(Boolean)
+      const noted = raced.filter(o => o.trim() !== '')
+      if (entries.length !== 1 || noted.length > 0) {
+        failures.push(`eight installs at once left ${entries.length} include.path entries in .git/config, not one, and printed: ${noted.join(' | ').trim() || 'nothing'}`)
+        break
+      }
+    }
+    // A checkout with no .githooks folder, as after a first sync that took prepare but not the
+    // hooks, keeps git on .git/hooks: an earlier install's setting is taken back, not left
+    // pointing at a folder that holds nothing.
+    const bare = join(tmp, 'hooks-none')
+    mkdirSync(join(bare, '.githooks'), { recursive: true })
+    inRepo(bare, 'git', 'init', '-q')
+    inRepo(bare, process.execPath, prepare)
+    rmSync(join(bare, '.githooks'), { recursive: true })
+    const none = inRepo(bare, process.execPath, prepare)
+    const left = inRepo(bare, 'git', 'config', '--get', 'core.hooksPath').out.trim()
+    if (none.status !== 0 || left !== '' || !none.out.includes('no .githooks folder'))
+      failures.push(`scripts/prepare.mts left core.hooksPath at "${left}" in a checkout with no .githooks folder, so no hook runs there, or said nothing (exit ${none.status}): ${none.out.trim()}`)
     const linked = inRepo(worktree, process.execPath, prepare)
     if (linked.status !== 0)
       failures.push(`scripts/prepare.mts failed in a linked worktree (exit ${linked.status}): ${linked.out.trim()}`)
@@ -765,6 +826,9 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
 }
 const hookModes = inRepo(root, 'git', 'ls-files', '--stage', '--', '.githooks')
 const hookFiles = hookModes.status === 0 ? hookModes.out.split('\n').filter(Boolean) : []
+const hookNames = new Set(hookFiles.map(l => l.split('\t')[1]))
+for (const hook of ['.githooks/pre-commit', '.githooks/commit-msg'].filter(h => !hookNames.has(h)))
+  failures.push(`${hook} is not in the index, so no ${basename(hook)} hook runs; a first sync from the template lists it under Files with the git restore line that takes it`)
 for (const line of hookFiles.filter(l => !l.startsWith('100755 ')))
   failures.push(`${line.split('\t')[1]} is not executable in the index, so git skips it; run \`git update-index --chmod=+x ${line.split('\t')[1]}\``)
 
@@ -1062,4 +1126,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; turbo leaves AGENTS.md alone on an agent's run; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare points git at .githooks, a linked worktree runs its own hooks, and ${hookFiles.length} hook(s) there are executable; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}; ${suites.length} test suite(s) drop the inherited GIT_ variables before they start a process`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; turbo leaves AGENTS.md alone on an agent's run; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare points git at .githooks through an include, rewrites nothing once set, leaves a checkout without the folder on .git/hooks, and installs on where git cannot, a linked worktree runs its own hooks, and ${hookFiles.length} hook(s) there are executable; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}; ${suites.length} test suite(s) drop the inherited GIT_ variables before they start a process`)
