@@ -20,12 +20,18 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
 const INCLUDE = 'githooks.config'
+const INCLUDE_RE = '^githooks\\.config$'
 const SETTING = '[core]\n\thooksPath = .githooks\n'
 
 /** Runs git; its exit status (null when git could not start), trimmed stdout, and what went wrong. */
 function git(...args: string[]): { status: number | null, out: string, why: string } {
   const r = spawnSync('git', args, { encoding: 'utf8' })
   return { status: r.status, out: (r.stdout ?? '').trim(), why: `\`git ${args.join(' ')}\` failed: ${(r.error?.message ?? r.stderr ?? '').trim()}` }
+}
+
+/** Whether git reads .githooks as the hooks path, and from outside `.git/config` itself. */
+function hooksPathSet(): boolean {
+  return git('config', '--get', 'core.hooksPath').out === '.githooks' && git('config', '--local', '--get', 'core.hooksPath').out !== '.githooks'
 }
 
 /** Points git at .githooks, writing only what differs; why it could not, or undefined. */
@@ -36,8 +42,9 @@ function setHooksPath(): string | undefined {
   const file = join(resolve(common.out), INCLUDE)
   if (!existsSync(file) || readFileSync(file, 'utf8') !== SETTING)
     writeFileSync(file, SETTING)
-  if (!git('config', '--local', '--get-all', 'include.path').out.split('\n').includes(INCLUDE)) {
-    const add = git('config', '--local', '--add', 'include.path', INCLUDE)
+  if (!git('config', '--local', '--get-all', 'include.path').out.split(/\r?\n/).includes(INCLUDE)) {
+    // Replacing every equal entry, not adding one, keeps installs racing here to one entry.
+    const add = git('config', '--local', '--replace-all', 'include.path', INCLUDE, INCLUDE_RE)
     if (add.status !== 0)
       return add.why
   }
@@ -58,6 +65,7 @@ if (existsSync('.git')) {
   catch (error) {
     problem = (error as Error).message
   }
-  if (problem)
+  // A write that lost a race with another install leaves the work done all the same.
+  if (problem && !hooksPathSet())
     console.log(`prepare: git hooks not set, so commits here skip them; ${problem}`)
 }

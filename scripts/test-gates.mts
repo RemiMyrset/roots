@@ -30,7 +30,7 @@
  * nudge counts an edit under docs/template/ as a spec or decision edit.
  * Node builtins only in this first half.
  */
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, matchesGlob, relative, resolve } from 'node:path'
@@ -773,6 +773,31 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
       const r = runIn(env, repo, process.execPath, prepare)
       if (r.status !== 0 || !r.out.includes('git hooks not set'))
         failures.push(`scripts/prepare.mts failed the install, or said nothing, where ${where} (exit ${r.status}): ${r.out.trim()}`)
+    }
+    // Installs racing in a fresh clone, as agents setting up worktrees at once do, leave one
+    // include entry and say nothing: the one that loses the race finds the work done. A race is
+    // not certain in one round, so three rounds of eight run.
+    for (let round = 0; round < 3; round++) {
+      const race = join(tmp, `hooks-race-${round}`)
+      mkdirSync(race)
+      inRepo(race, 'git', 'init', '-q')
+      const raced = await Promise.all(Array.from({ length: 8 }, () => new Promise<string>((done) => {
+        const child = spawn(process.execPath, [prepare], { cwd: race, env: gitEnv })
+        let out = ''
+        child.stdout.on('data', (d) => {
+          out += String(d)
+        })
+        child.stderr.on('data', (d) => {
+          out += String(d)
+        })
+        child.on('close', () => done(out))
+      })))
+      const entries = inRepo(race, 'git', 'config', '--local', '--get-all', 'include.path').out.split(/\r?\n/).filter(Boolean)
+      const noted = raced.filter(o => o.trim() !== '')
+      if (entries.length !== 1 || noted.length > 0) {
+        failures.push(`eight installs at once left ${entries.length} include.path entries in .git/config, not one, and printed: ${noted.join(' | ').trim() || 'nothing'}`)
+        break
+      }
     }
     const linked = inRepo(worktree, process.execPath, prepare)
     if (linked.status !== 0)
