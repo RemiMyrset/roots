@@ -482,7 +482,9 @@ The git hooks are tracked shell scripts under `.githooks/`. At `pnpm install`,
 local config, which every linked worktree shares and which outranks a global
 value. Git resolves the relative path against the working tree that runs the
 hook, so each worktree runs its own branch's hooks, and an edit to a hook takes
-effect without a reinstall. With git-lfs, run `git lfs install` after
+effect without a reinstall. Where git cannot set the path, with no git on
+PATH or a checkout another user owns (which git refuses), the install goes on
+without hooks and prints a note. With git-lfs, run `git lfs install` after
 `pnpm install` and commit the hooks it writes into `.githooks/`. Pre-commit
 runs lint-staged: ESLint with `--fix` on staged TypeScript, JavaScript, TOML,
 and markdown, ESLint without it on staged JSON and YAML (the

@@ -347,7 +347,8 @@ console.log(`✔ gates — ${gates.size} verify gates match ${steps.length} work
 // agent starts must leave AGENTS.md alone; the pre-commit hook must run ESLint on every file
 // type `pnpm lint` checks; every package tsconfig must take in every TypeScript file of its
 // package; the install hook must point git at .githooks so that a linked worktree runs its own
-// branch's hooks, and every hook there must be executable in the index; verify's docs drift gate must skip only
+// branch's hooks, and never fail the install where git cannot, and every hook there must be
+// executable in the index; verify's docs drift gate must skip only
 // outside a git checkout, failing on any other git error; the secret scan must fail on a
 // force-added `.env` and pass an untracked one, and the pre-commit scan must fail on it once it
 // is staged; .gitignore must ignore every env-file name the secret-read guard denies; the
@@ -750,6 +751,17 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
     const hooksPath = inRepo(repo, 'git', 'config', '--get', 'core.hooksPath').out.trim()
     if (main.status !== 0 || hooksPath !== '.githooks')
       failures.push(`scripts/prepare.mts left core.hooksPath at "${hooksPath}" in a checkout, not .githooks (exit ${main.status}): ${main.out.trim()}`)
+    // Where git cannot set the path, the install goes on without hooks and says so: git refuses a
+    // checkout another user owns, and a container may copy .git without git.
+    const cannot = [
+      ['git refuses a checkout another user owns', { ...gitEnv, GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' }],
+      ['no git is on PATH', { ...gitEnv, [pathKey]: join(tmp, 'no-git') }],
+    ] as const
+    for (const [where, env] of cannot) {
+      const r = runIn(env, repo, process.execPath, prepare)
+      if (r.status !== 0 || !r.out.includes('git hooks not set'))
+        failures.push(`scripts/prepare.mts failed the install, or said nothing, where ${where} (exit ${r.status}): ${r.out.trim()}`)
+    }
     const linked = inRepo(worktree, process.execPath, prepare)
     if (linked.status !== 0)
       failures.push(`scripts/prepare.mts failed in a linked worktree (exit ${linked.status}): ${linked.out.trim()}`)
@@ -1062,4 +1074,4 @@ if (failures.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; turbo leaves AGENTS.md alone on an agent's run; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare points git at .githooks, a linked worktree runs its own hooks, and ${hookFiles.length} hook(s) there are executable; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}; ${suites.length} test suite(s) drop the inherited GIT_ variables before they start a process`)
+console.log(`✔ gates — ESLint rejects ${probes.length} rule probes; turbo hashes ${[...nodeVersionFiles].join(', ') || 'no node-version-file'}, and no workflow's turbo cache key leaves out the exact node; turbo leaves AGENTS.md alone on an agent's run; lint-staged lints ${lintStagedChecked} probe files; ${typechecked.length} package tsconfig(s) take in every probe file; prepare points git at .githooks and installs on where git cannot, a linked worktree runs its own hooks, and ${hookFiles.length} hook(s) there are executable; verify's drift gate skips only outside a git checkout; lint:secrets and the pre-commit scan fail a force-added .env, and lint:secrets passes an untracked one; .gitignore ignores the ${SECRET_ENV_NAMES.length} env-file names the guard denies; ${releaseChecked}; ${devcontainerChecked}; ${suites.length} test suite(s) drop the inherited GIT_ variables before they start a process`)
