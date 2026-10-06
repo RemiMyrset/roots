@@ -483,9 +483,11 @@ The git hooks are tracked shell scripts under `.githooks/`. At `pnpm install`,
 Every linked worktree shares it, and it outranks a global value. Git resolves
 the relative path against the working tree that runs the hook, so each
 worktree runs its own branch's hooks, and an edit to a hook takes effect
-without a reinstall. A branch made before `.githooks` existed has no hooks
-until it merges the default branch; the include keeps its simple-git-hooks,
-which reads only `.git/config` itself, from writing into `.githooks`. An
+without a reinstall. An install in a checkout with no `.githooks` folder
+leaves git on `.git/hooks`. A branch made before `.githooks` existed has no
+hooks until it merges the default branch; the include keeps its
+simple-git-hooks, which reads only `.git/config` itself, from writing into
+`.githooks`. An
 install with nothing to change writes nothing, and installs racing on a fresh
 clone settle on one include entry. Where git cannot set the path, with no git
 on PATH or a checkout another user owns (which git refuses), the install goes

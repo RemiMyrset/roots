@@ -4,7 +4,9 @@
  * in the git directory that the repository's config includes. A tarball install and a CI
  * checkout without .git skip it silently. Where git cannot set it (no git on PATH, as in a
  * container that copies .git, or a checkout another user owns, which git refuses), the install
- * goes on without hooks and says so.
+ * goes on without hooks and says so. A checkout with no `.githooks` folder, such as a repository
+ * whose first sync from the template took this script but not the hooks, keeps git on
+ * `.git/hooks` and says so, rather than pointing it at a folder that holds nothing.
  *
  * The path stays relative because git resolves it against the root of the working tree that
  * runs the hook: a linked worktree, which shares the config, runs its own branch's hooks, and a
@@ -57,7 +59,26 @@ function setHooksPath(): string | undefined {
   return undefined
 }
 
-if (existsSync('.git')) {
+/** Takes the setting back, so git runs `.git/hooks` again; why it could not, or undefined. */
+function clearHooksPath(): string | undefined {
+  if (git('config', '--local', '--get-all', 'include.path').out.split(/\r?\n/).includes(INCLUDE)) {
+    const unset = git('config', '--local', '--unset-all', 'include.path', INCLUDE_RE)
+    if (unset.status !== 0)
+      return unset.why
+  }
+  if (git('config', '--local', '--get', 'core.hooksPath').out === '.githooks') {
+    const unset = git('config', '--local', '--unset', 'core.hooksPath')
+    if (unset.status !== 0)
+      return unset.why
+  }
+  return undefined
+}
+
+if (existsSync('.git') && !existsSync('.githooks')) {
+  const problem = clearHooksPath()
+  console.log(`prepare: git hooks left in .git/hooks: this checkout has no .githooks folder${problem ? `, and ${problem}` : ''}`)
+}
+else if (existsSync('.git')) {
   let problem: string | undefined
   try {
     problem = setHooksPath()
