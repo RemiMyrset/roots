@@ -486,10 +486,10 @@ worktree runs its own branch's hooks, and an edit to a hook takes effect
 without a reinstall. A branch made before `.githooks` existed has no hooks
 until it merges the default branch; the include keeps its simple-git-hooks,
 which reads only `.git/config` itself, from writing into `.githooks`. An
-install with nothing to change writes nothing, so parallel worktrees never
-contend for `.git/config`. Where git cannot set the path, with no git on PATH
-or a checkout another user owns (which git refuses), the install goes on
-without hooks and prints a note. With git-lfs, run `git lfs install` after
+install with nothing to change writes nothing, and installs racing on a fresh
+clone settle on one include entry. Where git cannot set the path, with no git
+on PATH or a checkout another user owns (which git refuses), the install goes
+on without hooks and prints a note. With git-lfs, run `git lfs install` after
 `pnpm install` and commit the hooks it writes into `.githooks/`. Pre-commit
 runs lint-staged: ESLint with `--fix` on staged TypeScript, JavaScript, TOML,
 and markdown, ESLint without it on staged JSON and YAML (the
@@ -521,8 +521,9 @@ never closes, the rest of the command splits at any whitespace, so every word
 from there on is scanned (fail closed).
 
 Out of scope, beyond the shared list: a `git config core.hooksPath` run as an
-earlier command, `git config --unset core.hooksPath`, editing a hook under
-`.githooks` (review sees it in the diff), and `set -a` before an unexported
-assignment (`set -a; declare SKIP_SIMPLE_GIT_HOOKS=1`), all multi-step evasions
-the threat model already excludes.
+earlier command, removing the `githooks.config` include or editing that file
+in the git directory, editing a hook under `.githooks` (review sees it in the
+diff), and `set -a` before an unexported assignment
+(`set -a; declare SKIP_SIMPLE_GIT_HOOKS=1`), all multi-step evasions the threat
+model already excludes.
 The backstop is the same CI that the hooks pre-run locally.
