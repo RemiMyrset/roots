@@ -2008,7 +2008,10 @@ const BUDGET: Record<string, string> = {
   '20k wrapper strings': `${'flock /tmp/l -c "x y"; '.repeat(20_000)}true`,
 }
 // The fastest of three runs, so a loaded runner's scheduling noise does not fail a budget that
-// a pathological slowdown still blows by an order of magnitude.
+// a pathological slowdown still blows by an order of magnitude. Two seconds, because the slowest
+// case takes about 150 ms on a current desktop core but over 500 ms on an older server core that
+// runs CI, and more while other jobs share it; every case scales linearly with its input.
+const BUDGET_MS = 2000
 for (const [name, cmd] of Object.entries(BUDGET)) {
   const took = Math.min(...[0, 1, 2].map(() => {
     const started = performance.now()
@@ -2016,8 +2019,8 @@ for (const [name, cmd] of Object.entries(BUDGET)) {
       resolveHead(tokenize(seg))
     return performance.now() - started
   }))
-  if (took > 500)
-    fails.push(`[lexer] ${name} took ${Math.round(took)} ms, want under 500`)
+  if (took > BUDGET_MS)
+    fails.push(`[lexer] ${name} took ${Math.round(took)} ms, want under ${BUDGET_MS}`)
 }
 // The same budget for the secret guard's verdict, which turns a glob into a regex and expands
 // braces: one `.*` per star once made 20 stars take 20 s, and a regex over a run of `{` was
@@ -2037,8 +2040,8 @@ for (const [name, { cmd, expect }] of Object.entries(VERDICT_BUDGET)) {
   const started = performance.now()
   const got = secretReads(cmd, { cwd: process.cwd(), env: process.env, settingsFile: join(HOOKS, '..', 'settings.json') }) === null ? A : D
   const took = performance.now() - started
-  if (took > 500)
-    fails.push(`[deny-secret-reads.mts] ${name} took ${Math.round(took)} ms, want under 500`)
+  if (took > BUDGET_MS)
+    fails.push(`[deny-secret-reads.mts] ${name} took ${Math.round(took)} ms, want under ${BUDGET_MS}`)
   if (got !== expect)
     fails.push(`[deny-secret-reads.mts] ${name}: got ${got}, want ${expect}`)
 }
