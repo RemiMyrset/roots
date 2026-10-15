@@ -56,3 +56,6 @@ CLAUDE.local.md
 
 # Claude Code worktrees: other checkouts, whose files are not this one's to scan or check
 .claude/worktrees/
+
+# graphify knowledge graph: a per-developer build of the code, never source to lint or scan
+graphify-out/
