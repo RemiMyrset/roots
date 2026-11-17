@@ -61,7 +61,9 @@ function sidebarHtml(text: string): string {
     .replace(CODE_SPAN_RE, (_span, _run, code: string) => {
       // CommonMark drops one space from each end when both ends have one and the span is not
       // spaces alone.
-      const inner = code.trim() !== '' && code.length > 1 && code.startsWith(' ') && code.endsWith(' ') ? code.slice(1, -1) : code
+      const inner = code.trim() !== '' && code.length > 1 && code.startsWith(' ') && code.endsWith(' ')
+        ? code.slice(1, -1)
+        : code
       return `<code>${inner}</code>`
     })
 }
@@ -95,9 +97,18 @@ export function readDecisions(root = repoRoot()): DecisionEntry[] {
     if (!identity)
       continue
     const text = stripFences(readFileSync(join(dir, file), 'utf8'))
-    const title = (identity.legacy ? text.match(DECISION_H1_RE)?.[2] : text.match(H1_RE)?.[1])?.trim() ?? file
+    const title = (identity.legacy
+      ? text.match(DECISION_H1_RE)?.[2]
+      : text.match(H1_RE)?.[1])?.trim() ?? file
     const status = text.match(STATUS_BULLET_RE)?.[1]?.replace(LINE_COMMENT_RE, '').trim() || 'unknown'
-    entries.push({ file, id: identity.id, num: identity.label, legacy: identity.legacy, title, status })
+    entries.push({
+      file,
+      id: identity.id,
+      num: identity.label,
+      legacy: identity.legacy,
+      title,
+      status,
+    })
   }
   return entries.sort((a, b) => Number(b.legacy) - Number(a.legacy) || byCodeUnit(a.file, b.file))
 }
@@ -140,7 +151,9 @@ export function escapeCell(s: string): string {
 export function renderDecisionsIndex(decisions: DecisionEntry[]): string {
   if (decisions.length === 0)
     return '_No decisions yet. The first one appears here after `pnpm docs:gen`._'
-  const header = decisions.every(d => d.legacy) ? '| # | Title | Status |' : '| ID | Title | Status |'
+  const header = decisions.every(d => d.legacy)
+    ? '| # | Title | Status |'
+    : '| ID | Title | Status |'
   const rows = decisions.map(d => `| [${d.id}](./${d.file}) | ${escapeCell(d.title)} | ${escapeCell(d.status)} |`)
   return [header, '| --- | --- | --- |', ...rows].join('\n')
 }
@@ -167,7 +180,13 @@ export function renderSpecIndex(specs: SpecEntry[]): string {
  * renderers through generators.mts. A region named anything else is not generated here.
  */
 export const INDEX_RENDERERS: Readonly<Record<string, (root: string) => string>> = {
+  /**
+   *
+   */
   decisionsIndex: root => renderDecisionsIndex(readDecisions(root)),
+  /**
+   *
+   */
   specIndex: root => renderSpecIndex(readSpecs(root)),
 }
 
@@ -181,9 +200,13 @@ export const INDEX_RENDERERS: Readonly<Record<string, (root: string) => string>>
 export function decisionsSidebar(root = repoRoot()): SidebarItem[] {
   return readDecisions(root).map((d) => {
     const word = d.status.split(WHITESPACE_RE, 1)[0]
-    const suffix = word && word !== 'accepted' ? ` (${word})` : ''
+    const suffix = word && word !== 'accepted'
+      ? ` (${word})`
+      : ''
     return {
-      text: sidebarHtml(`${d.legacy ? `${d.num}.` : d.num} ${d.title}${suffix}`),
+      text: sidebarHtml(`${d.legacy
+        ? `${d.num}.`
+        : d.num} ${d.title}${suffix}`),
       link: `/decisions/${d.file.replace(MD_EXT_RE, '')}`,
     }
   })

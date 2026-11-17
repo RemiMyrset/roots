@@ -10,7 +10,13 @@
  */
 
 /** The package managers the rulebook bans, by command name as base() reads it (`yarnpkg` is yarn's alias). */
-export const BANNED: ReadonlySet<string> = new Set(['npm', 'yarn', 'yarnpkg', 'bun', 'bunx'])
+export const BANNED: ReadonlySet<string> = new Set([
+  'npm',
+  'yarn',
+  'yarnpkg',
+  'bun',
+  'bunx',
+])
 
 /**
  * Pass-through wrappers whose argv IS the real command: skip them to find the head. An
@@ -55,7 +61,16 @@ export const WRAP: ReadonlySet<string> = new Set([
 
 // The words that open a compound command, after which `coproc NAME` names the coprocess
 // (`coproc X { …; }`); before any other word, NAME is the command itself (`coproc npm i`).
-const COMPOUND: ReadonlySet<string> = new Set(['{', 'while', 'until', 'if', 'for', 'select', 'case', '[['])
+const COMPOUND: ReadonlySet<string> = new Set([
+  '{',
+  'while',
+  'until',
+  'if',
+  'for',
+  'select',
+  'case',
+  '[[',
+])
 
 /** pnpm global flags that take a separate value (between `pnpm` and its subcommand). */
 export const PNPM_VALUE_FLAG: ReadonlySet<string> = new Set([
@@ -86,27 +101,112 @@ export const PNPM_VALUE_FLAG: ReadonlySet<string> = new Set([
  * Unknown and keyword wrappers are absent from the map and so consume no value.
  */
 export const WRAP_VALUE_FLAGS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-  ['sudo', new Set(['-a', '-C', '-c', '-D', '-g', '-h', '-p', '-R', '-r', '-T', '-t', '-U', '-u'])],
-  ['doas', new Set(['-a', '-C', '-u'])],
-  ['runuser', new Set(['-G', '-g', '-s', '-u', '-w'])],
+  [
+    'sudo',
+    new Set([
+      '-a',
+      '-C',
+      '-c',
+      '-D',
+      '-g',
+      '-h',
+      '-p',
+      '-R',
+      '-r',
+      '-T',
+      '-t',
+      '-U',
+      '-u',
+    ]),
+  ],
+  [
+    'doas',
+    new Set(['-a', '-C', '-u']),
+  ],
+  [
+    'runuser',
+    new Set(['-G', '-g', '-s', '-u', '-w']),
+  ],
   // GNU env: -a, -C, -S, -u. BSD env: -L, -P, -U too.
-  ['env', new Set(['-a', '-C', '-L', '-P', '-S', '-U', '-u'])],
-  ['nice', new Set(['-n'])],
+  [
+    'env',
+    new Set([
+      '-a',
+      '-C',
+      '-L',
+      '-P',
+      '-S',
+      '-U',
+      '-u',
+    ]),
+  ],
+  [
+    'nice',
+    new Set(['-n']),
+  ],
   // -p, -P, and -u name running processes, and then no command runs.
-  ['ionice', new Set(['-c', '-n', '-P', '-p', '-u'])],
+  [
+    'ionice',
+    new Set(['-c', '-n', '-P', '-p', '-u']),
+  ],
   // The priority after chrt's flags is numeric, and skip() passes a number.
-  ['chrt', new Set(['-D', '-P', '-T'])],
-  ['timeout', new Set(['-k', '-s'])],
-  ['flock', new Set(['-E', '-w'])],
-  ['exec', new Set(['-a'])],
+  [
+    'chrt',
+    new Set(['-D', '-P', '-T']),
+  ],
+  [
+    'timeout',
+    new Set(['-k', '-s']),
+  ],
+  [
+    'flock',
+    new Set(['-E', '-w']),
+  ],
+  [
+    'exec',
+    new Set(['-a']),
+  ],
   // /usr/bin/time; bash's `time` keyword takes only -p.
-  ['time', new Set(['-f', '-o'])],
+  [
+    'time',
+    new Set(['-f', '-o']),
+  ],
   // GNU xargs: -a, -d, -E, -I, -L, -n, -P, -s. BSD xargs: -J, -R, -S too.
-  ['xargs', new Set(['-a', '-d', '-E', '-I', '-J', '-L', '-n', '-P', '-R', '-S', '-s'])],
-  ['stdbuf', new Set(['-e', '-i', '-o'])],
+  [
+    'xargs',
+    new Set([
+      '-a',
+      '-d',
+      '-E',
+      '-I',
+      '-J',
+      '-L',
+      '-n',
+      '-P',
+      '-R',
+      '-S',
+      '-s',
+    ]),
+  ],
+  [
+    'stdbuf',
+    new Set(['-e', '-i', '-o']),
+  ],
   // mise x|exec: directory, env profile, jobs, profile take a value; -c/--command takes a
   // command string, which segments() reads as a command of its own.
-  ['mise', new Set(['-C', '--cd', '-E', '--env', '-j', '--jobs', '-P', '--profile'])],
+  [
+    'mise',
+    new Set([
+      '-C',
+      '--cd',
+      '-E',
+      '--env',
+      '-j',
+      '--jobs',
+      '-P',
+      '--profile',
+    ]),
+  ],
 ])
 
 /**
@@ -158,7 +258,9 @@ export function withoutExpansions(t: string): string {
 export function base(t: string): string {
   const name = (unquote(t).replace(LEADING_EXPANSIONS, '').split(/[/\\]/).pop() ?? '').toLowerCase()
   const bare = name.replace(/\.(?:exe|cmd|bat|ps1)$/, '').replace(/(?<=.)@[^@]*$/, '')
-  return bare === 'pn' ? 'pnpm' : bare
+  return bare === 'pn'
+    ? 'pnpm'
+    : bare
 }
 
 /** pnpm's own shorthands for `pnpm dlx`, which resolveHead() unwraps like it. */
@@ -197,7 +299,27 @@ export function skip(t: string): boolean {
 export const SUBST = '$()'
 
 // Heads that run a heredoc body as shell commands, so that body is lexed like the command line.
-const SHELLS: ReadonlySet<string> = new Set(['bash', 'rbash', 'sh', 'ash', 'zsh', 'dash', 'ksh', 'mksh', 'oksh', 'yash', 'posh', 'csh', 'tcsh', 'fish', 'pwsh', 'powershell', 'su', 'source', '.'])
+const SHELLS: ReadonlySet<string> = new Set([
+  'bash',
+  'rbash',
+  'sh',
+  'ash',
+  'zsh',
+  'dash',
+  'ksh',
+  'mksh',
+  'oksh',
+  'yash',
+  'posh',
+  'csh',
+  'tcsh',
+  'fish',
+  'pwsh',
+  'powershell',
+  'su',
+  'source',
+  '.',
+])
 
 // Whether a command starts a shell that reads its stdin as commands: a shell head (`bash`,
 // `busybox sh`, `sudo su`), or `sudo -s`, `sudo -i`, or `doas -s` with no command after them.
@@ -240,7 +362,19 @@ function shellReads(seg: string, pass = 0): boolean {
 // Reserved words a command can follow, so a `(` glued to one still opens a subshell
 // (`if(npm i)`, `{(npm i)}`). A `(` glued to any other word is part of that word, as in an
 // extglob (`@(a|b)`) or a `[[ =~ ]]` regex (`^(#|$)`), or a syntax error bash never runs.
-const BEFORE_COMMAND: ReadonlySet<string> = new Set(['!', '{', 'if', 'elif', 'then', 'else', 'while', 'until', 'do', 'time', 'coproc'])
+const BEFORE_COMMAND: ReadonlySet<string> = new Set([
+  '!',
+  '{',
+  'if',
+  'elif',
+  'then',
+  'else',
+  'while',
+  'until',
+  'do',
+  'time',
+  'coproc',
+])
 
 // One command context: the input itself, a `(` subshell, a `$(`, backtick, or `${ …; }`
 // substitution, or a `$[…]` arithmetic expansion, which `close` ends. `q` is the quote state
@@ -377,7 +511,9 @@ function feedsShell(parent: Frame, child: Frame): boolean {
 function heredocEnd(s: string, k: number, h: Heredoc, close: Frame['close'], tick: boolean): { end: number, next: number } {
   const lineEnd = (x: number): number => {
     const e = s.indexOf('\n', x)
-    return e < 0 ? s.length : e
+    return e < 0
+      ? s.length
+      : e
   }
   // Whether the line that ends at `e` ends in an odd number of backslashes.
   const continues = (e: number): boolean => {
@@ -390,11 +526,17 @@ function heredocEnd(s: string, k: number, h: Heredoc, close: Frame['close'], tic
     let e = first
     while (!h.quoted && e < s.length && continues(e)) e = lineEnd(e + 1)
     const span = s.slice(k, e)
-    const bt = tick ? tickIn(s, k, e) : -1
+    const bt = tick
+      ? tickIn(s, k, e)
+      : -1
     if (bt >= 0)
       return { end: bt, next: bt }
-    const joined = e === first ? span : span.replace(/\\\n/g, '')
-    const lead = h.strip ? joined.length - joined.replace(/^\t+/, '').length : 0
+    const joined = e === first
+      ? span
+      : span.replace(/\\\n/g, '')
+    const lead = h.strip
+      ? joined.length - joined.replace(/^\t+/, '').length
+      : 0
     const raw = joined.slice(lead)
     const text = raw.replace(/\r$/, '')
     if (text === h.delim || raw === h.delim)
@@ -437,8 +579,43 @@ function tickIn(s: string, from: number, to: number): number {
 function lex(s: string, body: boolean, funsubs = true, discard = false, old = false): string[] {
   const out: string[] = []
   const frame = (close: Frame['close'], subst: boolean, arith: boolean, group: Group | null, word = false, array = false): Frame =>
-    ({ close, subst, word, array, arith, tick: -1, scan: false, hash: false, sub: 0, subBrace: 0, q: '', cur: '', tail: '', brace: 0, bracket: 0, dq: [], pipe: out.length, here: [], test: false, paren: 0, cmd: true, closer: false, fn: false, cases: 0, subject: 0, pat: false, group, braces: [], closed: [], sinks: [], joined: false, held: 0 })
-  const stack: Frame[] = [frame('', false, false, null)]
+    ({
+      close,
+      subst,
+      word,
+      array,
+      arith,
+      tick: -1,
+      scan: false,
+      hash: false,
+      sub: 0,
+      subBrace: 0,
+      q: '',
+      cur: '',
+      tail: '',
+      brace: 0,
+      bracket: 0,
+      dq: [],
+      pipe: out.length,
+      here: [],
+      test: false,
+      paren: 0,
+      cmd: true,
+      closer: false,
+      fn: false,
+      cases: 0,
+      subject: 0,
+      pat: false,
+      group,
+      braces: [],
+      closed: [],
+      sinks: [],
+      joined: false,
+      held: 0,
+    })
+  const stack: Frame[] = [
+    frame('', false, false, null),
+  ]
   let f = stack[0]!
   if (body)
     f.q = 'h'
@@ -455,7 +632,9 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
     while (s[k] === '\\' && s[k + 1] === '\n') k += 2
     return k
   }
-  const prior = (k: number): string => s[(k === joinTo ? joinFrom : k) - 1] ?? ' '
+  const prior = (k: number): string => s[(k === joinTo
+    ? joinFrom
+    : k) - 1] ?? ' '
   // Whether a whole name (`a`, `x_1`) ends right before n in the input, read there rather than in
   // the frame's text, which slicing would copy on every call.
   const nameBefore = (n: number): boolean => {
@@ -492,9 +671,15 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
   // skips a `#` comment, and inside them it does not.
   const open = (close: ')' | '`' | '}' | ']', subst: boolean, arith: boolean, word = false, array = false): void => {
     const up = f
-    f = frame(close, subst, arith, { from: -1, to: -1, up: inner() }, word, array)
+    f = frame(close, subst, arith, {
+      from: -1,
+      to: -1,
+      up: inner(),
+    }, word, array)
     f.held = pending.length
-    f.tick = close === '`' ? stack.length : up.tick
+    f.tick = close === '`'
+      ? stack.length
+      : up.tick
     f.scan = old && close === ')' && (subst || (word && !array) || up.scan)
     f.hash = f.scan && up.q === '' && (up.scan ? up.hash : true)
     stack.push(f)
@@ -504,7 +689,9 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
   const openFunsub = (k: number): number => {
     const at = past(k + 1)
     open('}', true, false)
-    return s[at] === '|' ? at : k
+    return s[at] === '|'
+      ? at
+      : k
   }
   // Text joins the current segment.
   const add = (t: string): void => {
@@ -549,7 +736,9 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
   const endWord = (): void => {
     const tail = f.tail
     const at = Math.max(tail.lastIndexOf(' '), tail.lastIndexOf('\t'), tail.lastIndexOf('\n'))
-    const w = at < 0 && f.cur.length > 9 ? '\0' : tail.slice(at + 1)
+    const w = at < 0 && f.cur.length > 9
+      ? '\0'
+      : tail.slice(at + 1)
     if (w === '')
       return
     const reserved = f.cmd || f.closer
@@ -595,7 +784,11 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       f.test = true
     }
     else if (f.cmd && w === '{') {
-      f.braces.push({ from: -1, to: -1, up: inner() })
+      f.braces.push({
+        from: -1,
+        to: -1,
+        up: inner(),
+      })
     }
     else if (reserved && w === '}' && f.braces.length > 0) {
       f.closed.push(f.braces.pop()!)
@@ -646,7 +839,9 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
   const rejects = (n: number): void => {
     if (discard && f.array && f.paren === 0 && f.bracket === 0 && !f.test && drop < 0) {
       const e = s.indexOf('\n', n)
-      drop = e < 0 ? s.length : e
+      drop = e < 0
+        ? s.length
+        : e
     }
   }
   // The next line starts as the input does, with every frame, quote, and pending heredoc dropped.
@@ -908,7 +1103,9 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         pop()
         continue
       }
-      f.paren += c === '(' ? 1 : -1
+      f.paren += c === '('
+        ? 1
+        : -1
       add(c)
       ws = false
       continue
@@ -944,7 +1141,9 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       }
       // Inside `[[ … ]]` a `(` groups, except a process substitution (`<(…)`), which runs. Inside
       // `$[…]` it groups too, and bash's scan for the `]` passes over it (`$[ (${x ]`).
-      if (f.close === ']' || ((f.test || f.paren > 0) ? !/[<>]/.test(prior(n)) : glued(n))) {
+      if (f.close === ']' || ((f.test || f.paren > 0)
+        ? !/[<>]/.test(prior(n))
+        : glued(n))) {
         f.paren++
         add(c)
         ws = false
@@ -1023,7 +1222,9 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
       let quoted = false
       let wq = ''
       const from = k
-      const end = drop < 0 ? s.length : Math.min(drop, s.length)
+      const end = drop < 0
+        ? s.length
+        : Math.min(drop, s.length)
       while (k < end && (wq !== '' || s[k] !== '\n')) {
         const d = s[k]!
         // Inside backticks, bash finds the closing backtick first, whatever quote is open, and a
@@ -1074,7 +1275,15 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
         k++
       }
       if (k > from) {
-        const h: Heredoc = { delim, strip, quoted, from: f.pipe, to: -1, script: scripted(), group: inner() }
+        const h: Heredoc = {
+          delim,
+          strip,
+          quoted,
+          from: f.pipe,
+          to: -1,
+          script: scripted(),
+          group: inner(),
+        }
         pending.push(h)
         f.here.push(h)
       }
@@ -1151,7 +1360,10 @@ function lex(s: string, body: boolean, funsubs = true, discard = false, old = fa
   for (const fr of stack) {
     for (const h of fr.here)
       h.to = out.length
-    for (const g of [...fr.closed, ...fr.sinks]) {
+    for (const g of [
+      ...fr.closed,
+      ...fr.sinks,
+    ]) {
       if (g.from < 0)
         g.from = out.length
       g.to = out.length
@@ -1214,7 +1426,9 @@ const SPACE_LIKE_ALL = /[^\S \t\n]|\u0085/g
 
 // A segment as PowerShell splits it: a CR ends the line and any other space-like byte is a blank.
 function blankReading(seg: string): string {
-  return seg.replace(SPACE_LIKE_ALL, c => c === '\r' ? '\n' : ' ')
+  return seg.replace(SPACE_LIKE_ALL, c => c === '\r'
+    ? '\n'
+    : ' ')
 }
 
 // A `${` that bash 5.3 reads as a `${ …; }` substitution, any `${`, and an array (`x=(`), line
@@ -1282,8 +1496,11 @@ export function segments(s: string): string[] {
       seen.add(seg)
       if (SPACE_LIKE.test(seg))
         out.push(...readings(blankReading(seg)))
-      for (const source of reparsed(seg))
-        out.push(...readings(pass < REPARSE ? source : flat(source)))
+      for (const source of reparsed(seg)) {
+        out.push(...readings(pass < REPARSE
+          ? source
+          : flat(source)))
+      }
     }
     from = to
   }
@@ -1311,15 +1528,33 @@ function reparsed(seg: string): string[] {
   for (let k = 0; k < lead; k++) {
     const b = base(toks[k]!)
     if (b === 'eval') {
-      const args = raw.slice(unquote(toks[k + 1] ?? '') === '--' ? k + 2 : k + 1)
+      const args = raw.slice(unquote(toks[k + 1] ?? '') === '--'
+        ? k + 2
+        : k + 1)
       const plain = args.map(dequote)
-      if (plain.some((w, x) => w !== args[x]))
-        return [...out, plain.join(' ')]
+      if (plain.some((w, x) => w !== args[x])) {
+        return [
+          ...out,
+          plain.join(' '),
+        ]
+      }
       break
     }
-    const split = b === 'env' ? envSplit(raw.map(dequote), k + 1) : null
-    if (split)
-      return [...out, ['env', split.value.replace(/\\(.)/g, (m, x: string) => x === '_' ? ' ' : m), ...raw.slice(split.next)].join(' ')]
+    const split = b === 'env'
+      ? envSplit(raw.map(dequote), k + 1)
+      : null
+    if (split) {
+      return [
+        ...out,
+        [
+          'env',
+          split.value.replace(/\\(.)/g, (m, x: string) => x === '_'
+            ? ' '
+            : m),
+          ...raw.slice(split.next),
+        ].join(' '),
+      ]
+    }
     const string = wrappedString(raw, toks, k, b, lead)
     if (string !== null)
       out.push(string)
@@ -1340,12 +1575,17 @@ function reparsed(seg: string): string[] {
     if (e >= 0 && e < raw.length)
       out.push(raw.slice(e).join(' '))
   }
-  for (const source of [defaulted(raw, lead), replaced(raw, toks, lead)]) {
+  for (const source of [
+    defaulted(raw, lead),
+    replaced(raw, toks, lead),
+  ]) {
     if (source !== null)
       out.push(source)
   }
   // A run of wrappers often hands back the same string (`flock a -c flock b -c …`).
-  return [...new Set(out)]
+  return [
+    ...new Set(out),
+  ]
 }
 
 // The opening of a pattern substitution, `${x/`, `${x//`, `${x/#`, or `${x/%`, for a name, an
@@ -1394,9 +1634,15 @@ function replaced(raw: string[], toks: string[], lead: number): string | null {
   for (let k = 0; k <= lead && k < raw.length; k++) {
     const w = raw[k]!
     const open = PATSUB.exec(w)
-    const close = open ? quoteEnd(w, 0, '{') : -1
-    const slash = open && close >= 0 ? patternEnd(w, open[0].length, close) : -1
-    const value = slash < 0 ? '' : dequote(w.slice(slash + 1, close)) + w.slice(close + 1)
+    const close = open
+      ? quoteEnd(w, 0, '{')
+      : -1
+    const slash = open && close >= 0
+      ? patternEnd(w, open[0].length, close)
+      : -1
+    const value = slash < 0
+      ? ''
+      : dequote(w.slice(slash + 1, close)) + w.slice(close + 1)
     const valueToks = words(value).map(unescapeWord)
     if (slash < 0 || valueToks.every(vanishes)) {
       if (!vanishes(toks[k]!))
@@ -1405,10 +1651,19 @@ function replaced(raw: string[], toks: string[], lead: number): string | null {
     }
     parts.push(value)
     read = true
-    if (!valueToks.every(skip))
-      return [...parts, ...raw.slice(k + 1)].join(' ')
+    if (!valueToks.every(skip)) {
+      return [
+        ...parts,
+        ...raw.slice(k + 1),
+      ].join(' ')
+    }
   }
-  return read ? [...parts, ...raw.slice(lead + 1)].join(' ') : null
+  return read
+    ? [
+        ...parts,
+        ...raw.slice(lead + 1),
+      ].join(' ')
+    : null
 }
 
 // The string a `-c` or `--command` option among raw[from..to) passes to a shell, quotes removed:
@@ -1422,8 +1677,11 @@ function commandOption(raw: string[], toks: string[], from: number, to: number):
       break
     const w = dequote(raw[p]!)
     const m = /^(?:-[A-Za-z]*?c|--(?:session-)?command(?:=|$))/.exec(w)
-    if (m)
-      return m[0].length < w.length || m[0].endsWith('=') ? w.slice(m[0].length) : dequote(raw[p + 1] ?? '')
+    if (m) {
+      return m[0].length < w.length || m[0].endsWith('=')
+        ? w.slice(m[0].length)
+        : dequote(raw[p + 1] ?? '')
+    }
   }
   return null
 }
@@ -1436,18 +1694,34 @@ function wrappedString(raw: string[], toks: string[], k: number, b: string, lead
   if (b === 'flock') {
     const vf = WRAP_VALUE_FLAGS.get('flock')
     let p = k + 1
-    while (p < toks.length && toks[p]!.startsWith('-'))
-      p += vf?.has(toks[p]!) ? 2 : 1
+    while (p < toks.length && toks[p]!.startsWith('-')) {
+      p += vf?.has(toks[p]!)
+        ? 2
+        : 1
+    }
     return commandOption(raw, toks, p + 1, p + 2)
   }
-  if (b === 'mise')
-    return /^(?:x|exec)$/.test(unquote(toks[k + 1] ?? '')) ? commandOption(raw, toks, k + 2, lead + 1) : null
-  return b === 'runuser' ? commandOption(raw, toks, k + 1, lead + 1) : null
+  if (b === 'mise') {
+    return /^(?:x|exec)$/.test(unquote(toks[k + 1] ?? ''))
+      ? commandOption(raw, toks, k + 2, lead + 1)
+      : null
+  }
+  return b === 'runuser'
+    ? commandOption(raw, toks, k + 1, lead + 1)
+    : null
 }
 
 // pnpm's options that take a separate value, as shellModeAt() reads them: the global ones and
 // those of `exec` and `dlx` (`pnpm --package cowsay -c dlx '…'`).
-const PNPM_RUN_VALUE: ReadonlySet<string> = new Set([...PNPM_VALUE_FLAG, '--package', '--allow-build', '--resume-from', '--cpu', '--os', '--libc'])
+const PNPM_RUN_VALUE: ReadonlySet<string> = new Set([
+  ...PNPM_VALUE_FLAG,
+  '--package',
+  '--allow-build',
+  '--resume-from',
+  '--cpu',
+  '--os',
+  '--libc',
+])
 
 // pnpm's shell mode: `-c`, alone or in a cluster of one-letter flags (`-rc`), or `--shell-mode`.
 const PNPM_SHELL_MODE = /^(?:-[abd-z]*c[a-z]*|--shell-mode(?:=(?!false$).*)?)$/
@@ -1467,7 +1741,9 @@ function shellModeAt(toks: string[], i: number): number {
   const flags = (): void => {
     for (let t = unquote(toks[e] ?? ''); t.startsWith('-') && t !== '--'; t = unquote(toks[e] ?? '')) {
       shell ||= PNPM_SHELL_MODE.test(t)
-      e += PNPM_RUN_VALUE.has(t) ? 2 : 1
+      e += PNPM_RUN_VALUE.has(t)
+        ? 2
+        : 1
     }
   }
   flags()
@@ -1479,7 +1755,9 @@ function shellModeAt(toks: string[], i: number): number {
   }
   if (!shell)
     return -1
-  return unquote(toks[e] ?? '') === '--' ? e + 1 : e
+  return unquote(toks[e] ?? '') === '--'
+    ? e + 1
+    : e
 }
 
 // The command an unquoted expansion with a default runs when it stands as the head
@@ -1493,14 +1771,21 @@ function defaulted(raw: string[], i: number): string | null {
   for (let blank = true; blank && k < raw.length; k++) {
     const w = raw[k]!
     const open = DEFAULTED.exec(w)
-    const close = open ? quoteEnd(w, 0, '{') : -1
+    const close = open
+      ? quoteEnd(w, 0, '{')
+      : -1
     if (!open || close < 0)
       break
     const part = w.slice(open[0].length, close) + w.slice(close + 1)
     parts.push(part)
     blank = /^[ \t\n]*$/.test(part)
   }
-  return k === i ? null : [...parts, ...raw.slice(k)].join(' ')
+  return k === i
+    ? null
+    : [
+        ...parts,
+        ...raw.slice(k),
+      ].join(' ')
 }
 
 // env's options that take a separate value: the short ones leadIndex() skips, and GNU's long
@@ -1518,16 +1803,30 @@ function envSplit(argv: string[], a: number): { value: string, next: number } | 
       return null
     if (t.startsWith('--')) {
       const eq = t.indexOf('=')
-      const name = eq < 0 ? t : t.slice(0, eq)
-      if (name.length > 2 && '--split-string'.startsWith(name))
-        return eq < 0 ? { value: argv[a + 1] ?? '', next: a + 2 } : { value: t.slice(eq + 1), next: a + 1 }
+      const name = eq < 0
+        ? t
+        : t.slice(0, eq)
+      if (name.length > 2 && '--split-string'.startsWith(name)) {
+        return eq < 0
+          ? { value: argv[a + 1] ?? '', next: a + 2 }
+          : {
+              value: t.slice(eq + 1),
+              next: a + 1,
+            }
+      }
       if (eq < 0 && name.length > 2 && ENV_VALUE_LONG.some(o => o.startsWith(name)))
         a++
       continue
     }
     for (let c = 1; c < t.length; c++) {
-      if (t[c] === 'S')
-        return c + 1 < t.length ? { value: t.slice(c + 1), next: a + 1 } : { value: argv[a + 1] ?? '', next: a + 2 }
+      if (t[c] === 'S') {
+        return c + 1 < t.length
+          ? {
+              value: t.slice(c + 1),
+              next: a + 1,
+            }
+          : { value: argv[a + 1] ?? '', next: a + 2 }
+      }
       if (ENV_VALUE_SHORT.has(`-${t[c]!}`)) {
         if (c + 1 === t.length)
           a++
@@ -1539,7 +1838,15 @@ function envSplit(argv: string[], a: number): { value: string, next: number } | 
 }
 
 // The ANSI-C escapes dequote() reads inside `$'…'`; any other keeps its backslash.
-const ANSI_C: Readonly<Record<string, string>> = { 'n': '\n', 't': '\t', 'r': '\r', '\\': '\\', '\'': '\'', '"': '"', '?': '?' }
+const ANSI_C: Readonly<Record<string, string>> = {
+  'n': '\n',
+  't': '\t',
+  'r': '\r',
+  '\\': '\\',
+  '\'': '\'',
+  '"': '"',
+  '?': '?',
+}
 
 // A word as the program it is passed to receives it, after bash's quote removal: quotes
 // dropped, a backslash escape resolved outside single quotes (inside double quotes only before
@@ -1614,7 +1921,9 @@ function quoteEnd(s: string, n: number, q: string): number {
   if (q === '$')
     return ansiEnd(s, n + 2)
   const open: string[] = [q]
-  for (let k = n + (q === '{' ? 2 : 1); k < s.length; k++) {
+  for (let k = n + (q === '{'
+    ? 2
+    : 1); k < s.length; k++) {
     const c = s[k]!
     if (c === '\\' || (c === '$' && s[k + 1] === '$')) {
       k++
@@ -1636,7 +1945,9 @@ function quoteEnd(s: string, n: number, q: string): number {
       open.push('"')
     }
     else if (c === '\'' || (c === '$' && s[k + 1] === '\'')) {
-      k = c === '\'' ? s.indexOf('\'', k + 1) : ansiEnd(s, k + 2)
+      k = c === '\''
+        ? s.indexOf('\'', k + 1)
+        : ansiEnd(s, k + 2)
       if (k < 0)
         return -1
     }
@@ -1650,9 +1961,16 @@ function quoteEnd(s: string, n: number, q: string): number {
 // none opens there.
 function quoteAt(s: string, n: number): string {
   const c = s[n]
-  if (c === '$')
-    return s[n + 1] === '\'' ? '$' : s[n + 1] === '{' ? '{' : ''
-  return c === '\'' || c === '"' ? c : ''
+  if (c === '$') {
+    return s[n + 1] === '\''
+      ? '$'
+      : s[n + 1] === '{'
+        ? '{'
+        : ''
+  }
+  return c === '\'' || c === '"'
+    ? c
+    : ''
 }
 
 // The words of a segment as bash splits them, each still quoted and escaped, with a glued
@@ -1709,7 +2027,11 @@ function words(seg: string): string[] {
       return out
     }
     const span = s.slice(n, close + 1)
-    cur += q === '"' ? span.replace(/\\([\s\S])/g, (m, x: string) => x === '\n' ? '' : m) : span
+    cur += q === '"'
+      ? span.replace(/\\([\s\S])/g, (m, x: string) => x === '\n'
+          ? ''
+          : m)
+      : span
     n = close
   }
   if (cur !== '')
@@ -1724,13 +2046,20 @@ function words(seg: string): string[] {
 // stays one token, handled by skip() and the secret redirect scan. A plain scan: the regex this
 // replaced backtracked quadratically over a long run of digits.
 function splitRedirect(raw: string, quoted: boolean): [string, string] | null {
-  let at = quoted ? operatorAt(raw) : raw.search(/[<>]/)
+  let at = quoted
+    ? operatorAt(raw)
+    : raw.search(/[<>]/)
   if (at < 0)
     return null
   if (raw[at] === '>' && raw[at - 1] === '&')
     at--
   const word = raw.slice(0, at)
-  return word === '' || /^\d+$/.test(word) ? null : [word, raw.slice(at)]
+  return word === '' || /^\d+$/.test(word)
+    ? null
+    : [
+        word,
+        raw.slice(at),
+      ]
 }
 
 // The index of the first `<` or `>` in a word outside a quoted span or `${…}` and not escaped,
@@ -1814,7 +2143,9 @@ function expansionAt(s: string, n: number): number {
 
 // A glob character bash leaves as text, hidden behind a byte no glob or separator uses.
 function hideGlob(c: string): string {
-  return c === '*' || c === '?' || c === '[' ? '\0' : c
+  return c === '*' || c === '?' || c === '['
+    ? '\0'
+    : c
 }
 
 /**
@@ -1830,7 +2161,9 @@ export function globTokens(seg: string): string[] {
   let q = '' // the open quote: `"`, `'`, or `$` for ANSI-C `$'…'`
   for (let n = 0; n < seg.length; n++) {
     const c = seg[n]!
-    const expansion = c === '$' && (q === '' || q === '"') ? expansionAt(seg, n) : 0
+    const expansion = c === '$' && (q === '' || q === '"')
+      ? expansionAt(seg, n)
+      : 0
     if (c === '\\' && q !== '\'') {
       text += c + hideGlob(seg[n + 1] ?? '')
       n++
@@ -1840,8 +2173,11 @@ export function globTokens(seg: string): string[] {
       n += expansion - 1
     }
     else if (q) {
-      if (c === (q === '"' ? '"' : '\''))
+      if (c === (q === '"'
+        ? '"'
+        : '\'')) {
         q = ''
+      }
       text += hideGlob(c)
     }
     else if (c === '$' && seg[n + 1] === '\'') {
@@ -1870,7 +2206,9 @@ export function redirectWidth(toks: string[], k: number): 0 | 1 | 2 {
   const m = REDIRECTION.exec(toks[k] ?? '')
   if (!m)
     return 0
-  return m[1] === '' && k + 1 < toks.length ? 2 : 1
+  return m[1] === '' && k + 1 < toks.length
+    ? 2
+    : 1
 }
 
 /**
@@ -1979,7 +2317,9 @@ function leadScan(toks: string[]): { i: number, probe: boolean } {
     // keep curWrap so a following option flag still resolves to its wrapper's arity. A redirect
     // operator standing alone takes the next word as its target (`> log npm i`), unless that word
     // is a head the guards must see.
-    i += redirectWidth(toks, i) === 2 && !wouldHideHead(toks[i + 1]!) ? 2 : 1
+    i += redirectWidth(toks, i) === 2 && !wouldHideHead(toks[i + 1]!)
+      ? 2
+      : 1
   }
   return { i, probe }
 }
@@ -2079,7 +2419,11 @@ export function resolveHead(toks: string[]): Head {
     i = e
     while (i < toks.length && skip(toks[i]!)) i++
   }
-  return { i, head: base(toks[i] ?? ''), probe }
+  return {
+    i,
+    head: base(toks[i] ?? ''),
+    probe,
+  }
 }
 
 /**
@@ -2092,11 +2436,22 @@ export function exportedWords(toks: string[]): string[] {
   const { i, head } = resolveHead(toks)
   const words = toks.slice(i + 1).map(unquote)
   const exports = head === 'export' || (/^(?:declare|typeset|local)$/.test(head) && words.some(w => /^-[A-Za-z]*x/.test(w)))
-  return exports ? words.filter(w => /^[A-Z_]\w*(?:=|$)/i.test(w)) : []
+  return exports
+    ? words.filter(w => /^[A-Z_]\w*(?:=|$)/i.test(w))
+    : []
 }
 
 // `git` global options that take a SEPARATE value token (the `--opt=value` spelling is one token).
-const GIT_VALUE_OPT: ReadonlySet<string> = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--super-prefix', '--config-env'])
+const GIT_VALUE_OPT: ReadonlySet<string> = new Set([
+  '-C',
+  '-c',
+  '--git-dir',
+  '--work-tree',
+  '--namespace',
+  '--exec-path',
+  '--super-prefix',
+  '--config-env',
+])
 
 /**
  * The subcommand after `git` and its global options (`git -C x -c k=v push …`): the subcommand,
@@ -2112,7 +2467,11 @@ export function gitSubcommand(toks: string[], i: number): { sub: string, args: s
     if (GIT_VALUE_OPT.has(t))
       k++
   }
-  return { sub: unquote(toks[k] ?? ''), args: toks.slice(k + 1), globals: toks.slice(i + 1, k).map(unquote) }
+  return {
+    sub: unquote(toks[k] ?? ''),
+    args: toks.slice(k + 1),
+    globals: toks.slice(i + 1, k).map(unquote),
+  }
 }
 
 /**
@@ -2124,7 +2483,9 @@ export function commandOf(raw: string): string | null {
   try {
     const parsed = JSON.parse(raw) as { tool_input?: { command?: unknown } | null } | null
     const cmd = parsed?.tool_input?.command
-    return typeof cmd === 'string' ? cmd : null
+    return typeof cmd === 'string'
+      ? cmd
+      : null
   }
   catch {
     return null

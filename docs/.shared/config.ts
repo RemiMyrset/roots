@@ -22,7 +22,9 @@ export const shared: UserConfig = {
   lastUpdated: true,
   themeConfig: {
     search: { provider: 'local' },
-    socialLinks: [{ icon: 'github', link: repoUrl }],
+    socialLinks: [
+      { icon: 'github', link: repoUrl },
+    ],
   },
 }
 
@@ -33,5 +35,7 @@ export const shared: UserConfig = {
  */
 export function normalizeBase(raw: string | undefined): string {
   const segments = (raw ?? '').split('/').filter(segment => segment !== '')
-  return segments.length === 0 ? '/' : `/${segments.join('/')}/`
+  return segments.length === 0
+    ? '/'
+    : `/${segments.join('/')}/`
 }

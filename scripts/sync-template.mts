@@ -142,7 +142,11 @@ function isRef(ref: string): boolean {
 const GIT_ENV = { ...process.env, GIT_LITERAL_PATHSPECS: '1' }
 
 function git(args: string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8', env: GIT_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
+  return execFileSync('git', args, {
+    encoding: 'utf8',
+    env: GIT_ENV,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
 }
 
 function tryGit(args: string[]): string | null {
@@ -162,7 +166,9 @@ function gitError(args: string[]): string | null {
   }
   catch (err) {
     const stderr = (err as { stderr?: unknown }).stderr
-    const text = typeof stderr === 'string' ? stderr : ''
+    const text = typeof stderr === 'string'
+      ? stderr
+      : ''
     return text.split('\n').map(l => l.trim()).find(Boolean) ?? `git ${args[0] ?? ''} failed`
   }
 }
@@ -188,7 +194,19 @@ function versionsAt(revs: string[], paths: string[]): Map<string, Set<string>> {
   const versions = new Map<string, Set<string>>()
   if (paths.length === 0)
     return versions
-  const parts = zList(tryGit(['log', '--format=', '--raw', '-z', '--no-abbrev', '--no-renames', '--full-history', '-m', ...revs, '--', ...paths]))
+  const parts = zList(tryGit([
+    'log',
+    '--format=',
+    '--raw',
+    '-z',
+    '--no-abbrev',
+    '--no-renames',
+    '--full-history',
+    '-m',
+    ...revs,
+    '--',
+    ...paths,
+  ]))
   for (let i = 0; i < parts.length; i++) {
     const meta = parts[i] ?? ''
     if (!meta.startsWith(':'))
@@ -215,7 +233,9 @@ function fail(message: string): never {
 
 /** JSON.parse that ignores a leading byte-order mark, which some Windows editors write. */
 function parseJson(text: string): unknown {
-  return JSON.parse(text.startsWith('\uFEFF') ? text.slice(1) : text) as unknown
+  return JSON.parse(text.startsWith('\uFEFF')
+    ? text.slice(1)
+    : text) as unknown
 }
 
 interface Args {
@@ -228,7 +248,9 @@ function parseArgs(argv: string[]): Args {
   for (let i = 0; i < argv.length; i++) {
     const t = argv[i]!
     if (t === '--ref' || t.startsWith('--ref=')) {
-      const value = t === '--ref' ? argv[++i] : t.slice('--ref='.length)
+      const value = t === '--ref'
+        ? argv[++i]
+        : t.slice('--ref='.length)
       if (value === undefined || !isRef(value))
         fail(`Refusing suspicious ref: ${value ?? '(missing)'}`)
       args.ref = value
@@ -324,7 +346,9 @@ function readState(): { state?: SyncState, warnings: string[] } {
   const [skills, mirror] = SKILL_PAIR
   const skillsOut = state.exclude?.includes(skills) === true
   if (skillsOut !== (state.exclude?.includes(mirror) === true)) {
-    const [one, other] = skillsOut ? [skills, mirror] : [mirror, skills]
+    const [one, other] = skillsOut
+      ? [skills, mirror]
+      : [mirror, skills]
     warnings.push(`${STATE_FILE} "exclude" lists ${JSON.stringify(one)} without ${JSON.stringify(other)}: ${mirror} is the generated copy of ${skills}, so a sync takes the template's version of one and keeps yours of the other, and the docs:gen drift gate fails on the mismatch; exclude both or neither.`)
   }
   return { state, warnings }
@@ -335,11 +359,19 @@ function writeState(state: SyncState & { url: string, commit: string }): void {
   const out: StateFile = {
     $comment: 'Written by scripts/sync-template.mts: the template URL, the branch or tag it tracks ("ref", absent means main), the last template commit synced into this repo, and this repo\'s own URL ("repo"), which tells a repo made from this one that the file came with it. Commit it together with the sync. "exclude" (synced paths to skip) and "include" (extra paths to pull) are yours to edit.',
     url: state.url,
-    ...(state.ref !== undefined ? { ref: state.ref } : {}),
+    ...(state.ref !== undefined
+      ? { ref: state.ref }
+      : {}),
     commit: state.commit,
-    ...(state.repo !== undefined ? { repo: state.repo } : {}),
-    ...(state.exclude ? { exclude: state.exclude } : {}),
-    ...(state.include ? { include: state.include } : {}),
+    ...(state.repo !== undefined
+      ? { repo: state.repo }
+      : {}),
+    ...(state.exclude
+      ? { exclude: state.exclude }
+      : {}),
+    ...(state.include
+      ? { include: state.include }
+      : {}),
   }
   writeFileSync(STATE_FILE, `${JSON.stringify(out, null, 2)}\n`)
 }
@@ -352,7 +384,9 @@ function hostPath(url: string): string {
 /** This repository's URL to record as `repo`: the origin, an http(s) user and token dropped; undefined without an origin or when it fails URL_RE. */
 function ownUrl(origin: string | undefined): string | undefined {
   const url = origin?.replace(/^(https?:\/\/)[^/@]*@/i, '$1')
-  return url !== undefined && URL_RE.test(url) ? url : undefined
+  return url !== undefined && URL_RE.test(url)
+    ? url
+    : undefined
 }
 
 /**
@@ -370,13 +404,30 @@ function inherited(state: SyncState, origin: string | undefined): boolean {
     return false
   if (state.repo !== undefined && origin !== undefined && hostPath(state.repo) === hostPath(origin))
     return false
-  if (tryGit(['status', '--porcelain', '--', STATE_FILE]) !== '')
+  if (tryGit([
+    'status',
+    '--porcelain',
+    '--',
+    STATE_FILE,
+  ]) !== '') {
     return false
+  }
   if (tryGit(['rev-parse', '--is-shallow-repository'])?.trim() === 'true')
     return false
   // Two at most: a second writer settles it, so a long history is not walked to its root.
-  const writers = lines(tryGit(['rev-list', '--max-count=2', 'HEAD', '--', STATE_FILE]))
-  return writers.length === 1 && tryGit(['rev-parse', '-q', '--verify', `${writers[0]}^`]) === null
+  const writers = lines(tryGit([
+    'rev-list',
+    '--max-count=2',
+    'HEAD',
+    '--',
+    STATE_FILE,
+  ]))
+  return writers.length === 1 && tryGit([
+    'rev-parse',
+    '-q',
+    '--verify',
+    `${writers[0]}^`,
+  ]) === null
 }
 
 interface Fetched {
@@ -386,14 +437,34 @@ interface Fetched {
 
 /** Fetches `ref` as a branch first, then as a tag (into the private tag namespace); when neither exists, git's reason for the branch attempt. */
 function fetchRef(ref: string): Fetched | { error: string } {
-  const branchError = gitError(['fetch', '--no-tags', REMOTE, `+refs/heads/${ref}:refs/remotes/${REMOTE}/${ref}`])
+  const branchError = gitError([
+    'fetch',
+    '--no-tags',
+    REMOTE,
+    `+refs/heads/${ref}:refs/remotes/${REMOTE}/${ref}`,
+  ])
   if (branchError === null) {
-    const sha = tryGit(['rev-parse', '-q', '--verify', `refs/remotes/${REMOTE}/${ref}^{commit}`])?.trim()
+    const sha = tryGit([
+      'rev-parse',
+      '-q',
+      '--verify',
+      `refs/remotes/${REMOTE}/${ref}^{commit}`,
+    ])?.trim()
     if (sha)
       return { head: sha, kind: 'branch' }
   }
-  if (gitError(['fetch', '--no-tags', REMOTE, `+refs/tags/${ref}:${TAG_NS}/${ref}`]) === null) {
-    const sha = tryGit(['rev-parse', '-q', '--verify', `${TAG_NS}/${ref}^{commit}`])?.trim()
+  if (gitError([
+    'fetch',
+    '--no-tags',
+    REMOTE,
+    `+refs/tags/${ref}:${TAG_NS}/${ref}`,
+  ]) === null) {
+    const sha = tryGit([
+      'rev-parse',
+      '-q',
+      '--verify',
+      `${TAG_NS}/${ref}^{commit}`,
+    ])?.trim()
     if (sha)
       return { head: sha, kind: 'tag' }
   }
@@ -433,7 +504,12 @@ function inferBaseline(head: string, label: string, paths: string[]): Baseline |
     const when = tryGit(['show', '-s', '--format=%cI', root])?.trim()
     if (!when)
       continue
-    const candidate = tryGit(['rev-list', '-1', `--before=${when}`, head])?.trim()
+    const candidate = tryGit([
+      'rev-list',
+      '-1',
+      `--before=${when}`,
+      head,
+    ])?.trim()
     if (!candidate)
       continue
     const same = paths.filter((p) => {
@@ -472,7 +548,12 @@ function commitsSince(base: string, head: string): Commit[] {
           breaking.push(l)
         }
       }
-      return { sha, subject: subject.replace(/\r$/, ''), breaking, merge: parents.trim().split(' ').length > 1 }
+      return {
+        sha,
+        subject: subject.replace(/\r$/, ''),
+        breaking,
+        merge: parents.trim().split(' ').length > 1,
+      }
     })
 }
 
@@ -487,13 +568,24 @@ type Entries = Record<string, string>
 // gate and the workflows run, the devDependencies behind them, the commit-time checks and the
 // commit message rules, and the node range. `packageManager`, the pnpm the workflows install,
 // is compared as a top-level field (block '').
-const MANIFEST_BLOCKS = ['scripts', 'devDependencies', 'lint-staged', 'commitlint', 'engines'] as const
+const MANIFEST_BLOCKS = [
+  'scripts',
+  'devDependencies',
+  'lint-staged',
+  'commitlint',
+  'engines',
+] as const
 const MANIFEST_FIELDS = ['packageManager'] as const
 const WORKSPACE = 'pnpm-workspace.yaml'
 
 /** The entries of `v` when it is a JSON object, else `{}`. */
 function entriesOf(v: unknown): Entries {
-  return Object.fromEntries(Object.entries(asObject<Record<string, unknown>>(v) ?? {}).map(([k, x]) => [k, typeof x === 'string' ? x : JSON.stringify(x)]))
+  return Object.fromEntries(Object.entries(asObject<Record<string, unknown>>(v) ?? {}).map(([k, x]) => [
+    k,
+    typeof x === 'string'
+      ? x
+      : JSON.stringify(x),
+  ]))
 }
 
 /** MANIFEST_FIELDS (block '') and each of MANIFEST_BLOCKS in a package.json text, `{}` when absent; undefined when the text is absent or not JSON. */
@@ -503,7 +595,13 @@ function manifestOf(json: string | null): Record<string, Entries> | undefined {
   try {
     const root = asObject<Record<string, unknown>>(parseJson(json)) ?? {}
     const fields = entriesOf(Object.fromEntries(MANIFEST_FIELDS.filter(f => root[f] !== undefined).map(f => [f, root[f]])))
-    return { '': fields, ...Object.fromEntries(MANIFEST_BLOCKS.map(block => [block, entriesOf(root[block])])) }
+    return {
+      '': fields,
+      ...Object.fromEntries(MANIFEST_BLOCKS.map(block => [
+        block,
+        entriesOf(root[block]),
+      ])),
+    }
   }
   catch {
     return undefined
@@ -553,7 +651,9 @@ function workspaceOf(yaml: string | null): Entries | undefined {
       block = undefined
       if (!top || WORKSPACE_OWN.has(top[1]!))
         continue
-      const value = top[2] === undefined ? '' : yamlScalar(top[2])
+      const value = top[2] === undefined
+        ? ''
+        : yamlScalar(top[2])
       if (value === '')
         block = { key: top[1]! }
       else if (!/^[[{]/.test(value))
@@ -573,7 +673,9 @@ function workspaceOf(yaml: string | null): Entries | undefined {
       continue
     }
     const m = YAML_ENTRY_RE.exec(line.trim())
-    const raw = m?.[4] === undefined ? '' : yamlScalar(m[4])
+    const raw = m?.[4] === undefined
+      ? ''
+      : yamlScalar(m[4])
     if (m && raw && !/^[[{]/.test(raw))
       entries[`${block.key}.${m[1] ?? m[2] ?? m[3]!.trimEnd()}`] = raw
   }
@@ -613,9 +715,13 @@ interface FollowUps {
 function compareEntries(block: string, template: Entries, base: Entries | undefined, local: Entries, deleted: string[], out: FollowUps): void {
   const deletes = (value: string): string | undefined => {
     const ref = deleted.find(d => value.includes(d))
-    return ref === undefined ? undefined : `yours references ${ref}, which this sync deletes`
+    return ref === undefined
+      ? undefined
+      : `yours references ${ref}, which this sync deletes`
   }
-  const keyOf = (name: string): string => block ? `${block}.${name}` : name
+  const keyOf = (name: string): string => block
+    ? `${block}.${name}`
+    : name
   for (const [name, t] of Object.entries(template)) {
     const key = keyOf(name)
     const l = local[name]
@@ -631,23 +737,51 @@ function compareEntries(block: string, template: Entries, base: Entries | undefi
     const note = deletes(l)
     const b = base?.[name]
     if (base && b === t) {
-      if (note === undefined)
+      if (note === undefined) {
         out.customized.push(key)
-      else
-        out.items.push({ key, kind: 'customized', template: t, yours: l, note })
+      }
+      else {
+        out.items.push({
+          key,
+          kind: 'customized',
+          template: t,
+          yours: l,
+          note,
+        })
+      }
       continue
     }
     const item: FollowUp = base && b !== l
-      ? { key, kind: 'both', template: t, base: b ?? '(absent)', yours: l }
-      : { key, kind: 'changed', template: t, yours: l }
+      ? {
+          key,
+          kind: 'both',
+          template: t,
+          base: b ?? '(absent)',
+          yours: l,
+        }
+      : {
+          key,
+          kind: 'changed',
+          template: t,
+          yours: l,
+        }
     if (note !== undefined)
       item.note = note
     out.items.push(item)
   }
   for (const [name, l] of Object.entries(local)) {
-    const note = name in template ? undefined : deletes(l)
-    if (note !== undefined)
-      out.items.push({ key: keyOf(name), kind: 'customized', template: '(not on the template)', yours: l, note })
+    const note = name in template
+      ? undefined
+      : deletes(l)
+    if (note !== undefined) {
+      out.items.push({
+        key: keyOf(name),
+        kind: 'customized',
+        template: '(not on the template)',
+        yours: l,
+        note,
+      })
+    }
   }
 }
 
@@ -684,7 +818,14 @@ function workspaceFollowUps(template: Entries | undefined, base: Entries | undef
 
 // A template file under one of these is the repository's own content, never shared configuration:
 // the template's records and pages, its release history, and its sample code.
-const OWN_CONTENT = ['docs/internal', 'docs/public', 'CHANGELOG.md', 'src', 'packages', 'apps']
+const OWN_CONTENT = [
+  'docs/internal',
+  'docs/public',
+  'CHANGELOG.md',
+  'src',
+  'packages',
+  'apps',
+]
 
 /**
  * Files the template added from `base` to `head` that this repository lacks, outside the synced
@@ -695,8 +836,20 @@ const OWN_CONTENT = ['docs/internal', 'docs/public', 'CHANGELOG.md', 'src', 'pac
  * next sync at the fork's upstream.
  */
 function addedFiles(base: string, head: string, synced: string[]): string[] {
-  const outside = [...synced, STATE_FILE, ...OWN_CONTENT]
-  return zList(tryGit(['diff', '--name-only', '--no-renames', '--diff-filter=A', '-z', base, head]))
+  const outside = [
+    ...synced,
+    STATE_FILE,
+    ...OWN_CONTENT,
+  ]
+  return zList(tryGit([
+    'diff',
+    '--name-only',
+    '--no-renames',
+    '--diff-filter=A',
+    '-z',
+    base,
+    head,
+  ]))
     .filter(file => !outside.some(p => file === p || file.startsWith(`${p}/`)) && !existsSync(file))
 }
 
@@ -728,7 +881,9 @@ interface RawHookEntry {
 
 /** `v` as a JSON object whose fields are still unchecked, or undefined for anything else. */
 function asObject<T extends object>(v: unknown): T | undefined {
-  return typeof v === 'object' && v !== null && !Array.isArray(v) ? v as T : undefined
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+    ? v as T
+    : undefined
 }
 
 /** The allow and deny rules, every command hook registration, and the output style of a settings.json text; undefined when it is not JSON. */
@@ -744,13 +899,21 @@ function settingsOf(json: string | null): SettingsShape | undefined {
   }
   const root = asObject<RawSettings>(parsed) ?? {}
   const permissions = asObject<NonNullable<RawSettings['permissions']>>(root.permissions) ?? {}
-  const list = (v: unknown): string[] => Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
+  const list = (v: unknown): string[] => Array.isArray(v)
+    ? v.filter((s): s is string => typeof s === 'string')
+    : []
   const hooks: Hook[] = []
   for (const [event, entries] of Object.entries(asObject<Record<string, unknown>>(root.hooks) ?? {})) {
-    for (const entry of Array.isArray(entries) ? entries : []) {
+    for (const entry of Array.isArray(entries)
+      ? entries
+      : []) {
       const e = asObject<RawHookEntry>(entry)
-      const matcher = typeof e?.matcher === 'string' ? e.matcher : ''
-      for (const h of Array.isArray(e?.hooks) ? e.hooks : []) {
+      const matcher = typeof e?.matcher === 'string'
+        ? e.matcher
+        : ''
+      for (const h of Array.isArray(e?.hooks)
+        ? e.hooks
+        : []) {
         const command = asObject<{ command?: unknown }>(h)?.command
         if (typeof command === 'string')
           hooks.push({ event, matcher, command })
@@ -758,7 +921,14 @@ function settingsOf(json: string | null): SettingsShape | undefined {
     }
   }
   const outputStyle = root.outputStyle
-  return { allow: list(permissions.allow), deny: list(permissions.deny), hooks, ...(typeof outputStyle === 'string' ? { outputStyle } : {}) }
+  return {
+    allow: list(permissions.allow),
+    deny: list(permissions.deny),
+    hooks,
+    ...(typeof outputStyle === 'string'
+      ? { outputStyle }
+      : {}),
+  }
 }
 
 /** A template hook registration this repository lacks, with the registrations here it replaces. */
@@ -792,7 +962,9 @@ function settingsFollowUps(template: SettingsShape | undefined, shipped: Hook[],
   const missing = [
     ...template.allow.filter(r => !local.allow.includes(r)).map(r => `permissions.allow ${r}`),
     ...template.deny.filter(r => !local.deny.includes(r)).map(r => `permissions.deny ${r}`),
-    ...(template.outputStyle !== undefined && local.outputStyle === undefined ? [`outputStyle ${template.outputStyle}`] : []),
+    ...(template.outputStyle !== undefined && local.outputStyle === undefined
+      ? [`outputStyle ${template.outputStyle}`]
+      : []),
   ]
   const same = (a: Hook, b: Hook): boolean => a.event === b.event && a.matcher === b.matcher && a.command === b.command
   const fromTemplate = (h: Hook): boolean => template.hooks.some(t => same(t, h)) || shipped.some(s => same(s, h))
@@ -805,20 +977,33 @@ function settingsFollowUps(template: SettingsShape | undefined, shipped: Hook[],
   const replacedBy = (l: Hook): Hook[] => {
     const inEvent = absent.filter(t => t.event === l.event)
     const byCommand = inEvent.filter(t => t.command === l.command)
-    if (!fromTemplate(l))
-      return local.hooks.filter(o => o.event === l.event && o.command === l.command).length === 1 ? byCommand : []
+    if (!fromTemplate(l)) {
+      return local.hooks.filter(o => o.event === l.event && o.command === l.command).length === 1
+        ? byCommand
+        : []
+    }
     if (byCommand.length > 0)
       return byCommand
     const byMatcher = inEvent.filter(t => t.matcher === l.matcher)
-    return byMatcher.length > 0 ? byMatcher : inEvent
+    return byMatcher.length > 0
+      ? byMatcher
+      : inEvent
   }
-  const replaced = local.hooks.filter(l => !template.hooks.some(t => same(t, l))).map(l => ({ l, by: replacedBy(l) }))
-  const hooks = absent.map(t => ({ template: t, yours: replaced.filter(r => r.by.includes(t)).map(r => r.l) }))
+  const replaced = local.hooks.filter(l => !template.hooks.some(t => same(t, l))).map(l => ({
+    l,
+    by: replacedBy(l),
+  }))
+  const hooks = absent.map(t => ({
+    template: t,
+    yours: replaced.filter(r => r.by.includes(t)).map(r => r.l),
+  }))
   return { missing, hooks }
 }
 
 function describeHook(h: Hook): string {
-  return `matcher ${h.matcher === '' ? '(none)' : h.matcher}, command ${h.command}`
+  return `matcher ${h.matcher === ''
+    ? '(none)'
+    : h.matcher}, command ${h.command}`
 }
 
 // ---------------------------------------------------------------------------------
@@ -849,7 +1034,9 @@ if (stateFile && inherited(stateFile, origin)) {
   }
   else {
     state = { url: stateFile.repo }
-    console.error(`Warning: ${came} (${stateFile.repo}), not this one's: running a first sync${args.url === undefined ? ` from ${stateFile.repo}` : ''}, without its ref, exclude, or include. Pass a URL to sync from another template.`)
+    console.error(`Warning: ${came} (${stateFile.repo}), not this one's: running a first sync${args.url === undefined
+      ? ` from ${stateFile.repo}`
+      : ''}, without its ref, exclude, or include. Pass a URL to sync from another template.`)
   }
 }
 
@@ -863,7 +1050,10 @@ if (origin !== undefined && hostPath(origin) === hostPath(url))
   fail(`This checkout is the template itself (origin is ${url}) — run the sync in a repository made from it.`)
 
 const exclude = new Set(state?.exclude ?? [])
-const paths = [...MECHANICS.filter(p => !exclude.has(p)), ...(state?.include ?? []).filter(p => !MECHANICS.includes(p))]
+const paths = [
+  ...MECHANICS.filter(p => !exclude.has(p)),
+  ...(state?.include ?? []).filter(p => !MECHANICS.includes(p)),
+]
 
 // Refuse to clobber uncommitted work in the synced paths. Untracked files count, listed one by
 // one whatever `status.showUntrackedFiles` says: the checkout below overwrites one at a path
@@ -875,7 +1065,15 @@ const paths = [...MECHANICS.filter(p => !exclude.has(p)), ...(state?.include ?? 
 // commit must not refuse its own work. The refusal says commit, never stash: every linked
 // worktree shares one stash list, so another session's bare `git stash pop` can take the entry.
 const dirty: string[] = []
-const statusEntries = zList(tryGit(['status', '--porcelain', '-z', '--untracked-files=all', '--', ...paths, STATE_FILE]))
+const statusEntries = zList(tryGit([
+  'status',
+  '--porcelain',
+  '-z',
+  '--untracked-files=all',
+  '--',
+  ...paths,
+  STATE_FILE,
+]))
 for (let i = 0; i < statusEntries.length; i++) {
   const entry = statusEntries[i] ?? ''
   const xy = entry.slice(0, 2)
@@ -891,10 +1089,18 @@ for (let i = 0; i < statusEntries.length; i++) {
 if (dirty.length > 0)
   fail(`Uncommitted changes in template-managed paths — commit first (a previous sync's staged files count too: commit them, or discard with git restore --staged --worktree <path>):\n\n${dirty.join('\n')}`)
 
-if (existingRemote === undefined)
-  git(['remote', 'add', '--no-tags', REMOTE, url])
-else
+if (existingRemote === undefined) {
+  git([
+    'remote',
+    'add',
+    '--no-tags',
+    REMOTE,
+    url,
+  ])
+}
+else {
   git(['remote', 'set-url', REMOTE, url])
+}
 // Never import the template's release tags into refs/tags: changelogen in this repo
 // would version from them. Pinned tags are fetched into TAG_NS instead.
 git(['config', `remote.${REMOTE}.tagOpt`, '--no-tags'])
@@ -903,7 +1109,9 @@ const fetched = fetchRef(ref)
 if ('error' in fetched)
   fail(`Could not fetch ${ref} (as a branch or a tag) from ${url}. Check the URL (git remote -v), the ref, and your network.\n  git: ${fetched.error}`)
 const { head, kind } = fetched
-const label = kind === 'tag' ? `${REMOTE}/${ref} (tag)` : `${REMOTE}/${ref}`
+const label = kind === 'tag'
+  ? `${REMOTE}/${ref} (tag)`
+  : `${REMOTE}/${ref}`
 
 const recorded = state?.commit
 // A fresh clone holds only the template history the fetch above brought, so a recorded commit
@@ -913,23 +1121,53 @@ const recorded = state?.commit
 // after a force-push uses its tree, which is what the last sync staged.
 const hasCommit = (sha: string): boolean => tryGit(['cat-file', '-e', `${sha}^{commit}`]) !== null
 const recordedLost = recorded !== undefined && !hasCommit(recorded) && (tryGit(['fetch', '--no-tags', REMOTE, recorded]) === null || !hasCommit(recorded))
-const baseline = recorded === undefined ? inferBaseline(head, label, paths) : undefined
+const baseline = recorded === undefined
+  ? inferBaseline(head, label, paths)
+  : undefined
 const base = baseline?.commit ?? recorded
-const baseInHistory = baseline !== undefined || (recorded !== undefined && tryGit(['merge-base', '--is-ancestor', recorded, head]) !== null)
-const behind = recorded !== undefined && !baseInHistory && tryGit(['merge-base', '--is-ancestor', head, recorded]) !== null
-const since = recorded === undefined ? 'the baseline' : 'last sync'
+const baseInHistory = baseline !== undefined || (recorded !== undefined && tryGit([
+  'merge-base',
+  '--is-ancestor',
+  recorded,
+  head,
+]) !== null)
+const behind = recorded !== undefined && !baseInHistory && tryGit([
+  'merge-base',
+  '--is-ancestor',
+  head,
+  recorded,
+]) !== null
+const since = recorded === undefined
+  ? 'the baseline'
+  : 'last sync'
 // The template history that says what it shipped: the head's, and the sync point's when git has
 // it and it is off that history (a sync back to an older ref, or a switch to another one).
-const historyRevs = base !== undefined && base !== head && !recordedLost ? [head, base] : [head]
+const historyRevs = base !== undefined && base !== head && !recordedLost
+  ? [head, base]
+  : [head]
 
 // Take the template's version of every synced path it still ships, then stage removals
 // for tracked files under those paths that the template retired — a file inside a path
 // or a whole path. Files outside the synced paths are never touched. A path whose
 // checkout fails is reported, not hidden. The template's trees are read first so an
 // unrelated repository (nothing to pull) is refused before anything is staged.
-const upstreamByPath = new Map(paths.map(path => [path, new Set(zList(tryGit(['ls-tree', '-r', '-z', '--name-only', head, '--', path])))] as const))
-if ([...upstreamByPath.values()].every(files => files.size === 0))
+const upstreamByPath = new Map(paths.map(path => [
+  path,
+  new Set(zList(tryGit([
+    'ls-tree',
+    '-r',
+    '-z',
+    '--name-only',
+    head,
+    '--',
+    path,
+  ]))),
+] as const))
+if ([
+  ...upstreamByPath.values(),
+].every(files => files.size === 0)) {
   fail(`Nothing to pull — none of the synced paths exist on ${label}. Is ${url} a roots template?`)
+}
 
 // A tracked file under a synced path that the template head lacks is retired only when it is
 // the template's: in the tree at the sync point when that point is exact (the recorded commit,
@@ -941,14 +1179,24 @@ if ([...upstreamByPath.values()].every(files => files.size === 0))
 // file reusing the path), or, with the recorded commit lost, anywhere, since the template may
 // have shipped it only in the history this clone cannot reach. Any other file, such as the
 // repository's own skill or rule under a synced directory, is never mentioned.
-const exactBase = base !== undefined && baseline?.how !== 'root time' && !recordedLost ? base : undefined
+const exactBase = base !== undefined && baseline?.how !== 'root time' && !recordedLost
+  ? base
+  : undefined
 const atBase = new Map<string, Set<string>>()
 function inBaseTree(path: string, file: string): boolean {
   if (exactBase === undefined)
     return false
   let files = atBase.get(path)
   if (!files) {
-    files = new Set(zList(tryGit(['ls-tree', '-r', '-z', '--name-only', exactBase, '--', path])))
+    files = new Set(zList(tryGit([
+      'ls-tree',
+      '-r',
+      '-z',
+      '--name-only',
+      exactBase,
+      '--',
+      path,
+    ])))
     atBase.set(path, files)
   }
   return files.has(file)
@@ -975,7 +1223,11 @@ for (const [path, upstream] of upstreamByPath) {
       unplaced.set(file, { path, blob: entry.split(' ')[1] ?? '' })
   }
 }
-const shippedVersions = versionsAt(historyRevs, [...new Set([...unplaced.values()].map(u => u.path))])
+const shippedVersions = versionsAt(historyRevs, [
+  ...new Set([
+    ...unplaced.values(),
+  ].map(u => u.path)),
+])
 for (const [file, { path, blob }] of unplaced) {
   const versions = shippedVersions.get(file)
   if (inBaseTree(path, file) || versions?.has(blob) === true) {
@@ -994,17 +1246,30 @@ if (pulled === 0)
 const threeWay = base !== undefined && baseInHistory
 const followUps = manifestFollowUps(
   manifestOf(tryGit(['show', `${head}:package.json`])),
-  threeWay ? manifestOf(tryGit(['show', `${base}:package.json`])) : undefined,
-  existsSync('package.json') ? manifestOf(readFileSync('package.json', 'utf8')) : undefined,
+  threeWay
+    ? manifestOf(tryGit(['show', `${base}:package.json`]))
+    : undefined,
+  existsSync('package.json')
+    ? manifestOf(readFileSync('package.json', 'utf8'))
+    : undefined,
   !existsSync('package.json'),
   deleted,
 )
 const workspace = workspaceFollowUps(
   workspaceOf(tryGit(['show', `${head}:${WORKSPACE}`])),
-  threeWay ? workspaceOf(tryGit(['show', `${base}:${WORKSPACE}`])) : undefined,
-  existsSync(WORKSPACE) ? workspaceOf(readFileSync(WORKSPACE, 'utf8')) : undefined,
+  threeWay
+    ? workspaceOf(tryGit(['show', `${base}:${WORKSPACE}`]))
+    : undefined,
+  existsSync(WORKSPACE)
+    ? workspaceOf(readFileSync(WORKSPACE, 'utf8'))
+    : undefined,
 )
-const added = threeWay ? addedFiles(base, head, [...MECHANICS, ...(state?.include ?? [])]) : undefined
+const added = threeWay
+  ? addedFiles(base, head, [
+      ...MECHANICS,
+      ...(state?.include ?? []),
+    ])
+  : undefined
 
 // Every hook registration the template shipped, from every version of its settings file in
 // its history and the sync point's: a registration here that lags the sync point is still the
@@ -1014,7 +1279,9 @@ const settingsVersions = versionsAt(historyRevs, [SETTINGS]).get(SETTINGS) ?? ne
 const settings = settingsFollowUps(
   settingsOf(tryGit(['show', `${head}:${SETTINGS}`])),
   [...settingsVersions].flatMap(blob => settingsOf(tryGit(['cat-file', 'blob', blob]))?.hooks ?? []),
-  existsSync(SETTINGS) ? settingsOf(readFileSync(SETTINGS, 'utf8')) : undefined,
+  existsSync(SETTINGS)
+    ? settingsOf(readFileSync(SETTINGS, 'utf8'))
+    : undefined,
   !existsSync(SETTINGS),
 )
 
@@ -1047,8 +1314,14 @@ function listCommits(from: string): void {
   const all = commitsSince(from, head)
   const commits = all.filter(c => !c.merge || isBreaking(c))
   const merges = all.length - commits.length
-  const left = merges > 0 ? `; ${merges} merge${merges === 1 ? '' : 's'} left out` : ''
-  const count = `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${since} (${short(from)}${left}):`
+  const left = merges > 0
+    ? `; ${merges} merge${merges === 1
+      ? ''
+      : 's'} left out`
+    : ''
+  const count = `${commits.length} commit${commits.length === 1
+    ? ''
+    : 's'} since ${since} (${short(from)}${left}):`
   if (recorded === undefined)
     out.push(count)
   else
@@ -1101,7 +1374,16 @@ else {
 
 // Rename detection off: a rename would pair a deletion with an unrelated addition and show
 // only the destination, hiding which file is removed.
-const staged = zList(tryGit(['diff', '--cached', '--no-renames', '--name-status', '-z', '--', ...paths, STATE_FILE]))
+const staged = zList(tryGit([
+  'diff',
+  '--cached',
+  '--no-renames',
+  '--name-status',
+  '-z',
+  '--',
+  ...paths,
+  STATE_FILE,
+]))
 out.push('')
 if (staged.length === 0) {
   out.push('Already up to date — nothing staged.')
@@ -1111,7 +1393,9 @@ else {
   for (let i = 0; i < staged.length; i += 2) {
     const status = (staged[i] ?? '').slice(0, 1)
     const file = staged[i + 1] ?? ''
-    const note = file === SELF ? '   (this script — the new version runs next time)' : ''
+    const note = file === SELF
+      ? '   (this script — the new version runs next time)'
+      : ''
     out.push(`  ${status}  ${file}${note}`)
   }
 }
@@ -1139,7 +1423,9 @@ function followUpTag(kind: FollowUp['kind']): string {
     case 'customized':
       return 'customized locally'
     case 'changed':
-      return baseInHistory ? `changed on the template since ${since}` : 'differs'
+      return baseInHistory
+        ? `changed on the template since ${since}`
+        : 'differs'
   }
 }
 
@@ -1199,7 +1485,9 @@ else {
   for (const m of settings.missing)
     out.push(`  ${m}  missing here`)
   for (const h of settings.hooks) {
-    out.push(`  hooks.${h.template.event}  ${h.yours.length > 0 ? 'differs' : 'missing here'}`)
+    out.push(`  hooks.${h.template.event}  ${h.yours.length > 0
+      ? 'differs'
+      : 'missing here'}`)
     out.push(`    template: ${describeHook(h.template)}`)
     for (const y of h.yours)
       out.push(`    yours:    ${describeHook(y)}`)
@@ -1210,7 +1498,10 @@ else {
 // staged skill path comes with its `.agents` mirror, and discarding one side alone fails the
 // docs:gen drift gate until the mirror is regenerated and staged.
 if (staged.length > 0) {
-  const steps: [string, string][] = [['git diff --cached', 'review'], ['git restore --staged --worktree <path>', 'discard one path']]
+  const steps: [string, string][] = [
+    ['git diff --cached', 'review'],
+    ['git restore --staged --worktree <path>', 'discard one path'],
+  ]
   if (SKILL_PAIR.some(p => staged.some(s => s.startsWith(`${p}/`))))
     steps.push(['pnpm docs:gen && git add .agents/skills', 'after discarding under .claude/skills or .agents'])
   steps.push(['git add <path>', 'each file a follow-up edited by hand'], ['git commit -m "chore: sync mechanics from template"', 'keep'])

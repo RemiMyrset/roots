@@ -55,7 +55,13 @@ function checkout(name: string, branch: string, detach = false): string {
   const dir = join(tmp, name)
   mkdirSync(dir)
   const git = (...args: string[]): void => {
-    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, stdio: 'ignore' })
+    const r = spawnSync('git', [
+      '-c',
+      'user.name=t',
+      '-c',
+      'user.email=t@t',
+      ...args,
+    ], { cwd: dir, stdio: 'ignore' })
     if (r.status !== 0)
       throw new Error(`git ${args.join(' ')} failed in ${dir}`)
   }
@@ -85,7 +91,10 @@ const P = 'deny-push-protected.mts'
 // suite. Returns `dest`.
 function claudeCopy(dest: string, from = join(HOOKS, '..')): string {
   const own = (src: string): boolean => /^deny-.*\.mts$/.test(basename(src)) && !Object.hasOwn(VERDICTS, basename(src))
-  cpSync(join(from, 'hooks'), join(dest, 'hooks'), { recursive: true, filter: src => !own(src) })
+  cpSync(join(from, 'hooks'), join(dest, 'hooks'), {
+    recursive: true,
+    filter: src => !own(src),
+  })
   cpSync(join(from, 'output-styles'), join(dest, 'output-styles'), { recursive: true })
   cpSync(join(from, 'settings.json'), join(dest, 'settings.json'))
   return dest
@@ -102,7 +111,9 @@ for (const file of ['package.json', 'pnpm-workspace.yaml'])
 // A copy of .claude/ whose settings.json protects release/* instead of main: with the env
 // var unset, the push guard must read the list from the file (Codex and Gemini never set it).
 const SETTINGS_CLAUDE = claudeCopy(join(tmp, 'settings-claude'))
-writeFileSync(join(SETTINGS_CLAUDE, 'settings.json'), JSON.stringify({ env: { PROTECTED_BRANCHES: 'release/*' } }))
+writeFileSync(join(SETTINGS_CLAUDE, 'settings.json'), JSON.stringify({
+  env: { PROTECTED_BRANCHES: 'release/*' },
+}))
 const SETTINGS_HOOKS = join(SETTINGS_CLAUDE, 'hooks')
 // A child's .claude/ with a guard of its own that denies `gh pr create`, and the copy made from
 // it: the guard is live in the child's hooks and absent from the copy.
@@ -115,18 +126,39 @@ const CHILD_COPY_HOOKS = join(claudeCopy(join(tmp, 'child-copy'), CHILD_CLAUDE),
 // it sets or unsets the variable, and the one case that reads the real settings.json pushes to
 // the first branch that file protects (a `*` filled in; `main` when it sets none).
 const realList = (JSON.parse(readFileSync(join(HOOKS, '..', 'settings.json'), 'utf8')) as { env?: { PROTECTED_BRANCHES?: unknown } }).env?.PROTECTED_BRANCHES
-const REAL_PROTECTED = (typeof realList === 'string' ? realList : '').split(',').map(p => p.trim()).find(Boolean)?.replace(/\*/g, 'x') ?? 'main'
+const REAL_PROTECTED = (typeof realList === 'string'
+  ? realList
+  : '').split(',').map(p => p.trim()).find(Boolean)?.replace(/\*/g, 'x') ?? 'main'
 const B = 'deny-hook-bypass.mts'
 
 // Codex and Gemini CLI register the same dispatcher. Their payloads carry other
 // top-level fields and, for Gemini, another tool name; the guards read only
 // tool_input.command, so these shapes must deny and allow exactly like Claude Code.
-const CODEX = { cwd: process.cwd(), hook_event_name: 'PreToolUse', model: 'x', permission_mode: 'default', session_id: 's', tool_use_id: 't', transcript_path: null, turn_id: 'u' }
-const GEMINI = { cwd: process.cwd(), hook_event_name: 'BeforeTool', session_id: 's', timestamp: '2026-01-01T00:00:00Z', transcript_path: '/tmp/t.json' }
+const CODEX = {
+  cwd: process.cwd(),
+  hook_event_name: 'PreToolUse',
+  model: 'x',
+  permission_mode: 'default',
+  session_id: 's',
+  tool_use_id: 't',
+  transcript_path: null,
+  turn_id: 'u',
+}
+const GEMINI = {
+  cwd: process.cwd(),
+  hook_event_name: 'BeforeTool',
+  session_id: 's',
+  timestamp: '2026-01-01T00:00:00Z',
+  transcript_path: '/tmp/t.json',
+}
 // Claude Code's Monitor tool runs a shell command under the Bash permission rules, or opens a
 // WebSocket (`ws`, never combined with `command`), which runs no shell and has nothing to judge.
 function monitor(input: Record<string, unknown>, tool = 'Monitor'): string {
-  return JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: { description: 'd', timeout_ms: 300000, ...input } })
+  return JSON.stringify({
+    hook_event_name: 'PreToolUse',
+    tool_name: tool,
+    tool_input: { description: 'd', timeout_ms: 300000, ...input },
+  })
 }
 // `cmd` under `depth` layers of `eval`, each double-quoting the layer inside it.
 function nestedEval(depth: number, cmd: string): string {
@@ -304,7 +336,12 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnx -c "npm install"' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'pnpm --package cowsay -c dlx \'echo hi | npm install\'' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'pnpm -c exec "cat .env"' },
-  { guard: P, expect: D, cmd: 'pnpm -c exec "git push origin main"', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'pnpm -c exec "git push origin main"',
+    cwd: ON_FEAT,
+  },
   { guard: B, expect: D, cmd: 'pnpm exec --shell-mode "git commit --no-verify -m x"' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pnpm -c exec "echo hi"' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'pnpm -r -c exec \'tsc && pnpm test\'' },
@@ -327,7 +364,12 @@ const CASES: Case[] = [
   // The string flock's and runuser's -c (--command) hand a shell is a command too.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'flock /tmp/l -c "npm install"' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'flock -w 5 /tmp/l -c \'npm install\'' },
-  { guard: P, expect: D, cmd: 'flock /tmp/l --command "git push origin main"', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'flock /tmp/l --command "git push origin main"',
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'flock /tmp/l -c "cat .env"' },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'flock /tmp/l -c "pnpm approve-builds"' },
   { guard: B, expect: D, cmd: 'flock /tmp/l -c "git commit --no-verify -m x"' },
@@ -564,112 +606,565 @@ const CASES: Case[] = [
   { guard: P, expect: D, cmd: 'git push origin +feat/x' }, //         refspec `+` is a force push
   { guard: P, expect: D, cmd: 'git push origin +feat/x:feat/x' },
   // `:` is the matching refspec: every branch with a namesake on the remote, main included.
-  { guard: P, expect: D, cmd: 'git push origin :', cwd: ON_MAIN },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin :',
+    cwd: ON_MAIN,
+  },
   { guard: P, expect: D, cmd: 'git push origin :' },
   { guard: P, expect: D, cmd: 'git push origin ":"' },
   { guard: P, expect: D, cmd: 'git push origin feat/x :' },
   { guard: P, expect: D, cmd: 'git push origin -- :' },
   // Implicit targets resolve through the CURRENT branch of the cwd.
-  { guard: P, expect: D, cmd: 'git push', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push -u origin HEAD', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin HEAD:feat/x main', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push origin', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push -u origin HEAD', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push origin HEAD:feat/y', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push origin --tags', cwd: ON_MAIN }, // tags only: no branch target to resolve
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push -u origin HEAD',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin HEAD:feat/x main',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push -u origin HEAD',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin HEAD:feat/y',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin --tags',
+    cwd: ON_MAIN,
+  }, // tags only: no branch target to resolve
   // A command that changes the branch, the remotes, or the directory has not run when the guard
   // resolves a target, so an implicit target or a new remote in the same call is unknown,
   // wherever the move sits: before the push, after it, inside eval, or in a heredoc a shell reads.
-  { guard: P, expect: D, cmd: 'git switch main && git push', cwd: ON_FEAT, why: 'changes in this command' },
-  { guard: P, expect: D, cmd: 'eval "git switch main" && git push', cwd: ON_FEAT, why: 'changes in this command' },
-  { guard: P, expect: D, cmd: 'bash <<\'EOF\'\ngit switch main\nEOF\ngit push', cwd: ON_FEAT, why: 'changes in this command' },
-  { guard: P, expect: D, cmd: 'git push -u origin HEAD && git switch main', cwd: ON_FEAT, why: 'changes in this command' },
-  { guard: P, expect: D, cmd: 'git checkout main && git merge feat/x && git push origin HEAD', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git switch -q main && git merge -q --ff-only feat/x && git push -q origin HEAD', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git switch -c feat/new && git push -u origin HEAD', cwd: ON_MAIN, why: 'push in its own call or name the remote and branch' },
-  { guard: P, expect: D, cmd: 'git checkout -b fix/y && git commit -m x && git push', cwd: ON_MAIN, why: 'changes in this command' },
-  { guard: P, expect: D, cmd: 'gh pr checkout 12 && git push', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'cd ../other && git push origin @', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git remote add fork ../remote.git && git push -u fork feat/x', cwd: ON_FEAT, why: 'changes in this command' },
-  { guard: P, expect: D, cmd: 'git worktree add ../w && git push', cwd: ON_FEAT, why: 'changes in this command' },
-  { guard: P, expect: D, cmd: 'pushd .. && git push', cwd: ON_FEAT, why: 'changes in this command' },
-  { guard: P, expect: D, cmd: 'popd && git push origin HEAD', cwd: ON_FEAT, why: 'changes in this command' },
-  { guard: P, expect: D, cmd: 'git remote rename origin up && git push up feat/x', cwd: ON_FEAT, why: 'changes in this command' },
-  { guard: P, expect: A, cmd: 'git switch -c feat/new && git push -u origin feat/new', cwd: ON_MAIN },
-  { guard: P, expect: A, cmd: 'git push -u origin feat/x && git switch main', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git remote add fork ../remote.git && git push -u origin feat/x', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git switch main && git push',
+    cwd: ON_FEAT,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'eval "git switch main" && git push',
+    cwd: ON_FEAT,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'bash <<\'EOF\'\ngit switch main\nEOF\ngit push',
+    cwd: ON_FEAT,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push -u origin HEAD && git switch main',
+    cwd: ON_FEAT,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git checkout main && git merge feat/x && git push origin HEAD',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git switch -q main && git merge -q --ff-only feat/x && git push -q origin HEAD',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git switch -c feat/new && git push -u origin HEAD',
+    cwd: ON_MAIN,
+    why: 'push in its own call or name the remote and branch',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git checkout -b fix/y && git commit -m x && git push',
+    cwd: ON_MAIN,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'gh pr checkout 12 && git push',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'cd ../other && git push origin @',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git remote add fork ../remote.git && git push -u fork feat/x',
+    cwd: ON_FEAT,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git worktree add ../w && git push',
+    cwd: ON_FEAT,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'pushd .. && git push',
+    cwd: ON_FEAT,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'popd && git push origin HEAD',
+    cwd: ON_FEAT,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git remote rename origin up && git push up feat/x',
+    cwd: ON_FEAT,
+    why: 'changes in this command',
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git switch -c feat/new && git push -u origin feat/new',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push -u origin feat/x && git switch main',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git remote add fork ../remote.git && git push -u origin feat/x',
+    cwd: ON_FEAT,
+  },
   // `@` is HEAD, `heads/main` is main, and git takes a unique prefix of a long option.
-  { guard: P, expect: D, cmd: 'git push origin @', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push -u origin @', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin @:main', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin heads/main', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin feat/x:heads/main', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin HEAD:heads/main', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push --al origin', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push --mirr origin', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push --m origin', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push --branch origin', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push --del origin main', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push origin @', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push -u origin @', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push origin heads/feat/x', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push --force-w origin feat/x', cwd: ON_FEAT }, //   --force-with-lease
-  { guard: P, expect: A, cmd: 'git push --del origin feat/x', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push --ta origin', cwd: ON_MAIN }, //                 --tags
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin @',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push -u origin @',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin @:main',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin heads/main',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin feat/x:heads/main',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin HEAD:heads/main',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push --al origin',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push --mirr origin',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push --m origin',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push --branch origin',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push --del origin main',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin @',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push -u origin @',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin heads/feat/x',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push --force-w origin feat/x',
+    cwd: ON_FEAT,
+  }, //   --force-with-lease
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push --del origin feat/x',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push --ta origin',
+    cwd: ON_MAIN,
+  }, //                 --tags
   // A wildcard refspec can match a protected branch; the guard cannot evaluate it, so deny.
-  { guard: P, expect: D, cmd: 'git push origin \'refs/heads/*:refs/heads/*\'', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin \'refs/heads/*\'', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin \'feat/*:feat/*\'', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push origin feat/star', cwd: ON_FEAT }, // no glob, no protected target
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin \'refs/heads/*:refs/heads/*\'',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin \'refs/heads/*\'',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin \'feat/*:feat/*\'',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin feat/star',
+    cwd: ON_FEAT,
+  }, // no glob, no protected target
   // A brace list expands into several words, shifting every word after it, so any word holding
   // one leaves the target unknown; a quoted one is text.
-  { guard: P, expect: D, cmd: 'git push origin {develop,main}', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin {develop,main}', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin HEAD:{main,x}', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push {origin,main}', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin ma{i..i}n', cwd: ON_FEAT }, //         a sequence
-  { guard: P, expect: D, cmd: 'git push -o {a,b} origin feat/x', cwd: ON_FEAT }, //   an option's value
-  { guard: P, expect: A, cmd: 'git push origin HEAD@{1}:feat/x', cwd: ON_FEAT }, //   a reflog entry, no list
-  { guard: P, expect: A, cmd: 'git push origin \'{develop,main}\'', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin {develop,main}',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin {develop,main}',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin HEAD:{main,x}',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push {origin,main}',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin ma{i..i}n',
+    cwd: ON_FEAT,
+  }, //         a sequence
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push -o {a,b} origin feat/x',
+    cwd: ON_FEAT,
+  }, //   an option's value
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin HEAD@{1}:feat/x',
+    cwd: ON_FEAT,
+  }, //   a reflog entry, no list
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin \'{develop,main}\'',
+    cwd: ON_FEAT,
+  },
   // A shell variable's value is unknown here, so a remote or refspec holding one is denied on
   // any branch (declared over-block); single quotes and an option's value expand nothing judged.
-  { guard: P, expect: D, cmd: 'git push -u origin "$BRANCH"', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push -u origin "$BRANCH"', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'BRANCH=$(git branch --show-current); git push -u origin "$BRANCH"', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: `git push origin "\${BRANCH:-main}"`, cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: `git push origin "\${BRANCH:-main}"`, cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin HEAD:"$TARGET"', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin HEAD:"$TARGET"', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'for b in main; do git push origin $b; done', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'for b in main; do git push origin $b; done', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'ARGS="origin main"; git push $ARGS', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push "$R" feat/x', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin --delete "$B"', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push --repo "$R"', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push origin \'feat/$x\'', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push --force-with-lease=feat/x:$SHA origin feat/x', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push -o "$OPT" origin feat/x', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push -u origin "$BRANCH"',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push -u origin "$BRANCH"',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'BRANCH=$(git branch --show-current); git push -u origin "$BRANCH"',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: `git push origin "\${BRANCH:-main}"`,
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: `git push origin "\${BRANCH:-main}"`,
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin HEAD:"$TARGET"',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin HEAD:"$TARGET"',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'for b in main; do git push origin $b; done',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'for b in main; do git push origin $b; done',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'ARGS="origin main"; git push $ARGS',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push "$R" feat/x',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin --delete "$B"',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push --repo "$R"',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin \'feat/$x\'',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push --force-with-lease=feat/x:$SHA origin feat/x',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push -o "$OPT" origin feat/x',
+    cwd: ON_FEAT,
+  },
   // --recurse-submodules takes only the =value spelling; the bare word must not eat the remote.
-  { guard: P, expect: D, cmd: 'git push --recurse-submodules origin main', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push --recurse-submodules=check origin feat/x', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push --recurse-submodules origin main',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push --recurse-submodules=check origin feat/x',
+    cwd: ON_FEAT,
+  },
   // Unresolvable target fails closed: detached HEAD, or no checkout at all.
-  { guard: P, expect: D, cmd: 'git push', cwd: DETACHED },
-  { guard: P, expect: D, cmd: 'git push origin HEAD', cwd: DETACHED },
-  { guard: P, expect: D, cmd: 'git push', cwd: tmp },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push',
+    cwd: DETACHED,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin HEAD',
+    cwd: DETACHED,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push',
+    cwd: tmp,
+  },
   // PROTECTED_BRANCHES overrides the default: comma-separated globs, full match.
-  { guard: P, expect: D, cmd: 'git push origin release/1.x', env: { PROTECTED_BRANCHES: 'main,release/*' } },
-  { guard: P, expect: D, cmd: 'git push origin main', env: { PROTECTED_BRANCHES: 'main, release/*' } },
-  { guard: P, expect: A, cmd: 'git push origin release-notes', env: { PROTECTED_BRANCHES: 'main,release/*' } },
-  { guard: P, expect: A, cmd: 'git push origin main', env: { PROTECTED_BRANCHES: 'develop' } },
-  { guard: P, expect: D, cmd: 'git push origin develop', env: { PROTECTED_BRANCHES: 'develop' } },
-  { guard: P, expect: A, cmd: 'git push origin maintenance', env: { PROTECTED_BRANCHES: 'main' } }, // full match, not prefix
-  { guard: P, expect: D, cmd: 'git push origin main', env: { PROTECTED_BRANCHES: '' } }, //  empty means default
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin release/1.x',
+    env: { PROTECTED_BRANCHES: 'main,release/*' },
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin main',
+    env: { PROTECTED_BRANCHES: 'main, release/*' },
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin release-notes',
+    env: { PROTECTED_BRANCHES: 'main,release/*' },
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin main',
+    env: { PROTECTED_BRANCHES: 'develop' },
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin develop',
+    env: { PROTECTED_BRANCHES: 'develop' },
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin maintenance',
+    env: { PROTECTED_BRANCHES: 'main' },
+  }, // full match, not prefix
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin main',
+    env: { PROTECTED_BRANCHES: '' },
+  }, //  empty means default
   // No env var at all: the list comes from .claude/settings.json next to the hooks.
-  { guard: P, expect: D, cmd: 'git push origin release/1.x', unset: ['PROTECTED_BRANCHES'], hooksDir: SETTINGS_HOOKS },
-  { guard: P, expect: A, cmd: 'git push origin main', unset: ['PROTECTED_BRANCHES'], hooksDir: SETTINGS_HOOKS },
-  { guard: P, expect: D, cmd: `git push origin ${REAL_PROTECTED}`, unset: ['PROTECTED_BRANCHES'] }, // the real settings.json
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin release/1.x',
+    unset: ['PROTECTED_BRANCHES'],
+    hooksDir: SETTINGS_HOOKS,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin main',
+    unset: ['PROTECTED_BRANCHES'],
+    hooksDir: SETTINGS_HOOKS,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: `git push origin ${REAL_PROTECTED}`,
+    unset: ['PROTECTED_BRANCHES'],
+  }, // the real settings.json
   // The release script pushes from inside changelogen; a `git push` rule never sees it.
   { guard: P, expect: D, cmd: 'pnpm release' },
   { guard: P, expect: D, cmd: 'pnpm run release' },
@@ -757,15 +1252,45 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'echo "\\$(npm install) \\`npm i\\`"' }, // escaped, so literal
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'V="$(pnpm view react version)"' },
   // A target that is only a substitution names the current branch; one inside a name is unknown.
-  { guard: P, expect: D, cmd: 'git push -u origin "$(git branch --show-current)"', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin $(git rev-parse --abbrev-ref HEAD)', cwd: ON_MAIN },
-  { guard: P, expect: A, cmd: 'git push -u origin "$(git branch --show-current)"', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push origin HEAD:"$(git branch --show-current)"', cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin "feat/$(date +%s)"', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push -u origin "$(git branch --show-current)"',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin $(git rev-parse --abbrev-ref HEAD)',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push -u origin "$(git branch --show-current)"',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push origin HEAD:"$(git branch --show-current)"',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin "feat/$(date +%s)"',
+    cwd: ON_FEAT,
+  },
 
   // --- lexer: a `#` comment and a heredoc body are data, so their quotes open nothing -------
   { guard: P, expect: D, cmd: '# Make sure we\'re up to date first\ngit push origin main' },
-  { guard: P, expect: D, cmd: '# Check that it\'s clean\ngit status\ngit push', cwd: ON_MAIN },
+  {
+    guard: P,
+    expect: D,
+    cmd: '# Check that it\'s clean\ngit status\ngit push',
+    cwd: ON_MAIN,
+  },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '# Install the project\'s deps\nnpm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo hi # it\'s fine\nnpm install' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat > notes.md <<\'EOF\'\nIt\'s done.\nEOF\ncat .env' },
@@ -897,16 +1422,66 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'bash <(cat <<\'EOF\'\ncat <<\'X\'\nnpm install\nX\nEOF\n)' }, // the script prints it
 
   // --- redirections are not arguments: `2>&1` and `> log` never become a refspec ----------
-  { guard: P, expect: D, cmd: 'git push origin 2>&1', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin 2>&1 | tail -5', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin 2>/dev/null', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin > /tmp/log', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push > /tmp/log', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin &>/dev/null', cwd: ON_MAIN },
-  { guard: P, expect: D, cmd: 'git push origin # to the feature branch', cwd: ON_MAIN },
-  { guard: P, expect: A, cmd: 'git push 2>/dev/null', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push >/dev/null 2>&1', cwd: ON_FEAT },
-  { guard: P, expect: A, cmd: 'git push -u origin feat/x 2>&1 | tail -3', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin 2>&1',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin 2>&1 | tail -5',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin 2>/dev/null',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin > /tmp/log',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push > /tmp/log',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin &>/dev/null',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin # to the feature branch',
+    cwd: ON_MAIN,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push 2>/dev/null',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push >/dev/null 2>&1',
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: A,
+    cmd: 'git push -u origin feat/x 2>&1 | tail -3',
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '&>/dev/null npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo a\\>&npm install' }, // an escaped > is text, so & separates
 
@@ -946,7 +1521,12 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=\${\nnpm install\n}` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=\${\tnpm install; }` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \${\\\n npm install; }` }, // a blank after the continuation
-  { guard: P, expect: D, cmd: `FOO=\${ git push origin main;} true`, cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `FOO=\${ git push origin main;} true`,
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: `X=\${ pnpm approve-builds; } true` },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `x=\${ cat .env; }` },
   { guard: B, expect: D, cmd: `x=\${ git commit --no-verify -m x; }` },
@@ -975,12 +1555,22 @@ const CASES: Case[] = [
   // too, `fi`, `done`, `esac`, `]]`), as bash 5.3 reads it, so a quote after it cannot hide the
   // rest; a `}` after a plain word, an assignment, or a redirect is still text.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ { :; } }"; npm install` },
-  { guard: P, expect: D, cmd: `echo "\${ { :; } }"; git push origin main`, cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `echo "\${ { :; } }"; git push origin main`,
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo "\${ { :; } }"; cat .env` },
   { guard: B, expect: D, cmd: `echo "\${ { :; } }"; git commit --no-verify -m x` },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: `echo "\${ { :; } }"; pnpm approve-builds` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ if :; then :; fi }"; npm install` },
-  { guard: P, expect: D, cmd: `echo "\${ if :; then :; fi }"; git push origin main`, cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `echo "\${ if :; then :; fi }"; git push origin main`,
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ for x in a; do :; done }"; npm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ case a in a) :; esac }"; npm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ [[ a ]] }"; npm install` },
@@ -1009,7 +1599,12 @@ const CASES: Case[] = [
   // expansion that ends at its `}` and fails when it runs, then runs the next line: both
   // readings are judged.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "\${ x }"\nnpm install` },
-  { guard: P, expect: D, cmd: `x="\${ HOME }"\ngit push origin main`, cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `x="\${ HOME }"\ngit push origin main`,
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo "\${ x }"\ncat .env` },
   { guard: B, expect: D, cmd: `echo "\${| x }"\ngit commit --no-verify -m x` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `eval 'echo "\${ x }"\nnpm install'` },
@@ -1020,7 +1615,12 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo $((\${x) a); cat .env` },
   { guard: B, expect: D, cmd: `echo $((\${x) a); git commit --no-verify -m x` },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: `echo $((\${x) a); pnpm approve-builds` },
-  { guard: P, expect: D, cmd: `x=$((\${x:-a) a); git push origin main`, cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `x=$((\${x:-a) a); git push origin main`,
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $((\${x:-a) a)\nnpm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(( (\${x:-a) ) ); npm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo "$((\${x) a)"; npm install` },
@@ -1045,7 +1645,12 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'echo `echo $[ \'`\ncat .env' },
   { guard: B, expect: D, cmd: 'echo `echo $[ \'`\ngit commit --no-verify -m x' },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'echo `echo $[ \'`\npnpm approve-builds' },
-  { guard: P, expect: D, cmd: 'echo `echo $[ \'`\ngit push origin main', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'echo `echo $[ \'`\ngit push origin main',
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \`echo \${x:-<('\`\nnpm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo \`echo \${x:-<( '\`\nnpm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'echo `echo $(\'`\nnpm install' },
@@ -1069,7 +1674,12 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '`true``true` npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '> x npm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '>& x $(true) npm install' },
-  { guard: P, expect: D, cmd: '2> err.log git push origin main', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: '2> err.log git push origin main',
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: '> out cat .env' },
   { guard: B, expect: D, cmd: '< in git commit --no-verify -m x' },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: '> x pnpm approve-builds' },
@@ -1083,7 +1693,12 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `\${x}\`$(case a in \` npm install` },
   { guard: B, expect: D, cmd: `$x\`$[ a[\${x &&echo \`git commit --no-verify -m x\n}+= a` },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: '\n$x`(`eval pnpm approve-builds' },
-  { guard: P, expect: D, cmd: '$x git push origin main', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: '$x git push origin main',
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '$x npm install' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat .env\\\n\${x//a/}` },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat .env$x' },
@@ -1094,9 +1709,24 @@ const CASES: Case[] = [
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat \${x:-"}"} .e*v` },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat \${x//'}'/a} .e*v` },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `cat \${x:-'}'} ~/.ssh/id_*` },
-  { guard: P, expect: D, cmd: `\\git push origin main\\\n\${x//a/}`, cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: `git push origin main\${x}`, cwd: ON_FEAT },
-  { guard: P, expect: D, cmd: 'git push origin "$BRANCH"', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `\\git push origin main\\\n\${x//a/}`,
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: `git push origin main\${x}`,
+    cwd: ON_FEAT,
+  },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin "$BRANCH"',
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: '"$x" npm install' }, //                     a quoted empty word is a word
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: `"\${EDITOR:-vi}" notes.md; pnpm install` },
   { guard: 'deny-secret-reads.mts', expect: A, cmd: `cat "$FILE" config/\${ENV}.json; pnpm install` },
@@ -1109,13 +1739,23 @@ const CASES: Case[] = [
   // runs, and the commands after it run there, so that reading is judged too.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(\${x) a; npm install` },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo $(\${x); cat .env` },
-  { guard: P, expect: D, cmd: `x=$(\${x)\ngit push origin main`, cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `x=$(\${x)\ngit push origin main`,
+    cwd: ON_FEAT,
+  },
   { guard: B, expect: D, cmd: `echo $(\${x); git commit --no-verify -m x` },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: `echo $(\${x); pnpm approve-builds` },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `echo <(\${x); cat .env` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo >(\${x); npm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `cat <(\${x) a; npm install` },
-  { guard: P, expect: D, cmd: `echo $(\${x:-a) a; git push origin main`, cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `echo $(\${x:-a) a; git push origin main`,
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `echo $(\${x)\n\${x}\nnpm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `a[\${x]=1\nnpm install` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x[\${y]+=1\nnpm install` },
@@ -1135,7 +1775,12 @@ const CASES: Case[] = [
   // continuation on the rejected line hides nothing.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=((1))\\\nnpm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'x=((1)) "\nnpm install\n"' },
-  { guard: P, expect: D, cmd: 'x=((1)) "\ngit push origin main\n"', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'x=((1)) "\ngit push origin main\n"',
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'x=((1)) "\ncat .env\n"' },
   { guard: B, expect: D, cmd: 'x=((1)) "\ngit commit --no-verify -m x\n"' },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'x=((1)) "\npnpm approve-builds\n"' },
@@ -1161,7 +1806,12 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `${`\${x:-`.repeat(12)}npm install${'}'.repeat(12)}` }, // past the reparse bound
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `eval \${x:-npm install}` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `sudo \${x:-npm} install` },
-  { guard: P, expect: D, cmd: `\${B:-git} push origin main`, cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `\${B:-git} push origin main`,
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `\${x:-cat} .env` },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: `"\${x:-npm install}"` }, //   one word, no such command
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: `\${x:-a} \${y:-npm} install` }, // `a` runs, npm is its argument
@@ -1177,7 +1827,12 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/a/\${y:-npm install}}` },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/a/} \${x/a/npm} install` }, // an empty one leaves the next word
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: `x=a; \${x/a/sudo} \${x/a/npm} install` },
-  { guard: P, expect: D, cmd: `x=a; \${x/a/git} push origin main`, cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: `x=a; \${x/a/git} push origin main`,
+    cwd: ON_FEAT,
+  },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: `x=a; \${x/a/cat} .env` },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: `x=a; "\${x/a/npm install}"` }, // one word, no such command
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: `x=a; echo \${x/a/npm install}` },
@@ -1214,7 +1869,12 @@ const CASES: Case[] = [
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval\u00A0"npm install"' },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: 'cat\u00A0.env' },
   { guard: P, expect: D, cmd: 'git\u00A0push origin main' },
-  { guard: P, expect: D, cmd: 'git push origin\u00A0main', cwd: ON_FEAT },
+  {
+    guard: P,
+    expect: D,
+    cmd: 'git push origin\u00A0main',
+    cwd: ON_FEAT,
+  },
   { guard: B, expect: D, cmd: 'git commit\u00A0--no-verify -m x' },
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'pnpm\u00A0approve-builds' },
   // A quote closed mid-word keeps the word whole, so the flag after it is still read.
@@ -1250,8 +1910,16 @@ const CASES: Case[] = [
   { guard: 'deny-build-scripts.mts', expect: D, cmd: 'env -u X -S "pnpm approve-builds"' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'eval "bash -s" <<\'EOF\'\nnpm install\nEOF' }, // eval starts the shell
   // Past eight layers, what is left is read with its quotes dropped, so the chain still ends at npm.
-  { guard: 'deny-non-pnpm.mts', expect: D, cmd: nestedEval(12, 'npm install') },
-  { guard: 'deny-non-pnpm.mts', expect: D, cmd: nestedEval(12, 'true; npm install') },
+  {
+    guard: 'deny-non-pnpm.mts',
+    expect: D,
+    cmd: nestedEval(12, 'npm install'),
+  },
+  {
+    guard: 'deny-non-pnpm.mts',
+    expect: D,
+    cmd: nestedEval(12, 'true; npm install'),
+  },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'eval "pnpm install"' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'env -S "pnpm install"' },
   { guard: 'deny-non-pnpm.mts', expect: A, cmd: 'eval "echo \'npm install\'"' },
@@ -1303,7 +1971,12 @@ const CASES: Case[] = [
   // --- lexer: a `#` after a subshell's `)` opens a comment -----------------------------------
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '(echo a)#it\'s fine\nnpm install' },
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: '((1))#it\'s\nnpm install' },
-  { guard: P, expect: D, cmd: '(git status)#it\'s clean\ngit push origin main', cwd: ON_MAIN },
+  {
+    guard: P,
+    expect: D,
+    cmd: '(git status)#it\'s clean\ngit push origin main',
+    cwd: ON_MAIN,
+  },
   { guard: 'deny-secret-reads.mts', expect: D, cmd: '(true)#it\'s\ncat .env' },
   // After a process substitution, an array, or a substitution, the word runs on.
   { guard: 'deny-non-pnpm.mts', expect: D, cmd: 'cat <(echo a)#x; npm install' },
@@ -1489,17 +2162,37 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: A, cmd: 'git commit -m "$(cat <<\'EOF\'\nfix: never run npm install; it\'s banned\n\ncat .env and git push origin main are denied too\n`pnpm approve-builds` --no-verify\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)"' },
   { guard: 'dispatch.mts', expect: A, cmd: 'gh pr create --title "fix: x" --body "$(cat <<\'EOF\'\n## Summary\n- run `npm install` and `cat .env`\n- git push origin main\nEOF\n)"' },
   // A child's own guard denies that call in the child's hooks; the copy the cases run from drops it.
-  { guard: 'dispatch.mts', expect: D, cmd: 'gh pr create --fill', hooksDir: CHILD_HOOKS },
-  { guard: 'dispatch.mts', expect: A, cmd: 'gh pr create --fill', hooksDir: CHILD_COPY_HOOKS },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: 'gh pr create --fill',
+    hooksDir: CHILD_HOOKS,
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: A,
+    cmd: 'gh pr create --fill',
+    hooksDir: CHILD_COPY_HOOKS,
+  },
   { guard: 'dispatch.mts', expect: A, cmd: 'cat > notes.md <<\'EOF\'\nnpm install\ncat .env\ngit push origin main\nEOF' },
   { guard: 'dispatch.mts', expect: D, cmd: 'git commit -m "$(cat <<\'EOF\'\nfix: x\nEOF\n)" --no-verify' },
   { guard: 'dispatch.mts', expect: D, cmd: '# Make sure we\'re up to date first\ngit push origin main' },
-  { guard: 'dispatch.mts', expect: D, cmd: 'git push origin 2>&1 | tail -5', cwd: ON_MAIN },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: 'git push origin 2>&1 | tail -5',
+    cwd: ON_MAIN,
+  },
   { guard: 'dispatch.mts', expect: D, cmd: 'cat .env*' },
   { guard: 'dispatch.mts', expect: D, cmd: 'git \\\n  push origin main' },
   { guard: 'dispatch.mts', expect: D, cmd: 'eval "npm install"' },
   { guard: 'dispatch.mts', expect: D, cmd: 'coproc npm install' },
-  { guard: 'dispatch.mts', expect: D, cmd: 'npm\u00A0install', tool: 'PowerShell' },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: 'npm\u00A0install',
+    tool: 'PowerShell',
+  },
   { guard: 'dispatch.mts', expect: D, cmd: 'cat <<EOF\r>/dev/null\nx\nEOF\r\nnpm install' },
   { guard: 'dispatch.mts', expect: D, cmd: `FOO=\${x:-a b} npm install` },
   { guard: 'dispatch.mts', expect: D, cmd: 'echo x | xargs -i git push origin main' },
@@ -1514,30 +2207,148 @@ const CASES: Case[] = [
   { guard: 'dispatch.mts', expect: A, cmd: 'command -v npm' },
   { guard: 'dispatch.mts', expect: A, cmd: 'npx -y changelogen' },
   // Same dispatcher, Codex-shaped and Gemini-shaped payloads.
-  { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'Bash', extra: CODEX },
-  { guard: 'dispatch.mts', expect: D, cmd: 'git push origin main', tool: 'Bash', extra: CODEX },
-  { guard: 'dispatch.mts', expect: A, cmd: 'pnpm install', tool: 'Bash', extra: CODEX },
-  { guard: 'dispatch.mts', expect: D, cmd: 'npm install', tool: 'run_shell_command', extra: GEMINI },
-  { guard: 'dispatch.mts', expect: D, cmd: 'cat .env', tool: 'run_shell_command', extra: GEMINI },
-  { guard: 'dispatch.mts', expect: A, cmd: 'pnpm install', tool: 'run_shell_command', extra: GEMINI },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: 'npm install',
+    tool: 'Bash',
+    extra: CODEX,
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: 'git push origin main',
+    tool: 'Bash',
+    extra: CODEX,
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: A,
+    cmd: 'pnpm install',
+    tool: 'Bash',
+    extra: CODEX,
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: 'npm install',
+    tool: 'run_shell_command',
+    extra: GEMINI,
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: 'cat .env',
+    tool: 'run_shell_command',
+    extra: GEMINI,
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: A,
+    cmd: 'pnpm install',
+    tool: 'run_shell_command',
+    extra: GEMINI,
+  },
   // Monitor-shaped payloads: a command is judged like Bash; a WebSocket watch passes.
-  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: npm install>', raw: monitor({ command: 'npm install' }) },
-  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: cat .env>', raw: monitor({ command: 'tail -f .env' }) },
-  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: push main>', raw: monitor({ command: 'until git push origin main; do sleep 5; done' }) },
-  { guard: 'dispatch.mts', expect: A, cmd: '<monitor: pnpm dev>', raw: monitor({ command: 'pnpm dev 2>&1 | grep --line-buffered -E "ready|error"' }) },
-  { guard: 'dispatch.mts', expect: A, cmd: '<monitor: ws>', raw: monitor({ ws: { url: 'wss://events.example.com/stream' } }) },
-  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: ws with bad command>', raw: monitor({ ws: { url: 'wss://x' }, command: ['npm', 'i'] }) },
-  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: ws not an object>', raw: monitor({ ws: 'wss://x' }) },
-  { guard: 'dispatch.mts', expect: D, cmd: '<monitor: neither>', raw: monitor({}) },
-  { guard: 'dispatch.mts', expect: D, cmd: '<bash: ws shape>', raw: monitor({ ws: { url: 'wss://x' } }, 'Bash') }, // only Monitor opens sockets
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<monitor: npm install>',
+    raw: monitor({ command: 'npm install' }),
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<monitor: cat .env>',
+    raw: monitor({ command: 'tail -f .env' }),
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<monitor: push main>',
+    raw: monitor({ command: 'until git push origin main; do sleep 5; done' }),
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: A,
+    cmd: '<monitor: pnpm dev>',
+    raw: monitor({ command: 'pnpm dev 2>&1 | grep --line-buffered -E "ready|error"' }),
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: A,
+    cmd: '<monitor: ws>',
+    raw: monitor({
+      ws: { url: 'wss://events.example.com/stream' },
+    }),
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<monitor: ws with bad command>',
+    raw: monitor({
+      ws: { url: 'wss://x' },
+      command: ['npm', 'i'],
+    }),
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<monitor: ws not an object>',
+    raw: monitor({ ws: 'wss://x' }),
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<monitor: neither>',
+    raw: monitor({}),
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<bash: ws shape>',
+    raw: monitor({
+      ws: { url: 'wss://x' },
+    }, 'Bash'),
+  }, // only Monitor opens sockets
 
   // --- fail closed: unparseable or shapeless hook input is denied, never allowed ----
-  { guard: 'dispatch.mts', expect: D, cmd: '<raw: empty>', raw: '' },
-  { guard: 'dispatch.mts', expect: D, cmd: '<raw: truncated>', raw: '{' },
-  { guard: 'dispatch.mts', expect: D, cmd: '<raw: null tool_input>', raw: '{"tool_input":null}' },
-  { guard: 'dispatch.mts', expect: D, cmd: '<raw: no tool_input>', raw: '{"tool_name":"Bash"}' },
-  { guard: 'dispatch.mts', expect: D, cmd: '<raw: command not a string>', raw: '{"tool_input":{"command":["npm","i"]}}' },
-  { guard: 'dispatch.mts', expect: A, cmd: '<raw: empty command>', raw: '{"tool_input":{"command":""}}' }, // a string, nothing to run
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<raw: empty>',
+    raw: '',
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<raw: truncated>',
+    raw: '{',
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<raw: null tool_input>',
+    raw: '{"tool_input":null}',
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<raw: no tool_input>',
+    raw: '{"tool_name":"Bash"}',
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: D,
+    cmd: '<raw: command not a string>',
+    raw: '{"tool_input":{"command":["npm","i"]}}',
+  },
+  {
+    guard: 'dispatch.mts',
+    expect: A,
+    cmd: '<raw: empty command>',
+    raw: '{"tool_input":{"command":""}}',
+  }, // a string, nothing to run
 ]
 
 // Direct lexer pins: WRAP / WRAP_VALUE_FLAGS / WRAP_POSITIONAL / wouldHideHead / leadIndex all
@@ -1645,13 +2456,31 @@ writeFileSync(join(CRLF_CLAUDE, 'output-styles', 'writing.md'), STYLE_TEXT.repla
 interface SessionCase { name: string, raw: string, hooksDir?: string, context: boolean }
 const SESSION_CASES: SessionCase[] = [
   { name: 'claude startup', raw: '{"hook_event_name":"SessionStart","source":"startup"}', context: true },
-  { name: 'codex resume', raw: JSON.stringify({ ...CODEX, hook_event_name: 'SessionStart', source: 'resume' }), context: true },
-  { name: 'gemini clear', raw: JSON.stringify({ ...GEMINI, hook_event_name: 'SessionStart', source: 'clear' }), context: true },
+  {
+    name: 'codex resume',
+    raw: JSON.stringify({ ...CODEX, hook_event_name: 'SessionStart', source: 'resume' }),
+    context: true,
+  },
+  {
+    name: 'gemini clear',
+    raw: JSON.stringify({ ...GEMINI, hook_event_name: 'SessionStart', source: 'clear' }),
+    context: true,
+  },
   { name: 'empty stdin', raw: '', context: true },
   { name: 'truncated json', raw: '{', context: true },
   { name: 'pre-tool shape', raw: '{"tool_input":null}', context: true },
-  { name: 'style file missing', raw: '{"hook_event_name":"SessionStart"}', hooksDir: join(NOSTYLE_CLAUDE, 'hooks'), context: false },
-  { name: 'crlf style file', raw: '{"hook_event_name":"SessionStart"}', hooksDir: join(CRLF_CLAUDE, 'hooks'), context: true },
+  {
+    name: 'style file missing',
+    raw: '{"hook_event_name":"SessionStart"}',
+    hooksDir: join(NOSTYLE_CLAUDE, 'hooks'),
+    context: false,
+  },
+  {
+    name: 'crlf style file',
+    raw: '{"hook_event_name":"SessionStart"}',
+    hooksDir: join(CRLF_CLAUDE, 'hooks'),
+    context: true,
+  },
 ]
 
 interface SessionOutput { hookSpecificOutput?: { hookEventName?: string, additionalContext?: string } }
@@ -1738,10 +2567,26 @@ const EXIT_TAIL = 'exit $((2*!!($true-$?)))'
 // parenthesized block, so its tail does the same arithmetic without a parenthesis.
 const CODEX_WINDOWS_TAIL = 'exit 2-2*$?'
 const OR_EXIT = '|| exit 2'
-const CODEX_SOURCES: readonly string[] = ['startup', 'resume', 'clear', 'compact']
+const CODEX_SOURCES: readonly string[] = [
+  'startup',
+  'resume',
+  'clear',
+  'compact',
+]
 const SHELL_TOOLS: readonly string[] = ['Bash', 'PowerShell', 'Monitor']
 // The credentials a developer machine holds in the home directory, outside any repository.
-const HOME_CREDENTIALS: readonly string[] = ['.ssh/id_*', '.aws/credentials', '.config/gh/hosts.yml', '.git-credentials', '.kube/config', '.docker/config.json', '.pgpass', '.netrc', '_netrc', '.npmrc']
+const HOME_CREDENTIALS: readonly string[] = [
+  '.ssh/id_*',
+  '.aws/credentials',
+  '.config/gh/hosts.yml',
+  '.git-credentials',
+  '.kube/config',
+  '.docker/config.json',
+  '.pgpass',
+  '.netrc',
+  '_netrc',
+  '.npmrc',
+]
 type HandlerTest = (h: Handler) => boolean
 const runsDispatcher: HandlerTest = h => (h.command ?? '').includes('dispatch.mts')
 const runsScript = (script: string): HandlerTest => h => [h.command, h.commandWindows].some(c => c !== undefined && new RegExp(`\\brun ${script}(?![\\w:-])`).test(c))
@@ -1751,7 +2596,10 @@ interface Picked { entries: Registration[], handlers: Handler[] }
 /** The entries holding a handler `pick` selects, and those handlers alone. */
 function picked(entries: Registration[] | undefined, pick: HandlerTest): Picked {
   const hits = (entries ?? []).filter(e => (e.hooks ?? []).some(pick))
-  return { entries: hits, handlers: hits.flatMap(e => e.hooks ?? []).filter(pick) }
+  return {
+    entries: hits,
+    handlers: hits.flatMap(e => e.hooks ?? []).filter(pick),
+  }
 }
 /** The template's own entries in the three files: the guards' and the writing rules'. */
 function templateEntries(f: RegistrationFiles): Record<'claudeGuard' | 'codexGuard' | 'geminiGuard' | 'codexSession' | 'geminiSession', Picked> {
@@ -1819,7 +2667,10 @@ function registrationProblems(f: RegistrationFiles): string[] {
   function commandsIn(file: string, list: Handler[]): { file: string, command: string }[] {
     return list.flatMap(h => [h.command, h.commandWindows]).filter(c => c !== undefined).map(command => ({ file, command }))
   }
-  for (const { file, command } of [...commandsIn('.codex/hooks.json', t.codexGuard.handlers), ...commandsIn('.gemini/settings.json', t.geminiGuard.handlers)]) {
+  for (const { file, command } of [
+    ...commandsIn('.codex/hooks.json', t.codexGuard.handlers),
+    ...commandsIn('.gemini/settings.json', t.geminiGuard.handlers),
+  ]) {
     if (!command.includes(NO_INSTALL))
       structural.push(`${file}: guard command ${command} lacks ${NO_INSTALL}, so pnpm installs first on a stale workspace`)
   }
@@ -1828,7 +2679,9 @@ function registrationProblems(f: RegistrationFiles): string[] {
     ...commandsIn('.gemini/settings.json', t.geminiGuard.handlers),
   ]
   for (const { file, command } of tailed) {
-    const tail = file === '.codex/hooks.json' ? CODEX_WINDOWS_TAIL : EXIT_TAIL
+    const tail = file === '.codex/hooks.json'
+      ? CODEX_WINDOWS_TAIL
+      : EXIT_TAIL
     if (file === '.codex/hooks.json' && /[()]/.test(command))
       structural.push(`${file}: commandWindows ${command} holds a parenthesis, which ends pnpm.cmd's block under cmd.exe, so cmd exits 255 and every call passes`)
     if (!command.endsWith(`; ${tail}`))
@@ -1836,7 +2689,10 @@ function registrationProblems(f: RegistrationFiles): string[] {
     else if (!command.endsWith(` ; ${tail}`))
       structural.push(`${file}: guard command ${command} has no space before the tail's ";", so cmd.exe hands pnpm a script name ending in ";" and every call passes`)
   }
-  for (const { file, command } of [...commandsIn('.codex/hooks.json', t.codexSession.handlers), ...commandsIn('.gemini/settings.json', t.geminiSession.handlers)]) {
+  for (const { file, command } of [
+    ...commandsIn('.codex/hooks.json', t.codexSession.handlers),
+    ...commandsIn('.gemini/settings.json', t.geminiSession.handlers),
+  ]) {
     if (!command.includes(NO_INSTALL))
       structural.push(`${file}: session command ${command} lacks ${NO_INSTALL}, so pnpm installs first on a stale workspace`)
     if (/\bexit\b/.test(command))
@@ -1892,10 +2748,38 @@ const realProblems = registrationProblems(FILES)
 // only the problems the real files lack.
 interface RegistrationCase { name: string, edit: (f: RegistrationFiles) => void, want: string[] }
 const entriesOf = (file: { hooks?: Hooks }, event: keyof Hooks): Registration[] => ((file.hooks ??= {})[event] ??= [])
-const ownHook = (matcher: string): Registration => ({ matcher, hooks: [{ command: 'node .claude/hooks/format.mts' }] })
+function ownHook(matcher: string): Registration {
+  return {
+    matcher,
+    hooks: [
+      { command: 'node .claude/hooks/format.mts' },
+    ],
+  }
+}
 /** Every template entry of `f`, with the event list it sits in. */
 function templateLists(f: RegistrationFiles): [Registration[], HandlerTest][] {
-  return [[entriesOf(f.claude, 'PreToolUse'), runsDispatcher], [entriesOf(f.codex, 'PreToolUse'), runsGuards], [entriesOf(f.gemini, 'BeforeTool'), runsGuards], [entriesOf(f.codex, 'SessionStart'), runsSession], [entriesOf(f.gemini, 'SessionStart'), runsSession]]
+  return [
+    [
+      entriesOf(f.claude, 'PreToolUse'),
+      runsDispatcher,
+    ],
+    [
+      entriesOf(f.codex, 'PreToolUse'),
+      runsGuards,
+    ],
+    [
+      entriesOf(f.gemini, 'BeforeTool'),
+      runsGuards,
+    ],
+    [
+      entriesOf(f.codex, 'SessionStart'),
+      runsSession,
+    ],
+    [
+      entriesOf(f.gemini, 'SessionStart'),
+      runsSession,
+    ],
+  ]
 }
 function addOwnHooks(f: RegistrationFiles): void {
   entriesOf(f.claude, 'PreToolUse').unshift(ownHook('Edit|Write'))
@@ -1914,7 +2798,12 @@ const REGISTRATION_CASES: RegistrationCase[] = [
     name: 'own Claude hook with the bare project dir',
     edit: (f) => {
       addOwnHooks(f)
-      entriesOf(f.claude, 'PreToolUse').unshift({ matcher: 'Edit|Write', hooks: [{ command: 'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/format.mts' }] })
+      entriesOf(f.claude, 'PreToolUse').unshift({
+        matcher: 'Edit|Write',
+        hooks: [
+          { command: 'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/format.mts' },
+        ],
+      })
     },
     want: ['uses the bare $CLAUDE_PROJECT_DIR'],
   },
@@ -1925,19 +2814,38 @@ const REGISTRATION_CASES: RegistrationCase[] = [
       for (const [list, pick] of templateLists(f))
         list.splice(0, list.length, ...list.filter(e => !(e.hooks ?? []).some(pick)))
     },
-    want: ['no PreToolUse entry runs dispatch.mts', 'no PreToolUse entry runs the guards script', 'no BeforeTool entry runs the guards script', '.codex/hooks.json: no SessionStart entry', '.gemini/settings.json: no SessionStart entry'],
+    want: [
+      'no PreToolUse entry runs dispatch.mts',
+      'no PreToolUse entry runs the guards script',
+      'no BeforeTool entry runs the guards script',
+      '.codex/hooks.json: no SessionStart entry',
+      '.gemini/settings.json: no SessionStart entry',
+    ],
   },
   {
     name: 'template matchers narrowed',
     edit: (f) => {
       addOwnHooks(f)
-      const matchers = ['Bash', 'Shell', 'shell', 'startup', 'startup']
+      const matchers = [
+        'Bash',
+        'Shell',
+        'shell',
+        'startup',
+        'startup',
+      ]
       for (const [i, [list, pick]] of templateLists(f).entries()) {
         for (const e of list.filter(e => (e.hooks ?? []).some(pick)))
           e.matcher = matchers[i]!
       }
     },
-    want: ['"Bash" leaves the PowerShell tool unguarded', '"Bash" leaves the Monitor tool unguarded', 'PreToolUse matcher "Shell" is not Bash', 'BeforeTool matcher "shell" is not run_shell_command', 'SessionStart matcher "startup" skips resume, clear, compact', 'SessionStart matcher "startup" never fires'],
+    want: [
+      '"Bash" leaves the PowerShell tool unguarded',
+      '"Bash" leaves the Monitor tool unguarded',
+      'PreToolUse matcher "Shell" is not Bash',
+      'BeforeTool matcher "shell" is not run_shell_command',
+      'SessionStart matcher "startup" skips resume, clear, compact',
+      'SessionStart matcher "startup" never fires',
+    ],
   },
 ]
 
@@ -1954,7 +2862,9 @@ for (const c of REGISTRATION_CASES) {
     fails.push(`[registrations] ${c.name}: no problem names ${w}`)
 }
 for (const c of SESSION_CASES) {
-  const r = spawnSync(process.execPath, [join(c.hooksDir ?? HOOKS, SESSION)], { input: c.raw, encoding: 'utf8' })
+  const r = spawnSync(process.execPath, [
+    join(c.hooksDir ?? HOOKS, SESSION),
+  ], { input: c.raw, encoding: 'utf8' })
   for (const p of sessionProblems(c, r.status, r.stdout, r.stderr))
     fails.push(`[${SESSION}] ${c.name}: ${p}`)
 }
@@ -2038,7 +2948,13 @@ const VERDICT_BUDGET: Record<string, { cmd: string, expect: 0 | 2 }> = {
 }
 for (const [name, { cmd, expect }] of Object.entries(VERDICT_BUDGET)) {
   const started = performance.now()
-  const got = secretReads(cmd, { cwd: process.cwd(), env: process.env, settingsFile: join(HOOKS, '..', 'settings.json') }) === null ? A : D
+  const got = secretReads(cmd, {
+    cwd: process.cwd(),
+    env: process.env,
+    settingsFile: join(HOOKS, '..', 'settings.json'),
+  }) === null
+    ? A
+    : D
   const took = performance.now() - started
   if (took > BUDGET_MS)
     fails.push(`[deny-secret-reads.mts] ${name} took ${Math.round(took)} ms, want under ${BUDGET_MS}`)
@@ -2048,26 +2964,53 @@ for (const [name, { cmd, expect }] of Object.entries(VERDICT_BUDGET)) {
 /** A run's stderr as a suffix for its failure line, which then names the guard or the error. */
 function stderrNote(stderr: string): string {
   const text = stderr.trim()
-  return text === '' ? '' : ` (stderr: ${text.slice(0, 300)})`
+  return text === ''
+    ? ''
+    : ` (stderr: ${text.slice(0, 300)})`
 }
 for (const c of CASES) {
-  const env: Record<string, string | undefined> = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env }
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    PROTECTED_BRANCHES: 'main',
+    ...c.env,
+  }
   for (const name of c.unset ?? [])
     delete env[name]
   if (c.guard === 'dispatch.mts') {
-    const json = c.raw ?? JSON.stringify({ ...c.extra, tool_name: c.tool ?? 'Bash', tool_input: { command: c.cmd } })
-    const r = spawnSync(process.execPath, [join(c.hooksDir ?? TEMPLATE_HOOKS, c.guard)], { input: json, cwd: c.cwd ?? DEFAULT_CWD, env, encoding: 'utf8' })
+    const json = c.raw ?? JSON.stringify({
+      ...c.extra,
+      tool_name: c.tool ?? 'Bash',
+      tool_input: { command: c.cmd },
+    })
+    const r = spawnSync(process.execPath, [
+      join(c.hooksDir ?? TEMPLATE_HOOKS, c.guard),
+    ], {
+      input: json,
+      cwd: c.cwd ?? DEFAULT_CWD,
+      env,
+      encoding: 'utf8',
+    })
     if (r.status !== c.expect)
       fails.push(`[${c.guard}] got ${r.status ?? 'null'}, want ${c.expect}: ${c.cmd}${stderrNote(r.stderr)}`)
     continue
   }
-  const ctx: GuardContext = { cwd: c.cwd ?? DEFAULT_CWD, env, settingsFile: join(c.hooksDir ?? HOOKS, '..', 'settings.json') }
+  const ctx: GuardContext = {
+    cwd: c.cwd ?? DEFAULT_CWD,
+    env,
+    settingsFile: join(c.hooksDir ?? HOOKS, '..', 'settings.json'),
+  }
   const why = VERDICTS[c.guard](c.cmd, ctx)
-  const got = why === null ? A : D
-  if (got !== c.expect)
-    fails.push(`[${c.guard}] got ${got}${why ? ` (${why})` : ''}, want ${c.expect}: ${c.cmd}`)
-  else if (c.why !== undefined && !(why ?? '').includes(c.why))
+  const got = why === null
+    ? A
+    : D
+  if (got !== c.expect) {
+    fails.push(`[${c.guard}] got ${got}${why
+      ? ` (${why})`
+      : ''}, want ${c.expect}: ${c.cmd}`)
+  }
+  else if (c.why !== undefined && !(why ?? '').includes(c.why)) {
     fails.push(`[${c.guard}] reason ${JSON.stringify(why)} lacks ${JSON.stringify(c.why)}: ${c.cmd}`)
+  }
 }
 
 // A dispatcher that cannot start must still deny: no harness blocks on exit 1, and Claude Code
@@ -2083,12 +3026,27 @@ mkdirSync(EMPTY_PROJECT)
 const LAUNCH_CASES: LaunchCase[] = [
   { name: 'deny', cmd: 'npm install', expect: D },
   { name: 'allow', cmd: 'pnpm install', expect: A },
-  { name: 'node cannot load .mts', cmd: 'pnpm install', expect: D, env: { NODE_OPTIONS: '--no-experimental-strip-types' } },
-  { name: 'dispatcher missing', cmd: 'pnpm install', expect: D, project: EMPTY_PROJECT },
+  {
+    name: 'node cannot load .mts',
+    cmd: 'pnpm install',
+    expect: D,
+    env: { NODE_OPTIONS: '--no-experimental-strip-types' },
+  },
+  {
+    name: 'dispatcher missing',
+    cmd: 'pnpm install',
+    expect: D,
+    project: EMPTY_PROJECT,
+  },
 ]
 const PLACEHOLDER = ['$', '{CLAUDE_PROJECT_DIR}'].join('')
 const claudeCommands = TEMPLATE.claudeGuard.handlers.map(h => h.command ?? '')
-const payload = (cmd: string): string => JSON.stringify({ tool_name: 'Bash', tool_input: { command: cmd } })
+function payload(cmd: string): string {
+  return JSON.stringify({
+    tool_name: 'Bash',
+    tool_input: { command: cmd },
+  })
+}
 const runs = (bin: string, args: string[]): boolean => spawnSync(bin, args, { stdio: 'ignore', timeout: 20_000 }).status === 0
 const launchSkipped: string[] = []
 let launchRuns = 0
@@ -2100,24 +3058,57 @@ function launched(where: string, c: LaunchCase, status: number | null, stdout = 
     fails.push(`[launch] ${where}, ${c.name}: stdout should be empty, got ${stdout.slice(0, 80)}`)
 }
 const SHELLS = ['sh', 'pwsh', 'powershell'].filter((shell) => {
-  const ok = shell === 'sh' ? runs('sh', ['-c', 'exit 0']) : runs(shell, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'])
+  const ok = shell === 'sh'
+    ? runs('sh', ['-c', 'exit 0'])
+    : runs(shell, [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'exit 0',
+      ])
   if (!ok)
     launchSkipped.push(shell)
   return ok
 })
-const shellArgs = (shell: string, command: string): string[] => shell === 'sh' ? ['-c', command] : ['-NoProfile', '-NonInteractive', '-Command', command]
+function shellArgs(shell: string, command: string): string[] {
+  return shell === 'sh'
+    ? ['-c', command]
+    : [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        command,
+      ]
+}
 for (const shell of SHELLS) {
   for (const command of claudeCommands) {
     for (const c of LAUNCH_CASES) {
       const project = c.project ?? TEMPLATE_PROJECT
-      const env = { ...process.env, PROTECTED_BRANCHES: 'main', ...c.env, CLAUDE_PROJECT_DIR: project }
-      const r = spawnSync(shell, shellArgs(shell, shell === 'sh' ? command : command.replaceAll(PLACEHOLDER, project)), { input: payload(c.cmd), env, timeout: 20_000, encoding: 'utf8' })
+      const env = {
+        ...process.env,
+        PROTECTED_BRANCHES: 'main',
+        ...c.env,
+        CLAUDE_PROJECT_DIR: project,
+      }
+      const r = spawnSync(shell, shellArgs(shell, shell === 'sh'
+        ? command
+        : command.replaceAll(PLACEHOLDER, project)), {
+        input: payload(c.cmd),
+        env,
+        timeout: 20_000,
+        encoding: 'utf8',
+      })
       launched(`Claude Code under ${shell}`, c, r.status, '', r.stderr ?? '')
     }
     if (shell === 'sh' && process.platform !== 'win32') {
       const c: LaunchCase = { name: 'node not installed', cmd: 'pnpm install', expect: D }
       const env = { ...process.env, PATH: EMPTY_PROJECT, CLAUDE_PROJECT_DIR: TEMPLATE_PROJECT }
-      const r = spawnSync('/bin/sh', ['-c', command], { input: payload(c.cmd), env, timeout: 20_000, encoding: 'utf8' })
+      const r = spawnSync('/bin/sh', ['-c', command], {
+        input: payload(c.cmd),
+        env,
+        timeout: 20_000,
+        encoding: 'utf8',
+      })
       launched('Claude Code under sh', c, r.status, '', r.stderr ?? '')
     }
   }
@@ -2137,26 +3128,87 @@ interface PnpmCase extends LaunchCase { cwd: string, root?: string }
 const STALE = join(tmp, 'stale-workspace')
 mkdirSync(join(STALE, 'sub'), { recursive: true })
 claudeCopy(join(STALE, '.claude'))
-writeFileSync(join(STALE, 'package.json'), `${JSON.stringify({ name: 'stale', private: true, scripts: { guards: rootPackage.scripts?.guards, session: rootPackage.scripts?.session }, devDependencies: { 'is-number': '7.0.0' } })}\n`)
+writeFileSync(join(STALE, 'package.json'), `${JSON.stringify({
+  name: 'stale',
+  private: true,
+  scripts: { guards: rootPackage.scripts?.guards, session: rootPackage.scripts?.session },
+  devDependencies: { 'is-number': '7.0.0' },
+})}\n`)
 writeFileSync(join(STALE, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n')
-const OFFLINE = { pnpm_config_registry: 'http://127.0.0.1:9/', pnpm_config_fetch_retries: '0', pnpm_config_store_dir: join(tmp, 'pnpm-store') }
-const PNPM_DENY: PnpmCase = { name: 'deny', cmd: 'npm install', expect: D, cwd: TEMPLATE_HOOKS }
-const PNPM_ALLOW: PnpmCase = { name: 'allow', cmd: 'pnpm install', expect: A, cwd: TEMPLATE_HOOKS }
+const OFFLINE = {
+  pnpm_config_registry: 'http://127.0.0.1:9/',
+  pnpm_config_fetch_retries: '0',
+  pnpm_config_store_dir: join(tmp, 'pnpm-store'),
+}
+const PNPM_DENY: PnpmCase = {
+  name: 'deny',
+  cmd: 'npm install',
+  expect: D,
+  cwd: TEMPLATE_HOOKS,
+}
+const PNPM_ALLOW: PnpmCase = {
+  name: 'allow',
+  cmd: 'pnpm install',
+  expect: A,
+  cwd: TEMPLATE_HOOKS,
+}
 const PNPM_CASES: PnpmCase[] = [
   PNPM_DENY,
   PNPM_ALLOW,
-  { name: 'node cannot load .mts', cmd: 'pnpm install', expect: D, cwd: TEMPLATE_HOOKS, env: { NODE_OPTIONS: '--no-experimental-strip-types' } },
-  { name: 'pnpm fails before the script', cmd: 'pnpm install', expect: D, cwd: EMPTY_PROJECT, root: EMPTY_PROJECT },
-  { name: 'workspace never installed, deny', cmd: 'npm install', expect: D, cwd: join(STALE, 'sub'), env: OFFLINE, root: STALE },
-  { name: 'workspace never installed, allow', cmd: 'pnpm install', expect: A, cwd: join(STALE, 'sub'), env: OFFLINE, root: STALE },
+  {
+    name: 'node cannot load .mts',
+    cmd: 'pnpm install',
+    expect: D,
+    cwd: TEMPLATE_HOOKS,
+    env: { NODE_OPTIONS: '--no-experimental-strip-types' },
+  },
+  {
+    name: 'pnpm fails before the script',
+    cmd: 'pnpm install',
+    expect: D,
+    cwd: EMPTY_PROJECT,
+    root: EMPTY_PROJECT,
+  },
+  {
+    name: 'workspace never installed, deny',
+    cmd: 'npm install',
+    expect: D,
+    cwd: join(STALE, 'sub'),
+    env: OFFLINE,
+    root: STALE,
+  },
+  {
+    name: 'workspace never installed, allow',
+    cmd: 'pnpm install',
+    expect: A,
+    cwd: join(STALE, 'sub'),
+    env: OFFLINE,
+    root: STALE,
+  },
 ]
 const SESSION_LAUNCHES: PnpmCase[] = [
-  { name: 'installed workspace', cmd: '', expect: A, cwd: HOOKS },
-  { name: 'workspace never installed', cmd: '', expect: A, cwd: join(STALE, 'sub'), env: OFFLINE, root: STALE },
+  {
+    name: 'installed workspace',
+    cmd: '',
+    expect: A,
+    cwd: HOOKS,
+  },
+  {
+    name: 'workspace never installed',
+    cmd: '',
+    expect: A,
+    cwd: join(STALE, 'sub'),
+    env: OFFLINE,
+    root: STALE,
+  },
 ]
 const GEMINI_POWERSHELL_SUFFIX = '; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'
 function pnpmEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env, PROTECTED_BRANCHES: 'main', ...extra }
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    PROTECTED_BRANCHES: 'main',
+    ...extra,
+  }
   for (const name of Object.keys(env)) {
     if (/^p?npm_config_verify_deps_before_run$/i.test(name))
       delete env[name]
@@ -2172,7 +3224,14 @@ function shellPath(bin: string): string {
 /** Runs `argv` from the case's `cwd`; for a case with a `root`, also checks it is fast and installs nothing. */
 function pnpmRun(where: string, c: PnpmCase, argv: string[], opts: { env?: Record<string, string | undefined>, shell?: boolean } = {}): { status: number | null, stdout: string, stderr: string } {
   const started = performance.now()
-  const r = spawnSync(argv[0] ?? '', argv.slice(1), { cwd: c.cwd, input: payload(c.cmd), env: opts.env ?? pnpmEnv(c.env), encoding: 'utf8', timeout: 20_000, shell: opts.shell ?? false })
+  const r = spawnSync(argv[0] ?? '', argv.slice(1), {
+    cwd: c.cwd,
+    input: payload(c.cmd),
+    env: opts.env ?? pnpmEnv(c.env),
+    encoding: 'utf8',
+    timeout: 20_000,
+    shell: opts.shell ?? false,
+  })
   const took = performance.now() - started
   if (c.root !== undefined && took > 5000)
     fails.push(`[launch] ${where}, ${c.name}: took ${Math.round(took)} ms, want under 5000`)
@@ -2184,49 +3243,107 @@ function pnpmRun(where: string, c: PnpmCase, argv: string[], opts: { env?: Recor
 }
 if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 }).status === 0) {
   const BASH = shellPath('bash')
-  const CODEX_POSIX = { name: 'sh', bin: process.platform === 'win32' ? 'sh' : '/bin/sh' }
-  const GEMINI_POSIX = BASH === '' ? CODEX_POSIX : { name: 'bash', bin: BASH }
+  const CODEX_POSIX = {
+    name: 'sh',
+    bin: process.platform === 'win32'
+      ? 'sh'
+      : '/bin/sh',
+  }
+  const GEMINI_POSIX = BASH === ''
+    ? CODEX_POSIX
+    : { name: 'bash', bin: BASH }
   const hosts = [
-    ...codexGuards.map(h => ({ where: 'Codex', posix: CODEX_POSIX, sh: h.command ?? '', powershell: h.commandWindows ?? h.command ?? '' })),
-    ...geminiGuards.map(h => ({ where: 'Gemini', posix: GEMINI_POSIX, sh: h.command ?? '', powershell: `${h.command ?? ''}${GEMINI_POWERSHELL_SUFFIX}` })),
+    ...codexGuards.map(h => ({
+      where: 'Codex',
+      posix: CODEX_POSIX,
+      sh: h.command ?? '',
+      powershell: h.commandWindows ?? h.command ?? '',
+    })),
+    ...geminiGuards.map(h => ({
+      where: 'Gemini',
+      posix: GEMINI_POSIX,
+      sh: h.command ?? '',
+      powershell: `${h.command ?? ''}${GEMINI_POWERSHELL_SUFFIX}`,
+    })),
   ]
   const sessionHosts = [
-    ...codexSessions.map(h => ({ where: 'Codex session', posix: CODEX_POSIX, sh: h.command ?? '', powershell: h.commandWindows ?? h.command ?? '' })),
-    ...geminiSessions.map(h => ({ where: 'Gemini session', posix: GEMINI_POSIX, sh: h.command ?? '', powershell: `${h.command ?? ''}${GEMINI_POWERSHELL_SUFFIX}` })),
+    ...codexSessions.map(h => ({
+      where: 'Codex session',
+      posix: CODEX_POSIX,
+      sh: h.command ?? '',
+      powershell: h.commandWindows ?? h.command ?? '',
+    })),
+    ...geminiSessions.map(h => ({
+      where: 'Gemini session',
+      posix: GEMINI_POSIX,
+      sh: h.command ?? '',
+      powershell: `${h.command ?? ''}${GEMINI_POWERSHELL_SUFFIX}`,
+    })),
   ]
   // A missing pnpm is a PATH that holds only sh, which Codex's `command` hands the pnpm call to,
   // with each shell started by its absolute path. Off Windows only, where the suite can build that
   // PATH from nothing but the machine's /bin/sh.
-  const PNPM_MISSING: PnpmCase = { name: 'pnpm not installed', cmd: 'pnpm install', expect: D, cwd: TEMPLATE_HOOKS }
+  const PNPM_MISSING: PnpmCase = {
+    name: 'pnpm not installed',
+    cmd: 'pnpm install',
+    expect: D,
+    cwd: TEMPLATE_HOOKS,
+  }
   const ONLY_SH = join(tmp, 'only-sh')
   mkdirSync(ONLY_SH)
   if (process.platform !== 'win32')
     symlinkSync('/bin/sh', join(ONLY_SH, 'sh'))
-  const noPnpm = { env: { ...pnpmEnv(), PATH: ONLY_SH } }
+  const noPnpm = {
+    env: {
+      ...pnpmEnv(),
+      PATH: ONLY_SH,
+    },
+  }
   const launchedNoPnpm = (where: string, argv: string[]): void => {
     const r = pnpmRun(where, PNPM_MISSING, argv, noPnpm)
     launched(where, PNPM_MISSING, r.status, r.stdout, r.stderr)
   }
   for (const shell of SHELLS) {
-    const powershellPath = shell === 'sh' ? '' : shellPath(shell)
+    const powershellPath = shell === 'sh'
+      ? ''
+      : shellPath(shell)
     for (const host of hosts) {
-      const where = `${host.where} under ${shell === 'sh' ? host.posix.name : shell}`
-      const argv = shell === 'sh' ? [host.posix.bin, '-c', host.sh] : [shell, ...shellArgs(shell, host.powershell)]
+      const where = `${host.where} under ${shell === 'sh'
+        ? host.posix.name
+        : shell}`
+      const argv = shell === 'sh'
+        ? [host.posix.bin, '-c', host.sh]
+        : [
+            shell,
+            ...shellArgs(shell, host.powershell),
+          ]
       for (const c of PNPM_CASES) {
         const r = pnpmRun(where, c, argv)
         launched(where, c, r.status, r.stdout, r.stderr)
       }
-      if (shell === 'sh' && process.platform !== 'win32')
+      if (shell === 'sh' && process.platform !== 'win32') {
         launchedNoPnpm(where, argv)
-      else if (powershellPath !== '')
-        launchedNoPnpm(where, [powershellPath, ...shellArgs(shell, host.powershell)])
+      }
+      else if (powershellPath !== '') {
+        launchedNoPnpm(where, [
+          powershellPath,
+          ...shellArgs(shell, host.powershell),
+        ])
+      }
     }
     // A session command exits 0 with the writing rules, in a workspace never installed too.
     for (const host of sessionHosts) {
-      const where = `${host.where} under ${shell === 'sh' ? host.posix.name : shell}`
+      const where = `${host.where} under ${shell === 'sh'
+        ? host.posix.name
+        : shell}`
       for (const c of SESSION_LAUNCHES) {
         launchRuns++
-        const r = pnpmRun(where, c, shell === 'sh' ? [host.posix.bin, '-c', host.sh] : [shell, ...shellArgs(shell, host.powershell)])
+        const r = pnpmRun(where, c, shell === 'sh'
+          ? [host.posix.bin, '-c', host.sh]
+          : [
+              shell,
+              ...shellArgs(shell, host.powershell),
+            ])
         for (const p of sessionProblems({ name: c.name, raw: '', context: true }, r.status, r.stdout, r.stderr))
           fails.push(`[launch] ${where}, ${c.name}: ${p}`)
       }
@@ -2236,14 +3353,24 @@ if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 
   // login shell may be fish, which cannot parse the exit tail, or nushell, which has no `||`. So
   // Codex's `command` runs under both too, without the user's config, which could put pnpm back
   // on the PATH that leaves it out.
-  for (const login of [{ name: 'fish', noConfig: '--no-config' }, { name: 'nu', noConfig: '--no-config-file' }]) {
+  for (const login of [
+    { name: 'fish', noConfig: '--no-config' },
+    { name: 'nu', noConfig: '--no-config-file' },
+  ]) {
     const bin = shellPath(login.name)
     const loginRuns = bin !== '' && runs(bin, [login.noConfig, '-c', 'exit 0'])
     if (process.platform !== 'win32' && !loginRuns)
       launchSkipped.push(login.name)
-    for (const h of loginRuns ? codexGuards : []) {
+    for (const h of loginRuns
+      ? codexGuards
+      : []) {
       const where = `Codex under ${login.name}`
-      const argv = [bin, login.noConfig, '-c', h.command ?? '']
+      const argv = [
+        bin,
+        login.noConfig,
+        '-c',
+        h.command ?? '',
+      ]
       for (const c of PNPM_CASES) {
         const r = pnpmRun(where, c, argv)
         launched(where, c, r.status, r.stdout, r.stderr)
@@ -2258,7 +3385,9 @@ if (spawnSync('pnpm --version', { shell: true, stdio: 'ignore', timeout: 20_000 
   for (const h of codexGuards) {
     const command = h.commandWindows ?? h.command ?? ''
     for (const c of [PNPM_DENY, PNPM_ALLOW]) {
-      const r = process.platform === 'win32' ? pnpmRun('Codex under cmd.exe', c, [command], { shell: true }) : pnpmRun('Codex under cmd.exe', c, command.split(' '))
+      const r = process.platform === 'win32'
+        ? pnpmRun('Codex under cmd.exe', c, [command], { shell: true })
+        : pnpmRun('Codex under cmd.exe', c, command.split(' '))
       launched('Codex under cmd.exe', c, r.status, r.stdout, r.stderr)
     }
   }
@@ -2275,9 +3404,22 @@ else {
 // once for the 5s backstop, not three times.
 const SLOW_CLAUDE = claudeCopy(join(tmp, 'slow-claude'))
 writeFileSync(join(SLOW_CLAUDE, 'hooks', 'deny-zz-slow.mts'), 'export const verdict = () => {\n  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5500)\n  return null\n}\n')
-const hung = spawn(process.execPath, [join(TEMPLATE_HOOKS, 'dispatch.mts')], { stdio: ['pipe', 'ignore', 'ignore'] })
-const hungSession = spawn(process.execPath, [join(HOOKS, SESSION)], { stdio: ['pipe', 'pipe', 'ignore'] })
-const slow = spawn(process.execPath, [join(SLOW_CLAUDE, 'hooks', 'dispatch.mts')], { stdio: ['pipe', 'ignore', 'pipe'], env: { ...process.env, PROTECTED_BRANCHES: 'main' } })
+const hung = spawn(process.execPath, [
+  join(TEMPLATE_HOOKS, 'dispatch.mts'),
+], {
+  stdio: ['pipe', 'ignore', 'ignore'],
+})
+const hungSession = spawn(process.execPath, [
+  join(HOOKS, SESSION),
+], {
+  stdio: ['pipe', 'pipe', 'ignore'],
+})
+const slow = spawn(process.execPath, [
+  join(SLOW_CLAUDE, 'hooks', 'dispatch.mts'),
+], {
+  stdio: ['pipe', 'ignore', 'pipe'],
+  env: { ...process.env, PROTECTED_BRANCHES: 'main' },
+})
 let hungSessionOut = ''
 let slowErr = ''
 hungSession.stdout.on('data', (d) => {
@@ -2296,8 +3438,11 @@ if (hungStatus !== 2)
   fails.push(`[dispatch.mts] stdin never closed: got ${hungStatus ?? 'null'}, want 2 (timeout deny)`)
 for (const p of sessionProblems({ name: 'stdin never closed', raw: '', context: true }, hungSessionStatus, hungSessionOut, ''))
   fails.push(`[${SESSION}] stdin never closed: ${p}`)
-if (slowStatus !== 0 || slowErr !== '')
-  fails.push(`[dispatch.mts] a guard slower than the stdin timeout: got ${slowStatus ?? 'null'}${slowErr ? ` (${slowErr.trim()})` : ''}, want 0 and no output`)
+if (slowStatus !== 0 || slowErr !== '') {
+  fails.push(`[dispatch.mts] a guard slower than the stdin timeout: got ${slowStatus ?? 'null'}${slowErr
+    ? ` (${slowErr.trim()})`
+    : ''}, want 0 and no output`)
+}
 
 if (fails.length > 0) {
   console.error(`\n✖ hook fixtures — ${fails.length} of ${CASES.length + LEXER_CASES.length + Object.keys(BUDGET).length + Object.keys(VERDICT_BUDGET).length + SESSION_CASES.length + REGISTRATION_CASES.length + launchRuns + 3} failed:\n`)
@@ -2306,5 +3451,7 @@ if (fails.length > 0) {
   console.error('')
   process.exit(1)
 }
-const skippedNote = launchSkipped.length > 0 ? ` (${launchSkipped.join(', ')} not installed, skipped)` : ''
+const skippedNote = launchSkipped.length > 0
+  ? ` (${launchSkipped.join(', ')} not installed, skipped)`
+  : ''
 console.log(`✔ hook fixtures — ${CASES.length} guard cases + ${LEXER_CASES.length} lexer cases + ${Object.keys(BUDGET).length} lexer time budgets + ${Object.keys(VERDICT_BUDGET).length} verdict time budgets + ${SESSION_CASES.length} session cases + ${launchRuns} launch runs${skippedNote} + both stdin timeouts + a slow guard + the three registrations + ${REGISTRATION_CASES.length} registration cases pass`)

@@ -32,7 +32,9 @@ export function listFiles(dir: string): string[] {
   const out: string[] = []
   for (const entry of entries.sort((a, b) => byCodeUnit(a.name, b.name))) {
     const abs = join(dir, entry.name)
-    const isDirectory = entry.isSymbolicLink() ? statSync(abs).isDirectory() : entry.isDirectory()
+    const isDirectory = entry.isSymbolicLink()
+      ? statSync(abs).isDirectory()
+      : entry.isDirectory()
     if (isDirectory)
       out.push(...listFiles(abs).map(f => `${entry.name}/${f}`))
     else

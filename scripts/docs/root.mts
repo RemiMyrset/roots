@@ -51,7 +51,11 @@ export function decisionIdentity(file: string): DecisionIdentity | undefined {
   const dated = file.match(DATED_DECISION_FILE_RE)
   if (!dated)
     return undefined
-  return { id: file.slice(0, -'.md'.length), label: `${dated[1]}-${dated[2]}-${dated[3]}`, legacy: false }
+  return {
+    id: file.slice(0, -'.md'.length),
+    label: `${dated[1]}-${dated[2]}-${dated[3]}`,
+    legacy: false,
+  }
 }
 /** The H1 of a legacy decision record, `# NNNN. Title`; group 1 is the number, group 2 the title. A dated record's H1 is the title alone, read with H1_RE. */
 export const DECISION_H1_RE = /^# (\d{4})\. (\S.*)$/m
@@ -100,7 +104,15 @@ export const CONFLICT_LINE_RE = /^(?:<{7}|\|{7}|>{7})(?:\s|$)|^={7}\s*$/
  */
 export const CONFLICT_OPEN_RE = /^<{7}(?:\s|$)/
 /** Directories no docs walk descends into: VCS, caches, build output, editor state. */
-export const SKIP_DIRS: ReadonlySet<string> = new Set(['.git', '.obsidian', '.turbo', '.vitepress', 'coverage', 'dist', 'node_modules'])
+export const SKIP_DIRS: ReadonlySet<string> = new Set([
+  '.git',
+  '.obsidian',
+  '.turbo',
+  '.vitepress',
+  'coverage',
+  'dist',
+  'node_modules',
+])
 // Named key: tsc (noPropertyAccessFromIndexSignature) refuses dot access on process.env and
 // eslint (dot-notation) refuses a literal in brackets; a const key satisfies both.
 const CI_KEY = 'GITHUB_ACTIONS'
@@ -109,7 +121,11 @@ export const WARN = process.env[CI_KEY] ? '::warning::' : 'warning: '
 
 /** Deterministic, locale-independent string order (code-unit, not localeCompare) for sort comparators. */
 export function byCodeUnit(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0
+  return a < b
+    ? -1
+    : a > b
+      ? 1
+      : 0
 }
 
 /** Every `.md` file below `dir` as an absolute path, depth first in code-unit order, SKIP_DIRS not entered. */
@@ -155,8 +171,17 @@ export function automdRegions(text: string): AutomdRegion[] {
     const bodyStart = open.index + open[0].length
     close.lastIndex = bodyStart
     const closed = close.exec(text)
-    out.push({ name: open[1]!, args: open[2]!, start: open.index, bodyStart, bodyEnd: closed?.index ?? text.length, closed: closed !== null })
-    pos = closed ? closed.index + closed[0].length : text.length
+    out.push({
+      name: open[1]!,
+      args: open[2]!,
+      start: open.index,
+      bodyStart,
+      bodyEnd: closed?.index ?? text.length,
+      closed: closed !== null,
+    })
+    pos = closed
+      ? closed.index + closed[0].length
+      : text.length
   }
   return out
 }
@@ -182,8 +207,11 @@ export function expandTabs(line: string): string {
   if (!run.includes('\t'))
     return line
   let out = ''
-  for (const ch of run)
-    out += ch === '\t' ? ' '.repeat(4 - (out.length % 4)) : ch
+  for (const ch of run) {
+    out += ch === '\t'
+      ? ' '.repeat(4 - (out.length % 4))
+      : ch
+  }
   return `${out}${line.slice(run.length)}`
 }
 
@@ -230,7 +258,9 @@ export function blockStart(lists: readonly number[], line: string): BlockStart {
     const spaces = LEADING_SPACES_RE.exec(line.slice(after))![0].length
     // One to four spaces set the content column; none (an empty item) or five or more (an
     // indented code block inside the item) put it one space past the marker.
-    base = after + (spaces >= 1 && spaces <= 4 && after + spaces < line.length ? spaces : 1)
+    base = after + (spaces >= 1 && spaces <= 4 && after + spaces < line.length
+      ? spaces
+      : 1)
     open.push(base)
     at = after + spaces
     if (at - base > 3)
@@ -282,7 +312,9 @@ export function fenceContinues(state: FenceState, written: string): boolean {
     state.fence = undefined
     return false
   }
-  const close = indent - fence.col <= 3 ? CLOSE_RUN_RE.exec(line.slice(indent)) : null
+  const close = indent - fence.col <= 3
+    ? CLOSE_RUN_RE.exec(line.slice(indent))
+    : null
   if (close && close[1]![0] === fence.char && close[1]!.length >= fence.len)
     state.fence = undefined
   return true
@@ -300,7 +332,9 @@ export function stripFences(text: string): string {
   return text.split('\n').map((line) => {
     if (state.fence && fenceContinues(state, line))
       return ''
-    return fenceOpens(state, line) ? '' : line
+    return fenceOpens(state, line)
+      ? ''
+      : line
   }).join('\n')
 }
 
@@ -330,14 +364,19 @@ function listing(dir: string): ReadonlySet<string> {
  */
 export function pathCase(root: string, target: string): 'exact' | 'missing' | string {
   const rel = relative(resolve(root), resolve(target))
-  if (rel === '' || rel.startsWith('..') || isAbsolute(rel))
-    return existsSync(target) ? 'exact' : 'missing'
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+    return existsSync(target)
+      ? 'exact'
+      : 'missing'
+  }
   let dir = resolve(root)
   const actual: string[] = []
   let wrongCase = false
   for (const segment of rel.split(sep)) {
     const names = listing(dir)
-    let name = names.has(segment) ? segment : undefined
+    let name = names.has(segment)
+      ? segment
+      : undefined
     if (name === undefined) {
       name = [...names].find(n => n.toLowerCase() === segment.toLowerCase())
       if (name === undefined)
@@ -347,7 +386,9 @@ export function pathCase(root: string, target: string): 'exact' | 'missing' | st
     actual.push(name)
     dir = join(dir, name)
   }
-  return wrongCase ? actual.join('/') : 'exact'
+  return wrongCase
+    ? actual.join('/')
+    : 'exact'
 }
 
 const SLUG_DROP_RE = /[^\p{L}\p{N}\p{M}\s_-]/gu
@@ -415,8 +456,13 @@ function findUp(marker: string): string | undefined {
 }
 
 function gitToplevel(): string | undefined {
-  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-  const out = r.status === 0 ? r.stdout.trim() : ''
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  const out = r.status === 0
+    ? r.stdout.trim()
+    : ''
   return out || undefined
 }
 

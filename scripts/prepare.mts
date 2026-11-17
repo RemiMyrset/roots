@@ -28,7 +28,11 @@ const SETTING = '[core]\n\thooksPath = .githooks\n'
 /** Runs git; its exit status (null when git could not start), trimmed stdout, and what went wrong. */
 function git(...args: string[]): { status: number | null, out: string, why: string } {
   const r = spawnSync('git', args, { encoding: 'utf8' })
-  return { status: r.status, out: (r.stdout ?? '').trim(), why: `\`git ${args.join(' ')}\` failed: ${(r.error?.message ?? r.stderr ?? '').trim()}` }
+  return {
+    status: r.status,
+    out: (r.stdout ?? '').trim(),
+    why: `\`git ${args.join(' ')}\` failed: ${(r.error?.message ?? r.stderr ?? '').trim()}`,
+  }
 }
 
 /** Whether git reads .githooks as the hooks path, and from outside `.git/config` itself. */
@@ -76,7 +80,9 @@ function clearHooksPath(): string | undefined {
 
 if (existsSync('.git') && !existsSync('.githooks')) {
   const problem = clearHooksPath()
-  console.log(`prepare: git hooks left in .git/hooks: this checkout has no .githooks folder${problem ? `, and ${problem}` : ''}`)
+  console.log(`prepare: git hooks left in .git/hooks: this checkout has no .githooks folder${problem
+    ? `, and ${problem}`
+    : ''}`)
 }
 else if (existsSync('.git')) {
   let problem: string | undefined

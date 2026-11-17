@@ -32,8 +32,12 @@ function styleBody(): string | null {
 }
 
 const body = styleBody()
-if (body === null)
+if (body === null) {
   process.stderr.write(`writing rules: ${STYLE} not found; no context injected.\n`)
-else
-  process.stdout.write(`${JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: body } })}\n`)
+}
+else {
+  process.stdout.write(`${JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: body },
+  })}\n`)
+}
 process.exitCode = 0

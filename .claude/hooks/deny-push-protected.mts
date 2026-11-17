@@ -33,7 +33,9 @@ function configuredList(ctx: GuardContext): string {
   try {
     const settings = JSON.parse(readFileSync(ctx.settingsFile, 'utf8')) as { env?: { PROTECTED_BRANCHES?: unknown } }
     const value = settings.env?.PROTECTED_BRANCHES
-    return typeof value === 'string' ? value : ''
+    return typeof value === 'string'
+      ? value
+      : ''
   }
   catch {
     return ''
@@ -49,7 +51,9 @@ function branchName(ref: string): string {
 
 function protection(ctx: GuardContext): Protection {
   const configured = configuredList(ctx).split(',').map(p => p.trim()).filter(Boolean)
-  const patterns = configured.length > 0 ? configured : ['main']
+  const patterns = configured.length > 0
+    ? configured
+    : ['main']
   const res = patterns.map(p => new RegExp(`^${p.split('*').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`))
   return {
     patterns,
@@ -61,8 +65,14 @@ function protection(ctx: GuardContext): Protection {
 }
 
 function currentBranch(cwd: string): string | null {
-  const r = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-  const out = r.status === 0 ? r.stdout.trim() : ''
+  const r = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
+  const out = r.status === 0
+    ? r.stdout.trim()
+    : ''
   return out || null
 }
 
@@ -127,7 +137,11 @@ function holdsBraceList(raw: string): boolean {
   for (let n = 0; n < s.length; n++) {
     const c = s[n]!
     if (param > 0) {
-      param += c === '{' ? 1 : c === '}' ? -1 : 0
+      param += c === '{'
+        ? 1
+        : c === '}'
+          ? -1
+          : 0
     }
     else if (c === '{' && s[n - 1] === '$') {
       param = 1
@@ -152,7 +166,13 @@ function holdsBraceList(raw: string): boolean {
 // `git push` options that take a separate value token. `--recurse-submodules` is not one:
 // git accepts only its `=value` spelling, so treating it as separate would consume the
 // remote and shift the target.
-const PUSH_VALUE_OPT: ReadonlySet<string> = new Set(['-o', '--push-option', '--repo', '--receive-pack', '--exec'])
+const PUSH_VALUE_OPT: ReadonlySet<string> = new Set([
+  '-o',
+  '--push-option',
+  '--repo',
+  '--receive-pack',
+  '--exec',
+])
 // git push's long options. git takes any unique prefix of one (`--al` is `--all`, `--mirr`
 // `--mirror`) and rejects an ambiguous one (`--forc`), so a prefix is read as its option.
 const PUSH_LONG: readonly string[] = [
@@ -188,7 +208,9 @@ function longOption(name: string): string {
   if (PUSH_LONG.includes(name))
     return name
   const hits = PUSH_LONG.filter(o => o.startsWith(name))
-  return hits.length === 1 ? hits[0]! : name
+  return hits.length === 1
+    ? hits[0]!
+    : name
 }
 
 // The reason for an implicit target or a new remote in a call where any command moves.
@@ -246,8 +268,11 @@ function pushVerdict(words: string[], ctx: GuardContext, moved: boolean): string
         del = true
       if (name === '--tags')
         tags = true
-      if (name === '--repo')
-        repo = t.includes('=') ? raw.slice(raw.indexOf('=') + 1) : args[i + 1]
+      if (name === '--repo') {
+        repo = t.includes('=')
+          ? raw.slice(raw.indexOf('=') + 1)
+          : args[i + 1]
+      }
       if (PUSH_VALUE_OPT.has(name) && !t.includes('='))
         i++
       continue
@@ -260,7 +285,9 @@ function pushVerdict(words: string[], ctx: GuardContext, moved: boolean): string
       i++
   }
   // git takes the first word as the remote, or --repo's value when no word is left for it.
-  const named = positional.length === 0 && repo !== undefined ? [repo] : positional
+  const named = positional.length === 0 && repo !== undefined
+    ? [repo]
+    : positional
   // A variable's value is unknown here, and bash may split it into several words, so a remote
   // or a refspec holding one names an unknown target (`"$BRANCH"`, `HEAD:"$TARGET"`,
   // `${B:-main}`), judged whole before any `:` split.
@@ -273,8 +300,11 @@ function pushVerdict(words: string[], ctx: GuardContext, moved: boolean): string
   // and a bare name the cwd has no remote for, which git reads as a path.
   if (remote !== undefined && (/[/\\:]/.test(remote) || remote === '.' || remote === '..'))
     return `"${remote}" is a URL or path, not a configured remote; pushing there bypasses the protected-branch list. Use a named remote`
-  if (remote !== undefined && !configuredRemote(remote, ctx.cwd))
-    return moved ? MOVED : `"${remote}" is not a remote configured here (\`git remote -v\` lists them), so git reads it as a path; pushing there bypasses the protected-branch list. Use a named remote`
+  if (remote !== undefined && !configuredRemote(remote, ctx.cwd)) {
+    return moved
+      ? MOVED
+      : `"${remote}" is not a remote configured here (\`git remote -v\` lists them), so git reads it as a path; pushing there bypasses the protected-branch list. Use a named remote`
+  }
   const targets: string[] = []
   for (const spec of refspecs) {
     if (spec.startsWith('+'))
@@ -288,7 +318,9 @@ function pushVerdict(words: string[], ctx: GuardContext, moved: boolean): string
     if (spec.includes('*'))
       return `\`${spec}\` is a wildcard refspec; it can match a protected branch, so it is denied outright`
     const [src, dst] = spec.split(':') as [string, string?]
-    const target = del ? src : (dst ?? src)
+    const target = del
+      ? src
+      : (dst ?? src)
     if (target === '' || target.startsWith('refs/tags/'))
       continue
     targets.push(target)
@@ -354,7 +386,10 @@ function pnpmScript(toks: string[], i: number): string {
 export const verdict: Verdict = (cmd, ctx) => {
   const parsed = segments(cmd).map((seg) => {
     const toks = tokenize(seg)
-    return { toks, ...resolveHead(toks) }
+    return {
+      toks,
+      ...resolveHead(toks),
+    }
   })
   // Any move counts, wherever it sits: segments() lists what eval and a heredoc a shell reads run
   // after the outer commands, so their order says nothing about when bash runs them.

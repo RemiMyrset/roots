@@ -19,7 +19,9 @@ export * from './readers.mts'
 export const decisionsIndex = defineGenerator({
   name: 'decisionsIndex',
   generate() {
-    return { contents: renderDecisionsIndex(readDecisions()) }
+    return {
+      contents: renderDecisionsIndex(readDecisions()),
+    }
   },
 })
 
@@ -27,6 +29,8 @@ export const decisionsIndex = defineGenerator({
 export const specIndex = defineGenerator({
   name: 'specIndex',
   generate() {
-    return { contents: renderSpecIndex(readSpecs()) }
+    return {
+      contents: renderSpecIndex(readSpecs()),
+    }
   },
 })

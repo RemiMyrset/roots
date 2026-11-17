@@ -46,7 +46,9 @@ const root = join(import.meta.dirname, '..')
 // Every pnpm('<script>', …) call in verify.mts, by its first argument — the drift gate's
 // inner docs:gen included; extra arguments (the install gate's flags) are not part of the name.
 const verifySource = readFileSync(join(root, 'scripts/verify.mts'), 'utf8')
-const gates = new Set([...verifySource.matchAll(/\bpnpm\('([^']+)'/g)].map(m => m[1]!))
+const gates = new Set([
+  ...verifySource.matchAll(/\bpnpm\('([^']+)'/g),
+].map(m => m[1]!))
 
 const sharedConfig = join(root, 'docs/.shared/config.ts')
 const lastUpdated = existsSync(sharedConfig) && /\blastUpdated:\s*true\b/.test(readFileSync(sharedConfig, 'utf8'))
@@ -63,13 +65,19 @@ function concurrencyGroups(lines: string[]): { line: number, group: string }[] {
     if (!m)
       return
     if (value(m[2]!)) {
-      found.push({ line: i + 1, group: value(m[2]!) })
+      found.push({
+        line: i + 1,
+        group: value(m[2]!),
+      })
       return
     }
     for (let j = i + 1; j < lines.length && (lines[j]!.trim() === '' || lines[j]!.search(/\S/) > m[1]!.length); j++) {
       const group = /^\s*group:(.*)$/.exec(lines[j]!)
       if (group) {
-        found.push({ line: j + 1, group: value(group[1]!) })
+        found.push({
+          line: j + 1,
+          group: value(group[1]!),
+        })
         break
       }
     }
@@ -82,7 +90,9 @@ function runsOn(lines: string[], event: 'pull_request' | 'push'): boolean {
   const start = lines.findIndex(line => /^["']?on["']?:/.test(line))
   if (start < 0)
     return false
-  const block = [lines[start]!.replace(/^["']?on["']?:/, '')]
+  const block = [
+    lines[start]!.replace(/^["']?on["']?:/, ''),
+  ]
   for (const line of lines.slice(start + 1)) {
     if (/^[^\s#]/.test(line))
       break
@@ -154,25 +164,56 @@ function readStep(line: string): { code: string, exempt: boolean, calls: Call[] 
   for (const call of code.matchAll(/\bpnpm\s+(?:run\s+)?([^\s;&|]+)([^;&|]*)/g)) {
     const script = call[1]!
     // The line's leading cd, or the last `cd` earlier on the line: either moves the call out of the root.
-    const dir = m[2] ?? [...code.slice(0, call.index).matchAll(/(?:^|[;&|]\s*)cd\s+([^\s;&|]+)/g)].at(-1)?.[1]
-    if (dir === undefined && /^[a-z][\w:-]*$/.test(script))
+    const dir = m[2] ?? [
+      ...code.slice(0, call.index).matchAll(/(?:^|[;&|]\s*)cd\s+([^\s;&|]+)/g),
+    ].at(-1)?.[1]
+    if (dir === undefined && /^[a-z][\w:-]*$/.test(script)) {
       calls.push({ script })
-    else
-      calls.push({ script, scoped: `${dir === undefined ? '' : `cd ${dir} && `}pnpm ${script}${call[2]!.trimEnd()}` })
+    }
+    else {
+      calls.push({ script, scoped: `${dir === undefined
+        ? ''
+        : `cd ${dir} && `}pnpm ${script}${call[2]!.trimEnd()}` })
+    }
   }
-  return { code, exempt: /\bnot a gate\b/.test(comment), calls }
+  return {
+    code,
+    exempt: /\bnot a gate\b/.test(comment),
+    calls,
+  }
 }
 
 // The step reader, run first on lines of its own, so a form of call it misses fails here
 // rather than letting a workflow step escape the gate-or-comment rule.
 const STEP_PROBES: { line: string, want: string[] }[] = [
-  { line: '      - run: pnpm install --frozen-lockfile', want: ['install'] },
-  { line: '          pnpm docs:gen && pnpm run docs:check', want: ['docs:gen', 'docs:check'] },
-  { line: '      - run: CI=1 NODE_OPTIONS="--max-old-space-size=4096" pnpm e2e', want: ['e2e'] },
-  { line: '      - run: cd apps/web && pnpm test', want: ['cd apps/web && pnpm test'] },
-  { line: '      - run: pnpm install && cd apps/web && pnpm test', want: ['install', 'cd apps/web && pnpm test'] },
-  { line: '      - run: pnpm --filter web e2e', want: ['pnpm --filter web e2e'] },
-  { line: '      - run: pnpm -r test && pnpm lint', want: ['pnpm -r test', 'lint'] },
+  {
+    line: '      - run: pnpm install --frozen-lockfile',
+    want: ['install'],
+  },
+  {
+    line: '          pnpm docs:gen && pnpm run docs:check',
+    want: ['docs:gen', 'docs:check'],
+  },
+  {
+    line: '      - run: CI=1 NODE_OPTIONS="--max-old-space-size=4096" pnpm e2e',
+    want: ['e2e'],
+  },
+  {
+    line: '      - run: cd apps/web && pnpm test',
+    want: ['cd apps/web && pnpm test'],
+  },
+  {
+    line: '      - run: pnpm install && cd apps/web && pnpm test',
+    want: ['install', 'cd apps/web && pnpm test'],
+  },
+  {
+    line: '      - run: pnpm --filter web e2e',
+    want: ['pnpm --filter web e2e'],
+  },
+  {
+    line: '      - run: pnpm -r test && pnpm lint',
+    want: ['pnpm -r test', 'lint'],
+  },
   { line: '      - run: echo "then run pnpm test"', want: [] },
 ]
 
@@ -220,7 +261,12 @@ for (const file of readdirSync(workflowsDir).filter(f => /\.ya?ml$/.test(f)).sor
     const shared = concurrencyGroups(lines).find(g => !/\bgithub\.(?:sha|run_id)\b/.test(g.group))
     for (const script of new Set(own)) {
       const runs = onPush.get(script) ?? []
-      runs.push({ where: shared ? `${where}:${shared.line}` : where, kept: !shared })
+      runs.push({
+        where: shared
+          ? `${where}:${shared.line}`
+          : where,
+        kept: !shared,
+      })
       onPush.set(script, runs)
     }
   }
@@ -244,7 +290,10 @@ const dropped = new Map<string, string[]>()
 for (const [script, runs] of onPush) {
   if (!runs.some(r => r.kept)) {
     const where = runs.map(r => r.where).join(', ')
-    dropped.set(where, [...dropped.get(where) ?? [], `\`pnpm ${script}\``])
+    dropped.set(where, [
+      ...dropped.get(where) ?? [],
+      `\`pnpm ${script}\``,
+    ])
   }
 }
 for (const [where, scripts] of dropped)
@@ -258,12 +307,18 @@ for (const [where, scripts] of dropped)
 // fails, so a rewrite of the step cannot turn the check off unseen.
 {
   const docsWorkflow = join(workflowsDir, 'docs.yml')
-  const text = existsSync(docsWorkflow) ? readFileSync(docsWorkflow, 'utf8') : ''
+  const text = existsSync(docsWorkflow)
+    ? readFileSync(docsWorkflow, 'utf8')
+    : ''
   // A line's patterns, or none when any grep on it is in a form this check cannot read.
   const patterns = (name: string): RegExp[] => {
     const line = new RegExp(`^\\s*${name}=.*$`, 'm').exec(text)?.[0] ?? ''
-    const read = [...line.matchAll(/grep (?:-v )?-E '([^']+)'/g)].map(m => new RegExp(m[1]!))
-    return read.length === line.match(/\bgrep\b/g)?.length ? read : []
+    const read = [
+      ...line.matchAll(/grep (?:-v )?-E '([^']+)'/g),
+    ].map(m => new RegExp(m[1]!))
+    return read.length === line.match(/\bgrep\b/g)?.length
+      ? read
+      : []
   }
   const outside = patterns('nondocs')
   const synced = patterns('docsync')
@@ -273,12 +328,30 @@ for (const [where, scripts] of dropped)
     const warns = (changed: string[]): boolean =>
       changed.some(f => outside.every(re => !re.test(f))) && !changed.some(f => synced.some(re => re.test(f)))
     const cases: [string[], boolean][] = [
-      [['packages/a/src/a.ts'], true],
-      [['packages/a/src/a.ts', 'docs/public/index.md'], true],
-      [['packages/a/src/a.ts', 'docs/internal/specs/cli/a.md'], false],
-      [['packages/a/src/a.ts', 'docs/internal/decisions/20260101-a.md'], false],
-      [['scripts/sync-template.mts', 'docs/template/sync-template.md'], false],
-      [['docs/template/conventions.md', 'README.md'], false],
+      [
+        ['packages/a/src/a.ts'],
+        true,
+      ],
+      [
+        ['packages/a/src/a.ts', 'docs/public/index.md'],
+        true,
+      ],
+      [
+        ['packages/a/src/a.ts', 'docs/internal/specs/cli/a.md'],
+        false,
+      ],
+      [
+        ['packages/a/src/a.ts', 'docs/internal/decisions/20260101-a.md'],
+        false,
+      ],
+      [
+        ['scripts/sync-template.mts', 'docs/template/sync-template.md'],
+        false,
+      ],
+      [
+        ['docs/template/conventions.md', 'README.md'],
+        false,
+      ],
     ]
     for (const [changed, want] of cases) {
       if (warns(changed) !== want)
@@ -322,13 +395,28 @@ function unlistedGates(text: string): string[] | undefined {
 // The reader, run first on a list of its own that names one gate only under "Other commands".
 {
   const [probeGate = ''] = [...gates].filter(g => g !== 'install').slice(-1)
-  const probe = ['# Rules', '', '## Commands', '', ...[...gates].filter(g => g !== probeGate).map(g => `- \`pnpm ${g}\``), '', 'Other commands:', '', `- \`pnpm ${probeGate}\``, '', '## Next', ''].join('\n')
+  const probe = [
+    '# Rules',
+    '',
+    '## Commands',
+    '',
+    ...[...gates].filter(g => g !== probeGate).map(g => `- \`pnpm ${g}\``),
+    '',
+    'Other commands:',
+    '',
+    `- \`pnpm ${probeGate}\``,
+    '',
+    '## Next',
+    '',
+  ].join('\n')
   const read = unlistedGates(probe)
   if (read?.join() !== probeGate || unlistedGates('# Rules\n\n- `pnpm test`\n') !== undefined)
     problems.push(`the Commands list reader read [${read?.join(', ') ?? 'no list'}] as missing from a probe list, want [${probeGate}]`)
 }
 const agentsFile = join(root, 'AGENTS.md')
-const unlisted = existsSync(agentsFile) ? unlistedGates(readFileSync(agentsFile, 'utf8')) : undefined
+const unlisted = existsSync(agentsFile)
+  ? unlistedGates(readFileSync(agentsFile, 'utf8'))
+  : undefined
 for (const gate of unlisted ?? [])
   problems.push(`AGENTS.md: the Commands list names no \`pnpm ${gate}\`, a verify gate, so the rulebook's definition of done leaves it out; add its line above "Other commands"`)
 
@@ -365,7 +453,10 @@ process.on('exit', () => rmSync(tmp, { recursive: true, force: true }))
 
 /** Runs a CLI that ships as a node script under node_modules, from the root, with CI set as `pnpm lint` does. */
 function runTool(script: string, args: string[], input?: string): { stdout: string, stderr: string } {
-  const result = spawnSync(process.execPath, [join(root, 'node_modules', script), ...args], {
+  const result = spawnSync(process.execPath, [
+    join(root, 'node_modules', script),
+    ...args,
+  ], {
     cwd: root,
     input,
     encoding: 'utf8',
@@ -421,7 +512,12 @@ else {
   }
   const stub = '# Rulebook\n'
   writeFileSync(join(dir, 'AGENTS.md'), stub)
-  const run = spawnSync(process.execPath, [join(root, 'node_modules/turbo/bin/turbo'), 'run', 'test', '--dry=json'], {
+  const run = spawnSync(process.execPath, [
+    join(root, 'node_modules/turbo/bin/turbo'),
+    'run',
+    'test',
+    '--dry=json',
+  ], {
     cwd: dir,
     encoding: 'utf8',
     env: { ...process.env, CI: '1', AI_AGENT: 'roots-test-gates' },
@@ -448,10 +544,14 @@ function nodeBlindTurboCaches(lines: string[]): number[] {
         nodeIds.add(id)
     }
   })
-  const exact = (key: string): boolean => [...key.matchAll(/\bsteps\.([\w-]+)\.outputs\.node-version\b/g)].some(k => nodeIds.has(k[1]!))
+  const exact = (key: string): boolean => [
+    ...key.matchAll(/\bsteps\.([\w-]+)\.outputs\.node-version\b/g),
+  ].some(k => nodeIds.has(k[1]!))
   const found: number[] = []
   lines.forEach((line, i) => {
-    const step = /\buses:\s*actions\/cache(?:\/restore)?@/.test(line) ? stepAt(lines, i) ?? [] : []
+    const step = /\buses:\s*actions\/cache(?:\/restore)?@/.test(line)
+      ? stepAt(lines, i) ?? []
+      : []
     if (!step.some(l => /\.turbo\b/.test(l.replace(/\s#.*$/, ''))))
       return
     // Each key: the inline value of `key:` or `restore-keys:`, or each line of a block value.
@@ -481,7 +581,17 @@ function nodeBlindTurboCaches(lines: string[]): number[] {
 // The reader, run first on a workflow of its own: a key on the runner and commit alone, a key
 // on the exact node with a restore key that is not, and one on the exact node throughout.
 {
-  const cacheProbe = (key: string, restore: string): string[] => ['    steps:', '      - uses: actions/setup-node@0 # v1.0.0', '        id: node', '      - uses: actions/cache@0 # v1.0.0', '        with:', '          path: .turbo/cache', `          key: ${key}`, '          restore-keys: |', `            ${restore}`]
+  const cacheProbe = (key: string, restore: string): string[] => [
+    '    steps:',
+    '      - uses: actions/setup-node@0 # v1.0.0',
+    '        id: node',
+    '      - uses: actions/cache@0 # v1.0.0',
+    '        with:',
+    '          path: .turbo/cache',
+    `          key: ${key}`,
+    '          restore-keys: |',
+    `            ${restore}`,
+  ]
   const onOs = `turbo-\${{ runner.os }}-`
   const onNode = `${onOs}node-\${{ steps.node.outputs.node-version }}-`
   const sha = `\${{ github.sha }}`
@@ -530,17 +640,73 @@ const exportListProbe = [
   '',
 ].join('\n')
 const probes: Probe[] = [
-  { what: 'relative imports ending in .js or .mjs', file: 'scripts/gate-probe.mts', source: specifierProbe, expect: { 'no-restricted-imports': [2], 'no-restricted-syntax': [5] } },
-  { what: 'a JavaScript source file', file: 'scripts/gate-probe.mjs', source: 'export const e = 1\n', expect: { 'no-restricted-syntax': [1] } },
-  { what: 'a whole package under trustPolicyExclude', file: 'pnpm-workspace.yaml', source: 'trustPolicyExclude:\n  - vite@5.4.21\n  - vite\n', expect: { 'no-restricted-syntax': [3] } },
-  { what: 'exports without a /** */ block', file: 'scripts/gate-probe.mts', source: docBlockProbe, expect: { 'jsdoc/require-jsdoc': [4, 5, 6] } },
-  { what: 'a local export list', file: 'scripts/gate-probe.mts', source: exportListProbe, expect: { 'no-restricted-syntax': [2] } },
-  { what: 'a tool config without a /** */ block', file: 'packages/gate-probe/vitest.config.ts', source: 'export const shared = 1\nexport default { shared }\n', expect: { 'jsdoc/require-jsdoc': [1] } },
-  { what: 'a guard source without a /** */ block', file: '.claude/hooks/gate-probe.mts', source: 'export const verdict = 1\n', expect: { 'jsdoc/require-jsdoc': [1] } },
+  {
+    what: 'relative imports ending in .js or .mjs',
+    file: 'scripts/gate-probe.mts',
+    source: specifierProbe,
+    expect: {
+      'no-restricted-imports': [2],
+      'no-restricted-syntax': [5],
+    },
+  },
+  {
+    what: 'a JavaScript source file',
+    file: 'scripts/gate-probe.mjs',
+    source: 'export const e = 1\n',
+    expect: {
+      'no-restricted-syntax': [1],
+    },
+  },
+  {
+    what: 'a whole package under trustPolicyExclude',
+    file: 'pnpm-workspace.yaml',
+    source: 'trustPolicyExclude:\n  - vite@5.4.21\n  - vite\n',
+    expect: {
+      'no-restricted-syntax': [3],
+    },
+  },
+  {
+    what: 'exports without a /** */ block',
+    file: 'scripts/gate-probe.mts',
+    source: docBlockProbe,
+    expect: {
+      'jsdoc/require-jsdoc': [4, 5, 6],
+    },
+  },
+  {
+    what: 'a local export list',
+    file: 'scripts/gate-probe.mts',
+    source: exportListProbe,
+    expect: {
+      'no-restricted-syntax': [2],
+    },
+  },
+  {
+    what: 'a tool config without a /** */ block',
+    file: 'packages/gate-probe/vitest.config.ts',
+    source: 'export const shared = 1\nexport default { shared }\n',
+    expect: {
+      'jsdoc/require-jsdoc': [1],
+    },
+  },
+  {
+    what: 'a guard source without a /** */ block',
+    file: '.claude/hooks/gate-probe.mts',
+    source: 'export const verdict = 1\n',
+    expect: {
+      'jsdoc/require-jsdoc': [1],
+    },
+  },
 ]
 interface LintMessage { ruleId: string | null, line: number, message: string }
 for (const probe of probes) {
-  const lint = runTool('eslint/bin/eslint.js', ['--stdin', '--stdin-filename', probe.file, '--format', 'json'], probe.source)
+  const lint = runTool('eslint/bin/eslint.js', [
+    '--stdin',
+    '--stdin-filename',
+    probe.file,
+    '--format',
+    'json',
+  ], probe.source)
   const messages = parseJson<{ messages: LintMessage[] }[]>(lint.stdout)?.[0]?.messages
   if (!messages) {
     failures.push(`eslint printed no result for ${probe.file}: ${lint.stderr.trim().split('\n')[0] ?? ''}`)
@@ -562,7 +728,19 @@ for (const probe of probes) {
 // file, the TypeScript rules on .cts, the markdown rules and fenced code on a page, and the
 // TOML rules. lint-staged matches a pattern without a `/` against the basename. Skipped when
 // the repository keeps no lint-staged config in package.json.
-const LINT_STAGED_PROBES = ['package.json', 'pnpm-workspace.yaml', 'tsconfig.json', 'src/index.ts', 'src/view.tsx', 'scripts/task.mts', 'scripts/task.cts', 'scripts/task.mjs', 'scripts/task.js', 'docs/page.md', 'mise.toml']
+const LINT_STAGED_PROBES = [
+  'package.json',
+  'pnpm-workspace.yaml',
+  'tsconfig.json',
+  'src/index.ts',
+  'src/view.tsx',
+  'scripts/task.mts',
+  'scripts/task.cts',
+  'scripts/task.mjs',
+  'scripts/task.js',
+  'docs/page.md',
+  'mise.toml',
+]
 const lintStaged = (parseJson<{ 'lint-staged'?: unknown }>(readFileSync(join(root, 'package.json'), 'utf8')) ?? {})['lint-staged']
 let lintStagedChecked = 0
 if (typeof lintStaged === 'object' && lintStaged !== null) {
@@ -571,8 +749,11 @@ if (typeof lintStaged === 'object' && lintStaged !== null) {
     .map(([glob]) => glob)
   for (const file of LINT_STAGED_PROBES) {
     lintStagedChecked++
-    if (!eslintGlobs.some(glob => matchesGlob(glob.includes('/') ? file : basename(file), glob)))
+    if (!eslintGlobs.some(glob => matchesGlob(glob.includes('/')
+      ? file
+      : basename(file), glob))) {
       failures.push(`package.json lint-staged runs ESLint on no pattern matching ${file}, so the rules on it fail only in CI; add its extension to an ESLint pattern`)
+    }
   }
 }
 
@@ -584,7 +765,15 @@ if (typeof lintStaged === 'object' && lintStaged !== null) {
 // plus `references`) every project the config references is checked too, transitively, so its
 // files count; `tsc -p` checks the named project alone. A solution-style package of the
 // probe's own is read first, both ways, so the probe is known to read that layout.
-const TSCONFIG_PROBES = ['src/index.ts', 'src/legacy.cts', 'test/index.test.ts', 'bin/cli.ts', 'scripts/seed.mts', 'drizzle.config.ts', 'vitest.config.ts']
+const TSCONFIG_PROBES = [
+  'src/index.ts',
+  'src/legacy.cts',
+  'test/index.test.ts',
+  'bin/cli.ts',
+  'scripts/seed.mts',
+  'drizzle.config.ts',
+  'vitest.config.ts',
+]
 const probeTree = join(tmp, 'tsconfig-probes')
 for (const file of TSCONFIG_PROBES) {
   mkdirSync(dirname(join(probeTree, file)), { recursive: true })
@@ -597,7 +786,9 @@ const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typeche
   const slash = (p: string): string => p.replaceAll('\\', '/')
   const configPath = (base: string, project: string): string => {
     const at = resolve(base, project)
-    return at.endsWith('.json') ? at : join(at, 'tsconfig.json')
+    return at.endsWith('.json')
+      ? at
+      : join(at, 'tsconfig.json')
   }
   // The configs a typecheck command run in `dir` reads, the probe files they take in, and why
   // any could not be read.
@@ -641,7 +832,9 @@ const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typeche
           read(ts.resolveProjectReferencePath(reference))
       }
     }
-    for (const project of projects.length > 0 ? projects : ['tsconfig.json'])
+    for (const project of projects.length > 0
+      ? projects
+      : ['tsconfig.json'])
       read(configPath(dir, project))
     return { configs, covered, errors }
   }
@@ -649,9 +842,21 @@ const typechecked = (typecheckPlan?.tasks ?? []).filter(t => t.task === 'typeche
   const solution = join(tmp, 'tsconfig-solution')
   mkdirSync(solution)
   const writeConfig = (name: string, config: unknown): void => writeFileSync(join(solution, name), `${JSON.stringify(config)}\n`)
-  writeConfig('tsconfig.json', { files: [], references: [{ path: './tsconfig.app.json' }, { path: './tsconfig.node.json' }] })
-  writeConfig('tsconfig.app.json', { compilerOptions: { composite: true }, include: ['src'] })
-  writeConfig('tsconfig.node.json', { compilerOptions: { composite: true }, exclude: ['src', 'node_modules', 'dist'] })
+  writeConfig('tsconfig.json', {
+    files: [],
+    references: [
+      { path: './tsconfig.app.json' },
+      { path: './tsconfig.node.json' },
+    ],
+  })
+  writeConfig('tsconfig.app.json', {
+    compilerOptions: { composite: true },
+    include: ['src'],
+  })
+  writeConfig('tsconfig.node.json', {
+    compilerOptions: { composite: true },
+    exclude: ['src', 'node_modules', 'dist'],
+  })
   const built = coverage(solution, 'tsc -b')
   const project = coverage(solution, 'tsc --noEmit')
   if (built.errors.length > 0 || TSCONFIG_PROBES.some(p => !built.covered.has(p)) || project.covered.size > 0)
@@ -743,7 +948,13 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
   const worktree = join(tmp, 'hooks-worktree')
   mkdirSync(join(repo, '.githooks'), { recursive: true })
   writeFileSync(join(repo, '.githooks', 'pre-commit'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
-  const setup = [inRepo(repo, 'git', 'init', '-q'), inRepo(repo, 'git', 'add', '-A'), inRepo(repo, 'git', 'update-index', '--chmod=+x', '.githooks/pre-commit'), inRepo(repo, 'git', 'commit', '-q', '-m', 'init'), inRepo(repo, 'git', 'worktree', 'add', '-q', worktree)]
+  const setup = [
+    inRepo(repo, 'git', 'init', '-q'),
+    inRepo(repo, 'git', 'add', '-A'),
+    inRepo(repo, 'git', 'update-index', '--chmod=+x', '.githooks/pre-commit'),
+    inRepo(repo, 'git', 'commit', '-q', '-m', 'init'),
+    inRepo(repo, 'git', 'worktree', 'add', '-q', worktree),
+  ]
   const broken = setup.find(r => r.status !== 0)
   if (broken) {
     failures.push(`could not set up the git repository for the install hook probe: ${broken.out.trim()}`)
@@ -759,15 +970,27 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
     if (local !== '')
       failures.push(`scripts/prepare.mts left core.hooksPath "${local}" in .git/config itself, where the simple-git-hooks of an older branch reads it and writes its hooks into that folder; set it in an included file`)
     const config = join(repo, '.git', 'config')
-    const before = { text: readFileSync(config, 'utf8'), mtime: statSync(config).mtimeMs }
+    const before = {
+      text: readFileSync(config, 'utf8'),
+      mtime: statSync(config).mtimeMs,
+    }
     const again = inRepo(repo, process.execPath, prepare)
     if (again.status !== 0 || readFileSync(config, 'utf8') !== before.text || statSync(config).mtimeMs !== before.mtime)
       failures.push(`scripts/prepare.mts rewrote .git/config on an install that had nothing to change (exit ${again.status}), which races the git commands of parallel worktrees: ${again.out.trim()}`)
     // Where git cannot set the path, the install goes on without hooks and says so: git refuses a
     // checkout another user owns, and a container may copy .git without git.
     const cannot = [
-      ['git refuses a checkout another user owns', { ...gitEnv, GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' }],
-      ['no git is on PATH', { ...gitEnv, [pathKey]: join(tmp, 'no-git') }],
+      [
+        'git refuses a checkout another user owns',
+        { ...gitEnv, GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' },
+      ],
+      [
+        'no git is on PATH',
+        {
+          ...gitEnv,
+          [pathKey]: join(tmp, 'no-git'),
+        },
+      ],
     ] as const
     for (const [where, env] of cannot) {
       const r = runIn(env, repo, process.execPath, prepare)
@@ -817,7 +1040,10 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
     writeFileSync(join(worktree, '.githooks', 'pre-commit'), '#!/bin/sh\nexit 1\n')
     for (const dir of [repo, worktree])
       writeFileSync(join(dir, 'probe.txt'), 'probe\n')
-    const commitIn = (dir: string): number | null => [inRepo(dir, 'git', 'add', 'probe.txt'), inRepo(dir, 'git', 'commit', '-q', '-m', 'probe')].find(r => r.status !== 0)?.status ?? 0
+    const commitIn = (dir: string): number | null => [
+      inRepo(dir, 'git', 'add', 'probe.txt'),
+      inRepo(dir, 'git', 'commit', '-q', '-m', 'probe'),
+    ].find(r => r.status !== 0)?.status ?? 0
     if (commitIn(worktree) === 0)
       failures.push('a commit in a linked worktree passed although its own .githooks/pre-commit fails, so git ran another checkout\'s hooks or none; scripts/prepare.mts must set core.hooksPath to the relative .githooks')
     if (commitIn(repo) !== 0)
@@ -825,7 +1051,9 @@ function runIn(env: NodeJS.ProcessEnv, cwd: string, command: string, ...args: st
   }
 }
 const hookModes = inRepo(root, 'git', 'ls-files', '--stage', '--', '.githooks')
-const hookFiles = hookModes.status === 0 ? hookModes.out.split('\n').filter(Boolean) : []
+const hookFiles = hookModes.status === 0
+  ? hookModes.out.split('\n').filter(Boolean)
+  : []
 const hookNames = new Set(hookFiles.map(l => l.split('\t')[1]))
 for (const hook of ['.githooks/pre-commit', '.githooks/commit-msg'].filter(h => !hookNames.has(h)))
   failures.push(`${hook} is not in the index, so no ${basename(hook)} hook runs; a first sync from the template lists it under Files with the git restore line that takes it`)
@@ -878,7 +1106,11 @@ for (const line of hookFiles.filter(l => !l.startsWith('100755 ')))
   const repo = join(tmp, 'secrets-repo')
   mkdirSync(repo)
   writeFileSync(join(repo, '.gitignore'), '.env\n')
-  writeFileSync(join(repo, '.secretlintrc.json'), `${JSON.stringify({ rules: [{ id: '@secretlint/secretlint-rule-preset-recommend' }] })}\n`)
+  writeFileSync(join(repo, '.secretlintrc.json'), `${JSON.stringify({
+    rules: [
+      { id: '@secretlint/secretlint-rule-preset-recommend' },
+    ],
+  })}\n`)
   // A GitHub token the recommended preset flags, assembled here so this file holds none.
   writeFileSync(join(repo, '.env'), `GITHUB_TOKEN=${['ghp', 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'].join('_')}\n`)
   const lintSecrets = join(root, 'scripts', 'lint-secrets.mts')
@@ -903,16 +1135,23 @@ for (const line of hookFiles.filter(l => !l.startsWith('100755 ')))
     // .gitignore matches unless told not to.
     if (add.status === 0 && typeof lintStaged === 'object' && lintStaged !== null) {
       const manifest = join(root, 'node_modules', 'lint-staged', 'package.json')
-      const bin = existsSync(manifest) ? parseJson<{ bin?: string | { 'lint-staged'?: string } }>(readFileSync(manifest, 'utf8'))?.bin : undefined
-      const cli = typeof bin === 'string' ? bin : bin?.['lint-staged']
+      const bin = existsSync(manifest)
+        ? parseJson<{ bin?: string | { 'lint-staged'?: string } }>(readFileSync(manifest, 'utf8'))?.bin
+        : undefined
+      const cli = typeof bin === 'string'
+        ? bin
+        : bin?.['lint-staged']
       if (cli === undefined) {
         failures.push('package.json keeps a lint-staged config, but node_modules/lint-staged names no bin to run; run `pnpm install`')
       }
       else {
         writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ 'lint-staged': lintStaged })}\n`)
         const commit = runIn(env, repo, process.execPath, join(root, 'node_modules', 'lint-staged', cli))
-        if (commit.status === 0 || !commit.out.includes('GITHUB_TOKEN'))
-          failures.push(`package.json lint-staged did not flag a staged .env that .gitignore matches, holding a GitHub token (exit ${commit.status}), so \`git add -f .env\` commits it; scan every staged file with \`"*": "secretlint --no-glob --no-gitignore"\`${commit.status === 0 ? '' : `: ${commit.out.trim()}`}`)
+        if (commit.status === 0 || !commit.out.includes('GITHUB_TOKEN')) {
+          failures.push(`package.json lint-staged did not flag a staged .env that .gitignore matches, holding a GitHub token (exit ${commit.status}), so \`git add -f .env\` commits it; scan every staged file with \`"*": "secretlint --no-glob --no-gitignore"\`${commit.status === 0
+            ? ''
+            : `: ${commit.out.trim()}`}`)
+        }
       }
     }
   }
@@ -925,11 +1164,27 @@ for (const line of hookFiles.filter(l => !l.startsWith('100755 ')))
 // would still let git read $XDG_CONFIG_HOME/git/ignore (or ~/.config/git/ignore), the default
 // core.excludesFile, so the call points core.excludesFile at a file that does not exist: a
 // developer's global `.env*` cannot fail the check, nor a global `.env~` hide a missing line.
-const SECRET_ENV_NAMES = ['.env', '.env.local', '.env.production', '.env-prod', '.env_x', '.env~', '.envrc', '.envrc.local', '.envrc-x', '.envrc_x', '.envrc~']
+const SECRET_ENV_NAMES = [
+  '.env',
+  '.env.local',
+  '.env.production',
+  '.env-prod',
+  '.env_x',
+  '.env~',
+  '.envrc',
+  '.envrc.local',
+  '.envrc-x',
+  '.envrc_x',
+  '.envrc~',
+]
 const READABLE_ENV_NAMES = ['.env.example', '.environment']
 {
   const { verdict } = await import('../.claude/hooks/deny-secret-reads.mts')
-  const ctx = { cwd: root, env: process.env, settingsFile: join(root, '.claude', 'settings.json') }
+  const ctx = {
+    cwd: root,
+    env: process.env,
+    settingsFile: join(root, '.claude', 'settings.json'),
+  }
   const outOfStep = [
     ...SECRET_ENV_NAMES.filter(name => verdict(`cat ${name}`, ctx) === null),
     ...READABLE_ENV_NAMES.filter(name => verdict(`cat ${name}`, ctx) !== null),
@@ -940,7 +1195,9 @@ const READABLE_ENV_NAMES = ['.env.example', '.environment']
   const repo = join(tmp, 'gitignore-repo')
   mkdirSync(repo)
   const gitignore = join(root, '.gitignore')
-  writeFileSync(join(repo, '.gitignore'), existsSync(gitignore) ? readFileSync(gitignore) : '')
+  writeFileSync(join(repo, '.gitignore'), existsSync(gitignore)
+    ? readFileSync(gitignore)
+    : '')
   const init = runIn(env, repo, 'git', 'init', '-q')
   const check = runIn(env, repo, 'git', '-c', `core.excludesFile=${join(tmp, 'no-global-excludes')}`, 'check-ignore', '--no-index', ...SECRET_ENV_NAMES, ...READABLE_ENV_NAMES)
   // check-ignore exits 0 when it prints an ignored name, 1 when there is none.
@@ -979,7 +1236,9 @@ function authorVerdict(excluded: unknown, sent: boolean): 'pass' | 'set' | 'stal
     return 'pass'
   if (Array.isArray(excluded) && excluded.includes(''))
     return 'stale'
-  return Array.isArray(excluded) && excluded.some(v => typeof v === 'string' && v !== '') ? 'pass' : 'set'
+  return Array.isArray(excluded) && excluded.some(v => typeof v === 'string' && v !== '')
+    ? 'pass'
+    : 'set'
 }
 // changelogen skips the exclusion for a falsy value, and its config loader turns null into the
 // default [], so only a list holding a name counts as a choice to keep the lookup.
@@ -989,10 +1248,26 @@ const verdictCases: [unknown, boolean, ReturnType<typeof authorVerdict>][] = [
   [null, true, 'set'],
   ['', true, 'set'],
   [false, true, 'set'],
-  [[null], true, 'set'],
-  [[''], true, 'stale'],
-  [['', 'bot'], true, 'stale'],
-  [['bot'], true, 'pass'],
+  [
+    [null],
+    true,
+    'set',
+  ],
+  [
+    [''],
+    true,
+    'stale',
+  ],
+  [
+    ['', 'bot'],
+    true,
+    'stale',
+  ],
+  [
+    ['bot'],
+    true,
+    'pass',
+  ],
   [undefined, false, 'pass'],
 ]
 for (const [excluded, sent, want] of verdictCases) {
@@ -1009,8 +1284,12 @@ for (const [excluded, sent, want] of verdictCases) {
   }
   const manifest = parseJson<Manifest>(readFileSync(join(root, 'package.json'), 'utf8')) ?? {}
   const cliManifest = join(root, 'node_modules', 'changelogen', 'package.json')
-  const bin = existsSync(cliManifest) ? parseJson<{ bin?: string | { changelogen?: string } }>(readFileSync(cliManifest, 'utf8'))?.bin : undefined
-  const cli = typeof bin === 'string' ? bin : bin?.changelogen
+  const bin = existsSync(cliManifest)
+    ? parseJson<{ bin?: string | { changelogen?: string } }>(readFileSync(cliManifest, 'utf8'))?.bin
+    : undefined
+  const cli = typeof bin === 'string'
+    ? bin
+    : bin?.changelogen
   const declared = manifest.devDependencies?.changelogen ?? manifest.dependencies?.changelogen
   if (declared !== undefined && !cli)
     failures.push('package.json declares changelogen, but node_modules/changelogen names no bin to run; run `pnpm install`')
@@ -1023,8 +1302,17 @@ for (const [excluded, sent, want] of verdictCases) {
     const commit = (subject: string): { status: number | null, out: string } =>
       inRepo(repo, 'git', '-c', 'user.name=Probe Author', '-c', `user.email=${EMAIL}`, 'commit', '-q', '-m', subject)
     mkdirSync(repo)
-    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({ name: 'release-probe', version: '0.0.0', private: true, changelog: manifest.changelog })}\n`)
-    const broken = [inRepo(repo, 'git', 'init', '-q'), inRepo(repo, 'git', 'add', '-A'), commit('feat: probe the release flow')].find(r => r.status !== 0)
+    writeFileSync(join(repo, 'package.json'), `${JSON.stringify({
+      name: 'release-probe',
+      version: '0.0.0',
+      private: true,
+      changelog: manifest.changelog,
+    })}\n`)
+    const broken = [
+      inRepo(repo, 'git', 'init', '-q'),
+      inRepo(repo, 'git', 'add', '-A'),
+      commit('feat: probe the release flow'),
+    ].find(r => r.status !== 0)
     const preview = broken ?? changelogen()
     const sent = preview.out.includes('[fetch] ') || preview.out.includes(EMAIL)
     const verdict = authorVerdict(manifest.changelog?.excludeAuthors, sent)
@@ -1041,7 +1329,10 @@ for (const [excluded, sent, want] of verdictCases) {
     const command = words.find(part => part.some(isChangelogen)) ?? []
     // `--no-github` last: a script without it, in a repository whose `changelog.repo` names
     // GitHub, would have the probe call the release API and open a browser on its failure.
-    const args = [...command.slice(command.findIndex(isChangelogen) + 1).filter(arg => !/^--(?:push|publish)/.test(arg)), '--no-github']
+    const args = [
+      ...command.slice(command.findIndex(isChangelogen) + 1).filter(arg => !/^--(?:push|publish)/.test(arg)),
+      '--no-github',
+    ]
     if (preview.status === 0 && args.includes('--release')) {
       const script = `\`${manifest.scripts?.release}\``
       const head = (): string => inRepo(repo, 'git', 'rev-parse', 'HEAD').out.trim()
@@ -1055,7 +1346,9 @@ for (const [excluded, sent, want] of verdictCases) {
       }
       else {
         const staged = commit('fix: commit the staged file')
-        const clean = staged.status === 0 ? changelogen(...args) : staged
+        const clean = staged.status === 0
+          ? changelogen(...args)
+          : staged
         if (clean.status !== 0 || tags() === '')
           failures.push(`package.json scripts.release (${script}), run without its push, released nothing from a clean tree (exit ${clean.status}): ${clean.out.trim()}`)
       }
@@ -1078,18 +1371,50 @@ let devcontainerChecked = 'no devcontainer config'
 {
   const ID = `\${devcontainerId}`
   // The source of each named volume in a config's `mounts`, string and object forms alike.
-  const namedVolumes = (mounts: unknown): string[] => (Array.isArray(mounts) ? mounts as unknown[] : []).flatMap((mount) => {
+  const namedVolumes = (mounts: unknown): string[] => (Array.isArray(mounts)
+    ? mounts as unknown[]
+    : []).flatMap((mount) => {
     const fields: { type?: unknown, source?: unknown } = typeof mount === 'string'
       ? Object.fromEntries(mount.split(',').map((pair) => {
           const key = pair.split('=')[0]!.trim().toLowerCase()
-          return [key === 'src' ? 'source' : key, pair.slice(pair.indexOf('=') + 1).trim()]
+          return [
+            key === 'src'
+              ? 'source'
+              : key,
+            pair.slice(pair.indexOf('=') + 1).trim(),
+          ]
         }))
-      : typeof mount === 'object' && mount !== null ? mount : {}
+      : typeof mount === 'object' && mount !== null
+        ? mount
+        : {}
     const { source } = fields
-    return String(fields.type ?? 'volume').toLowerCase() === 'volume' && typeof source === 'string' && source !== '' ? [source] : []
+    return String(fields.type ?? 'volume').toLowerCase() === 'volume' && typeof source === 'string' && source !== ''
+      ? [source]
+      : []
   })
-  const sample = namedVolumes(['source=shared,target=/a,type=volume', 'src=bare,dst=/b', { source: 'object', target: '/c', type: 'volume' }, `source=own-${ID},target=/d,type=volume`, 'type=bind,source=/home,target=/e', 'type=volume,target=/f', 'Source=upper,target=/g', 'type=Volume,source=caps,target=/h', 'Type=BIND,source=/tmp,target=/i', `source=early-${ID},src=late,target=/j`, `src=early,source=late-${ID},target=/k`])
-  const want = ['shared', 'bare', 'object', `own-${ID}`, 'upper', 'caps', 'late', `late-${ID}`]
+  const sample = namedVolumes([
+    'source=shared,target=/a,type=volume',
+    'src=bare,dst=/b',
+    { source: 'object', target: '/c', type: 'volume' },
+    `source=own-${ID},target=/d,type=volume`,
+    'type=bind,source=/home,target=/e',
+    'type=volume,target=/f',
+    'Source=upper,target=/g',
+    'type=Volume,source=caps,target=/h',
+    'Type=BIND,source=/tmp,target=/i',
+    `source=early-${ID},src=late,target=/j`,
+    `src=early,source=late-${ID},target=/k`,
+  ])
+  const want = [
+    'shared',
+    'bare',
+    'object',
+    `own-${ID}`,
+    'upper',
+    'caps',
+    'late',
+    `late-${ID}`,
+  ]
   if (sample.join(' ') !== want.join(' '))
     failures.push(`the devcontainer probe misreads mounts: it found the named volumes [${sample.join(', ')}], want [${want.join(', ')}]`)
 
@@ -1097,7 +1422,9 @@ let devcontainerChecked = 'no devcontainer config'
   const configs = [
     join(root, '.devcontainer.json'),
     join(dir, 'devcontainer.json'),
-    ...(existsSync(dir) ? readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => join(dir, e.name, 'devcontainer.json')) : []),
+    ...(existsSync(dir)
+      ? readdirSync(dir, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => join(dir, e.name, 'devcontainer.json'))
+      : []),
   ].filter(file => existsSync(file))
   if (configs.length > 0) {
     const ts = (await import('typescript')).default
