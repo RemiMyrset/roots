@@ -30,7 +30,14 @@ interface Gate {
 }
 
 function pnpm(...args: string[]): boolean {
-  const argv = WIN ? ['/d', '/s', '/c', ['pnpm', ...args].join(' ')] : args
+  const argv = WIN
+    ? [
+        '/d',
+        '/s',
+        '/c',
+        ['pnpm', ...args].join(' '),
+      ]
+    : args
   const r = spawnSync(PNPM, argv, { stdio: 'inherit' })
   if (r.error) {
     console.error(`  could not run pnpm ${args.join(' ')}: ${r.error.message} — install pnpm (corepack enable on node 24, or npm i -g pnpm)`)
@@ -45,9 +52,15 @@ function pnpm(...args: string[]): boolean {
  * repository" message is matched whatever the user's language.
  */
 function porcelain(): { status: string } | { skip: string } | { error: string } {
-  const r = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })
-  if (r.error)
-    return (r.error as NodeJS.ErrnoException).code === 'ENOENT' ? { skip: 'git is not installed' } : { error: r.error.message }
+  const r = spawnSync('git', ['status', '--porcelain'], {
+    encoding: 'utf8',
+    env: { ...process.env, LC_ALL: 'C' },
+  })
+  if (r.error) {
+    return (r.error as NodeJS.ErrnoException).code === 'ENOENT'
+      ? { skip: 'git is not installed' }
+      : { error: r.error.message }
+  }
   if (r.status === 0)
     return { status: r.stdout }
   if (/\bnot a git repository\b/.test(r.stderr))
@@ -65,22 +78,62 @@ function gitFailed(error: string): false {
 
 // Run from the repository root regardless of cwd; where git finds no checkout, stay put (the
 // drift gate then skips itself, or fails when git refused the checkout).
-const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+const top = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'ignore'],
+})
 if (top.status === 0 && top.stdout.trim())
   process.chdir(top.stdout.trim())
 
 const GATES: Gate[] = [
-  { name: 'install (frozen lockfile)', run: () => pnpm('install', '--frozen-lockfile', '--prefer-offline') },
-  { name: 'typecheck', run: () => pnpm('typecheck') },
-  { name: 'lint', run: () => pnpm('lint') },
-  { name: 'lint:secrets', run: () => pnpm('lint:secrets') },
-  { name: 'boundaries', run: () => pnpm('boundaries') },
-  { name: 'test', run: () => pnpm('test') },
-  { name: 'test:hooks', run: () => pnpm('test:hooks'), template: true },
-  { name: 'test:sync', run: () => pnpm('test:sync'), template: true },
-  { name: 'test:docs', run: () => pnpm('test:docs'), template: true },
-  { name: 'test:gates', run: () => pnpm('test:gates'), template: true },
-  { name: 'build', run: () => pnpm('build') },
+  {
+    name: 'install (frozen lockfile)',
+    run: () => pnpm('install', '--frozen-lockfile', '--prefer-offline'),
+  },
+  {
+    name: 'typecheck',
+    run: () => pnpm('typecheck'),
+  },
+  {
+    name: 'lint',
+    run: () => pnpm('lint'),
+  },
+  {
+    name: 'lint:secrets',
+    run: () => pnpm('lint:secrets'),
+  },
+  {
+    name: 'boundaries',
+    run: () => pnpm('boundaries'),
+  },
+  {
+    name: 'test',
+    run: () => pnpm('test'),
+  },
+  {
+    name: 'test:hooks',
+    run: () => pnpm('test:hooks'),
+    template: true,
+  },
+  {
+    name: 'test:sync',
+    run: () => pnpm('test:sync'),
+    template: true,
+  },
+  {
+    name: 'test:docs',
+    run: () => pnpm('test:docs'),
+    template: true,
+  },
+  {
+    name: 'test:gates',
+    run: () => pnpm('test:gates'),
+    template: true,
+  },
+  {
+    name: 'build',
+    run: () => pnpm('build'),
+  },
   {
     name: 'docs:gen (no drift)',
     run: () => {
@@ -94,8 +147,11 @@ const GATES: Gate[] = [
         return true
       }
       const after = porcelain()
-      if (!('status' in after))
-        return gitFailed('error' in after ? after.error : after.skip)
+      if (!('status' in after)) {
+        return gitFailed('error' in after
+          ? after.error
+          : after.skip)
+      }
       if (after.status !== before.status) {
         console.error('Generated docs are stale — commit the regenerated output:')
         console.error(after.status)
@@ -104,24 +160,44 @@ const GATES: Gate[] = [
       return true
     },
   },
-  { name: 'docs:check', run: () => pnpm('docs:check') },
-  { name: 'docs:portability', run: () => pnpm('docs:portability') },
-  { name: 'docs:internal:build', run: () => pnpm('docs:internal:build') },
-  { name: 'docs:public:build', run: () => pnpm('docs:public:build') },
+  {
+    name: 'docs:check',
+    run: () => pnpm('docs:check'),
+  },
+  {
+    name: 'docs:portability',
+    run: () => pnpm('docs:portability'),
+  },
+  {
+    name: 'docs:internal:build',
+    run: () => pnpm('docs:internal:build'),
+  },
+  {
+    name: 'docs:public:build',
+    run: () => pnpm('docs:public:build'),
+  },
 ]
 
 const script = (g: Gate): string => g.name.split(' ')[0]!
 // `pnpm verify [<gate>]` resumes at a gate; `pnpm verify --only <gate>` runs just that one.
 const argv = process.argv.slice(2)
 const onlyAt = argv.indexOf('--only')
-const only = onlyAt === -1 ? undefined : argv[onlyAt + 1]
-const wanted = onlyAt === -1 ? argv[0] : only
-const start = wanted === undefined ? 0 : GATES.findIndex(g => script(g) === wanted)
+const only = onlyAt === -1
+  ? undefined
+  : argv[onlyAt + 1]
+const wanted = onlyAt === -1
+  ? argv[0]
+  : only
+const start = wanted === undefined
+  ? 0
+  : GATES.findIndex(g => script(g) === wanted)
 if (start === -1 || (onlyAt !== -1 && only === undefined)) {
   console.error(`✖ verify — unknown gate "${wanted ?? ''}". Gates: ${GATES.map(script).join(', ')}`)
   process.exit(1)
 }
-const selected = onlyAt === -1 ? GATES.slice(start) : [GATES[start]!]
+const selected = onlyAt === -1
+  ? GATES.slice(start)
+  : [GATES[start]!]
 
 for (const gate of selected) {
   console.log(`\n▶ ${gate.name}${gate.template ? '  (template mechanics)' : ''}`)
@@ -134,4 +210,6 @@ for (const gate of selected) {
     process.exit(1)
   }
 }
-console.log(`\n✔ verify — ${selected.length} gate${selected.length === 1 ? '' : 's'} pass`)
+console.log(`\n✔ verify — ${selected.length} gate${selected.length === 1
+  ? ''
+  : 's'} pass`)

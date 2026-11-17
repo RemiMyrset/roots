@@ -30,8 +30,12 @@ function secretlintBin(): string | undefined {
   try {
     const manifest = fileURLToPath(import.meta.resolve('secretlint/package.json'))
     const { bin } = JSON.parse(readFileSync(manifest, 'utf8')) as { bin?: string | { secretlint?: string } }
-    const script = typeof bin === 'string' ? bin : bin?.secretlint
-    return script === undefined ? undefined : join(dirname(manifest), script)
+    const script = typeof bin === 'string'
+      ? bin
+      : bin?.secretlint
+    return script === undefined
+      ? undefined
+      : join(dirname(manifest), script)
   }
   catch {
     return undefined
@@ -52,18 +56,31 @@ function secretlint(bin: string, args: string[]): boolean {
  * runs in the C locale so its "not a git repository" message matches in any language.
  */
 function trackedIgnored(): { files: string[] } | { skip: string } | { error: string } {
-  const r = spawnSync('git', ['ls-files', '-z', '--cached', '--ignored', '--exclude-standard'], {
+  const r = spawnSync('git', [
+    'ls-files',
+    '-z',
+    '--cached',
+    '--ignored',
+    '--exclude-standard',
+  ], {
     encoding: 'utf8',
     env: { ...process.env, LC_ALL: 'C' },
     maxBuffer: 64 * 1024 * 1024,
   })
-  if (r.error)
-    return (r.error as NodeJS.ErrnoException).code === 'ENOENT' ? { skip: 'git is not installed' } : { error: r.error.message }
+  if (r.error) {
+    return (r.error as NodeJS.ErrnoException).code === 'ENOENT'
+      ? { skip: 'git is not installed' }
+      : { error: r.error.message }
+  }
   if (r.status === 0) {
     // A path deleted from the working tree, or a submodule, has no file to scan. A leading
     // `./` keeps a name that starts with `-` from reading as a flag.
     const files = r.stdout.split('\0').filter(p => p !== '' && statSync(p, { throwIfNoEntry: false })?.isFile())
-    return { files: files.map(p => p.startsWith('-') ? `./${p}` : p) }
+    return {
+      files: files.map(p => p.startsWith('-')
+        ? `./${p}`
+        : p),
+    }
   }
   if (/\bnot a git repository\b/.test(r.stderr))
     return { skip: 'not a git checkout' }

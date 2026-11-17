@@ -82,7 +82,13 @@ const BLOCK_PREFIX_RE = /^ {0,3}(?:>|[-*+] |\d+[.)] )/
 // fold marker or a title) is group 2. Matched with the blockquote prefix in place so a
 // backticked example (`> `[!tip]``) is not one.
 const ALERT_RE = /^ {0,3}(?:> ?)+\[!([^\]\n]*)\](.*)$/
-const ALERT_TYPES: ReadonlySet<string> = new Set(['NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION'])
+const ALERT_TYPES: ReadonlySet<string> = new Set([
+  'NOTE',
+  'TIP',
+  'IMPORTANT',
+  'WARNING',
+  'CAUTION',
+])
 // A comment as an HTML block holds it, from `<!--` to the first `-->` whatever lies between.
 const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g
 // A `<!--` whose `<` no odd run of backslashes escapes: `\<!--` is text.
@@ -108,13 +114,70 @@ const TABLE_END_RE = /^(?:`{3,}[^`]*$|~{3,}|([-*_])(?:[ \t]*\1){2,}[ \t]*$|(?:[-
 // VitePress 1.6.4's inline tags (its componentPlugin's TAGS_INLINE), less `iframe`, which its
 // block list claims first, and less `template` and `slot`, which it reads as Vue components.
 // Matched in the case written: `<SPAN>` is a component.
-const INLINE_TAGS: ReadonlySet<string> = new Set(['a', 'abbr', 'acronym', 'audio', 'b', 'bdi', 'bdo', 'big', 'br', 'button', 'canvas', 'cite', 'code', 'data', 'datalist', 'del', 'dfn', 'em', 'embed', 'i', 'img', 'input', 'ins', 'kbd', 'label', 'map', 'mark', 'meter', 'noscript', 'object', 'output', 'picture', 'progress', 'q', 'ruby', 's', 'samp', 'script', 'select', 'small', 'span', 'strong', 'sub', 'sup', 'svg', 'textarea', 'time', 'u', 'tt', 'var', 'video', 'wbr'])
+const INLINE_TAGS: ReadonlySet<string> = new Set([
+  'a',
+  'abbr',
+  'acronym',
+  'audio',
+  'b',
+  'bdi',
+  'bdo',
+  'big',
+  'br',
+  'button',
+  'canvas',
+  'cite',
+  'code',
+  'data',
+  'datalist',
+  'del',
+  'dfn',
+  'em',
+  'embed',
+  'i',
+  'img',
+  'input',
+  'ins',
+  'kbd',
+  'label',
+  'map',
+  'mark',
+  'meter',
+  'noscript',
+  'object',
+  'output',
+  'picture',
+  'progress',
+  'q',
+  'ruby',
+  's',
+  'samp',
+  'script',
+  'select',
+  'small',
+  'span',
+  'strong',
+  'sub',
+  'sup',
+  'svg',
+  'textarea',
+  'time',
+  'u',
+  'tt',
+  'var',
+  'video',
+  'wbr',
+])
 // The HTML blocks VitePress starts, read from a line's first non-space character, each with what
 // the line that closes it holds: an opening `<script`, `<pre`, or `<style` closes at its closing
 // tag, `<?` at `?>`, `<!X` (X uppercase) at `>`, and CDATA at `]]>`.
 const RAW_TEXT_OPEN_RE = /^<(?:script|pre|style)(?=[\s>]|$)/i
 const RAW_TEXT_CLOSE_RE = /<\/(?:script|pre|style)>/i
-const MARKUP_BLOCKS: ReadonlyArray<readonly [RegExp, RegExp]> = [[/^<\?/, /\?>/], [/^<![A-Z]/, />/], [/^<!\[CDATA\[/, /\]\]>/]]
+const MARKUP_BLOCKS: ReadonlyArray<readonly [RegExp, RegExp]> = [
+  [/^<\?/, /\?>/],
+  [/^<![A-Z]/, />/],
+  [/^<!\[CDATA\[/, /\]\]>/],
+]
 // A tag at a line's start, its name in group 1: one not inline starts a block.
 const TAG_OPEN_RE = /^<\/?([a-z][a-z0-9-]*)(?=\s|\/?>|$)/i
 // A line holding one open or close tag and nothing more, `<br>` among them: VitePress starts a
@@ -136,7 +199,10 @@ const WHITESPACE_RUN_RE = /\s+/g
 // Applied once a key is upper-cased, which turns a long s (`ſ`) into `S` as camelCase does.
 const NOT_UPPER_ALNUM_RE = /[^A-Z\d]/g
 // The template's own generators read the handbook, so their regions list docs/internal.
-const HANDBOOK_GENERATORS: ReadonlyMap<string, string> = new Map([['decisionsIndex', DECISIONS_DIR], ['specIndex', SPECS_DIR]])
+const HANDBOOK_GENERATORS: ReadonlyMap<string, string> = new Map([
+  ['decisionsIndex', DECISIONS_DIR],
+  ['specIndex', SPECS_DIR],
+])
 // Line endings are normalized on read, so a CRLF file (written on Windows before git
 // normalizes it) reads as the LF checkout will: the heading grammar ends in `$`.
 const CRLF_RE = /\r\n/g
@@ -214,7 +280,9 @@ function quoteDepth(line: string): number {
 
 /** `line` with its first `count` quote markers off, read as BLOCKQUOTE_RE reads them. */
 function unquote(line: string, count: number): string {
-  return count === 0 ? line : line.replace(new RegExp(`^ {0,3}(?:> ?){${count}}`), '')
+  return count === 0
+    ? line
+    : line.replace(new RegExp(`^ {0,3}(?:> ?){${count}}`), '')
 }
 
 /** The width of a line's indent, its tabs expanded (expandTabs) by the caller. */
@@ -238,7 +306,9 @@ function htmlBlockAt(text: string, lone: boolean): RegExp | null | undefined {
       return close
   }
   const tag = TAG_OPEN_RE.exec(text)?.[1]
-  return (tag !== undefined && !INLINE_TAGS.has(tag)) || (lone && LONE_TAG_RE.test(text)) ? null : undefined
+  return (tag !== undefined && !INLINE_TAGS.has(tag)) || (lone && LONE_TAG_RE.test(text))
+    ? null
+    : undefined
 }
 
 /** How many columns the delimiter row `text`, from its first non-space character, sets, or 0 where it is none (DELIMITER_ROW_RE). */
@@ -303,12 +373,21 @@ function paragraphAfter(lines: string[], from: number, depth: number, base: numb
     // markdown-it tests it against the inner quote's ends as if it had none.
     const relative = expanded.slice(Math.min(indentOf(expanded), base))
     const unindented = anyIndent || quote <= depth - 2
-    const content = unindented ? expanded.trimStart() : relative
-    const item = anyIndent || quote < depth || indentOf(expanded) < base ? LIST_ITEM_RE.test(content) : INTERRUPTING_ITEM_RE.test(content)
-    if (quote > depth || (anyIndent ? content.startsWith('>') : QUOTE_START_RE.test(relative)) || item || BLOCK_END_RE.test(content))
+    const content = unindented
+      ? expanded.trimStart()
+      : relative
+    const item = anyIndent || quote < depth || indentOf(expanded) < base
+      ? LIST_ITEM_RE.test(content)
+      : INTERRUPTING_ITEM_RE.test(content)
+    if (quote > depth || (anyIndent
+      ? content.startsWith('>')
+      : QUOTE_START_RE.test(relative)) || item || BLOCK_END_RE.test(content)) {
       break
+    }
     const next = lines[j + 1]
-    const below = next !== undefined && quoteDepth(next) === depth ? expandTabs(next.replace(BLOCKQUOTE_RE, '')) : undefined
+    const below = next !== undefined && quoteDepth(next) === depth
+      ? expandTabs(next.replace(BLOCKQUOTE_RE, ''))
+      : undefined
     if ((unindented || indentOf(expanded) - base <= 3)
       && (htmlBlockAt(expanded.trimStart(), false) !== undefined || (quote === depth && tableHead(expanded, below, anyIndent ? undefined : base)))) {
       break
@@ -335,7 +414,10 @@ function linkTails(text: string, later: () => string[]): { spans: [number, numbe
     const [start, end] = m.indices![1]!
     if (start >= text.length)
       break
-    spans.push([start, Math.min(end, text.length)])
+    spans.push([
+      start,
+      Math.min(end, text.length),
+    ])
     // The later lines the tail reaches: each up to its end, the last one only partway.
     let at = text.length + 1
     for (const [k, line] of rest.entries()) {
@@ -379,13 +461,25 @@ function stripInlineComments(text: string, from: number, spans: () => string[], 
   for (;;) {
     const masked = tail.replace(INLINE_CODE_RE, m => ' '.repeat(m.length))
     const shift = out.length
-    const at = blankSpans(masked, links.map(([start, end]): [number, number] => [Math.max(start - shift, 0), Math.max(end - shift, 0)])).search(COMMENT_OPEN_RE)
-    if (at === -1 || [...masked.slice(0, at).matchAll(OPEN_RUN_RE)].some(run => spans().some(l => runEnd(l, run[0].length) !== -1)))
+    const at = blankSpans(masked, links.map(([start, end]): [number, number] => [
+      Math.max(start - shift, 0),
+      Math.max(end - shift, 0),
+    ])).search(COMMENT_OPEN_RE)
+    if (at === -1 || [
+      ...masked.slice(0, at).matchAll(OPEN_RUN_RE),
+    ].some(run => spans().some(l => runEnd(l, run[0].length) !== -1))) {
       break
+    }
     const end = matchAt(INLINE_COMMENT_RE, tail, at)
-    if (end === undefined && matchAt(INLINE_COMMENT_RE, [tail.slice(at), ...comments()].join('\n'), 0) !== undefined)
+    if (end === undefined && matchAt(INLINE_COMMENT_RE, [
+      tail.slice(at),
+      ...comments(),
+    ].join('\n'), 0) !== undefined) {
       return { text: `${out}${tail.slice(0, at)}`, open: true }
-    out += end === undefined ? tail.slice(0, at + 4) : `${tail.slice(0, at)}${' '.repeat(end)}`
+    }
+    out += end === undefined
+      ? tail.slice(0, at + 4)
+      : `${tail.slice(0, at)}${' '.repeat(end)}`
     tail = tail.slice(at + (end ?? 4))
   }
   return { text: `${out}${tail}`, open: false }
@@ -402,9 +496,13 @@ function tableRow(row: string): { text: string, scan: string } {
   let text = ''
   let scan = ''
   for (const [k, part] of row.split(CELL_PIPE_SPLIT_RE).entries()) {
-    const cell = k % 2 === 0 ? stripInlineComments(part, 0, none, none, linkTails(part, none).spans).text : part
+    const cell = k % 2 === 0
+      ? stripInlineComments(part, 0, none, none, linkTails(part, none).spans).text
+      : part
     text += cell
-    scan += k % 2 === 0 ? cell.replace(INLINE_CODE_RE, m => ' '.repeat(m.length)).replace(TICK_RE, ' ') : cell
+    scan += k % 2 === 0
+      ? cell.replace(INLINE_CODE_RE, m => ' '.repeat(m.length)).replace(TICK_RE, ' ')
+      : cell
   }
   return { text, scan }
 }
@@ -435,7 +533,13 @@ const root = repoRoot()
 const docsDir = join(root, 'docs')
 if (!existsSync(docsDir))
   console.log('  (docs/: not present, skipped)')
-const files = [join(root, 'README.md'), join(root, 'AGENTS.md'), ...(existsSync(docsDir) ? walk(docsDir) : [])]
+const files = [
+  join(root, 'README.md'),
+  join(root, 'AGENTS.md'),
+  ...(existsSync(docsDir)
+    ? walk(docsDir)
+    : []),
+]
   .filter(f => existsSync(f) && statSync(f).isFile())
 
 const problems: string[] = []
@@ -508,9 +612,14 @@ function automdSources(args: string): string[] {
  */
 function automdTarget(generator: string, src: string, page: string): string | undefined {
   try {
-    if (generator === 'jsimport')
-      return isAbsolute(src) ? src : resolve(root, src)
-    return src.startsWith('/') ? join(root, src) : fileURLToPath(new URL(src, pathToFileURL(page)))
+    if (generator === 'jsimport') {
+      return isAbsolute(src)
+        ? src
+        : resolve(root, src)
+    }
+    return src.startsWith('/')
+      ? join(root, src)
+      : fileURLToPath(new URL(src, pathToFileURL(page)))
   }
   catch {
     return undefined
@@ -529,7 +638,10 @@ function checkPublicRegions(where: string, file: string, text: string): void {
   for (const region of automdRegions(text)) {
     if (!region.closed)
       continue
-    const [generator, args] = [region.name, region.args.replace(WHITESPACE_RUN_RE, ' ').trim()]
+    const [generator, args] = [
+      region.name,
+      region.args.replace(WHITESPACE_RUN_RE, ' ').trim(),
+    ]
     const at = `${where}:${lineAt(text, region.start)}`
     const opener = `<!-- automd:${[generator, args].filter(Boolean).join(' ')} -->`
     const fix = `the public site would publish what it reads; keep its source inside ${PUBLIC_DIR} (rule 4)`
@@ -622,8 +734,12 @@ function checkLinkTarget(where: string, file: string, raw: string, display: stri
   if (EXTERNAL_TARGET_RE.test(target))
     return
   const hash = target.indexOf('#')
-  const rel = hash === -1 ? target : target.slice(0, hash)
-  const fragment = hash === -1 ? '' : target.slice(hash + 1)
+  const rel = hash === -1
+    ? target
+    : target.slice(0, hash)
+  const fragment = hash === -1
+    ? ''
+    : target.slice(hash + 1)
   if (kind === 'footnote') {
     const dest = resolve(dirname(file), decodePath(rel))
     if (rel && !rel.startsWith('/') && pathCase(root, dest) === 'exact' && !insidePublic(dest))
@@ -649,7 +765,9 @@ function checkLinkTarget(where: string, file: string, raw: string, display: stri
   }
   const path = decodePath(rel)
   // A bare "#fragment" anchors into this page; a path with one anchors into that page.
-  const dest = path ? resolve(dirname(file), path) : file
+  const dest = path
+    ? resolve(dirname(file), path)
+    : file
   if (path) {
     const found = pathCase(root, dest)
     if (found === 'missing') {
@@ -727,7 +845,11 @@ for (const file of files) {
   let openTicks: number | undefined
   let prevVisible = ''
   const visibleLines: string[] = []
-  const page: Page = { where, headings: new Map(), h1Line: undefined }
+  const page: Page = {
+    where,
+    headings: new Map(),
+    h1Line: undefined,
+  }
   // A line that shows nothing the checks read: a fence marker or body, or a comment line.
   const blank = (): void => {
     visibleLines.push('')
@@ -803,7 +925,9 @@ for (const file of files) {
     // less than the paragraph, which markdown-it reads without its indent, at any. Such a line, a
     // line indented as code too, keeps the paragraph's quote depth and content column, and a list
     // marker on it is text (`markerText`), opening no list item.
-    const item = depth < prevParaQuote || indent < prevParaBase ? LIST_ITEM_RE.test(lead) : INTERRUPTING_ITEM_RE.test(lead)
+    const item = depth < prevParaQuote || indent < prevParaBase
+      ? LIST_ITEM_RE.test(lead)
+      : INTERRUPTING_ITEM_RE.test(lead)
     const ends = (BLOCK_END_RE.test(lead) || item || htmlBlockAt(lead, false) !== undefined) && (indent - outer <= 3 || depth <= prevParaQuote - 2)
     const onward = prevText && depth <= prevParaQuote && !ends
     const markerText = onward && LIST_ITEM_RE.test(lead)
@@ -813,8 +937,18 @@ for (const file of files) {
       fences.lists = []
       outer = 0
     }
-    const start = markerText ? { lists: fences.lists.filter(col => col <= indent), base: outer, at: indent - outer > 3 ? undefined : indent } : blockStart(fences.lists, unquotedLine)
-    const content = start.at === undefined ? undefined : unquotedLine.slice(start.at)
+    const start = markerText
+      ? {
+          lists: fences.lists.filter(col => col <= indent),
+          base: outer,
+          at: indent - outer > 3
+            ? undefined
+            : indent,
+        }
+      : blockStart(fences.lists, unquotedLine)
+    const content = start.at === undefined
+      ? undefined
+      : unquotedLine.slice(start.at)
     const paraQuote = onward ? prevParaQuote : depth
     const paraBase = onward ? prevParaBase : start.base
     let spanLines: string[] | undefined
@@ -840,13 +974,23 @@ for (const file of files) {
     }
     if (!tableLine && !html && !closedHere && openTicks === undefined && !(onward && depth < prevParaQuote)) {
       const next = lines[i + 1]
-      const level = next === undefined ? depth + 1 : quoteDepth(next)
-      const below = next === undefined ? undefined : expandTabs(next.replace(BLOCKQUOTE_RE, ''))
+      const level = next === undefined
+        ? depth + 1
+        : quoteDepth(next)
+      const below = next === undefined
+        ? undefined
+        : expandTabs(next.replace(BLOCKQUOTE_RE, ''))
       let base: number | undefined
-      if (level === depth)
-        base = tableHead(unquotedLine, below, outer) ? outer : content !== undefined && start.base !== outer && tableHead(content, below, start.base) ? start.base : undefined
-      else if (level < depth && aboveQuote <= level && tableHead(expandTabs(unquote(line, level)), below, 0))
+      if (level === depth) {
+        base = tableHead(unquotedLine, below, outer)
+          ? outer
+          : content !== undefined && start.base !== outer && tableHead(content, below, start.base)
+            ? start.base
+            : undefined
+      }
+      else if (level < depth && aboveQuote <= level && tableHead(expandTabs(unquote(line, level)), below, 0)) {
         base = 0
+      }
       if (base !== undefined) {
         table = { quote: level, base, delimiter: true }
         tableLine = true
@@ -892,10 +1036,16 @@ for (const file of files) {
       // Paragraph text: the rest of a line whose comment closed in a paragraph, a line indented
       // as code that continues the text above it (a deeper quote opens code instead), or a line
       // that ends no paragraph.
-      paragraph = !htmlLine && (closedHere !== undefined || (content === undefined ? onward : markerText || !PARAGRAPH_END_RE.test(content)))
+      paragraph = !htmlLine && (closedHere !== undefined || (content === undefined
+        ? onward
+        : markerText || !PARAGRAPH_END_RE.test(content)))
       const unquotedVisible = visible.replace(BLOCKQUOTE_RE, '')
-      const close = openTicks === undefined ? 0 : runEnd(unquotedVisible, openTicks)
-      const past = close === -1 ? visible.length : visible.length - unquotedVisible.length + close
+      const close = openTicks === undefined
+        ? 0
+        : runEnd(unquotedVisible, openTicks)
+      const past = close === -1
+        ? visible.length
+        : visible.length - unquotedVisible.length + close
       // A link's destination and title, on this line and on any a title from above wraps onto,
       // hold a `<!--` as text; an HTML block's line holds no link.
       let links: [number, number][] = []
@@ -903,7 +1053,12 @@ for (const file of files) {
         const tails = linkTails(visible, paragraph ? spans : none)
         const carried = linkCarry.get(i)
         const quoteLength = visible.length - unquotedVisible.length
-        links = carried === undefined ? tails.spans : [[quoteLength, quoteLength + carried], ...tails.spans]
+        links = carried === undefined
+          ? tails.spans
+          : [
+              [quoteLength, quoteLength + carried],
+              ...tails.spans,
+            ]
         for (const [k, reach] of tails.onward.entries()) {
           if (reach !== undefined)
             linkCarry.set(i + 1 + k, Math.max(linkCarry.get(i + 1 + k) ?? 0, reach))
@@ -956,7 +1111,9 @@ for (const file of files) {
     let to = unquoted.length
     if (openTicks !== undefined) {
       const end = runEnd(unquoted, openTicks)
-      from = end === -1 ? to : end
+      from = end === -1
+        ? to
+        : end
       if (end !== -1)
         openTicks = undefined
     }
@@ -972,8 +1129,12 @@ for (const file of files) {
         }
       }
     }
-    const shown = row ?? (asHtml ? unquoted.slice(from, to).replace(TICK_RE, ' ') : unquoted.slice(from, to))
-    const scrubbed = asHtml || row !== undefined ? shown : shown.replace(INLINE_CODE_RE, '')
+    const shown = row ?? (asHtml
+      ? unquoted.slice(from, to).replace(TICK_RE, ' ')
+      : unquoted.slice(from, to))
+    const scrubbed = asHtml || row !== undefined
+      ? shown
+      : shown.replace(INLINE_CODE_RE, '')
     for (const { re, msg, raw } of BANNED) {
       if (re.test(raw ? unquoted : scrubbed))
         problems.push(`${where}:${i + 1}  ${msg}\n    ${line.trim()}`)
@@ -989,24 +1150,36 @@ for (const file of files) {
     // counts as an H2 and cannot double as the page's H1.
     // A line that starts inside a comment, an HTML block's, or a table's is no heading and
     // underlines none.
-    const h = inert ? null : visible.match(HEADING_RE)
+    const h = inert
+      ? null
+      : visible.match(HEADING_RE)
     if (h) {
       const text = (h[2] ?? '').trim().replace(CLOSING_HASHES_RE, '')
       if (text)
         recordHeading(page, text, h[1]!.length, i + 1)
     }
     else if (setext) {
-      recordHeading(page, prevVisible.trim(), visible.trim().startsWith('=') ? 1 : 2, i)
+      recordHeading(page, prevVisible.trim(), visible.trim().startsWith('=')
+        ? 1
+        : 2, i)
     }
     // The link scan below reads the line with the wrapped code blanked, columns kept.
     const quote = visible.slice(0, visible.length - unquoted.length)
     visibleLines.push(`${quote}${' '.repeat(from)}${shown}`)
     // An HTML block's or a table's line is no text a later line continues or underlines.
-    prevVisible = asHtml || tableLine ? '' : visible
+    prevVisible = asHtml || tableLine
+      ? ''
+      : visible
     // A run of `=` or of two `-` underlines the text above it, or is text where there is none; one
     // `-` is an empty list item, and three or more a thematic break.
-    const underline = content === undefined ? undefined : UNDERLINE_RE.exec(content)?.[1]
-    prevText = !asHtml && !tableLine && (content === undefined ? onward : underline === undefined ? markerText || !PARAGRAPH_END_RE.test(content) : !onward && (underline[0] === '=' || underline.length === 2))
+    const underline = content === undefined
+      ? undefined
+      : UNDERLINE_RE.exec(content)?.[1]
+    prevText = !asHtml && !tableLine && (content === undefined
+      ? onward
+      : underline === undefined
+        ? markerText || !PARAGRAPH_END_RE.test(content)
+        : !onward && (underline[0] === '=' || underline.length === 2))
     prevParaQuote = paraQuote
     prevParaBase = paraBase
   })
@@ -1032,7 +1205,10 @@ for (const file of files) {
       const next = following(i + 1).trim()
       line = `${line.trimEnd()} ${next.slice(0, next.indexOf(')') + 1)}`
     }
-    for (const m of [...line.matchAll(LINK_TARGET_RE), ...line.matchAll(OPEN_TARGET_RE)])
+    for (const m of [
+      ...line.matchAll(LINK_TARGET_RE),
+      ...line.matchAll(OPEN_TARGET_RE),
+    ])
       checkLinkTarget(`${where}:${i + 1}`, file, m[1]!, m[1]!, 'inline')
     let def = raw.replace(INLINE_CODE_RE, '').replace(CONTAINER_PREFIX_RE, '')
     let j = i + 1
@@ -1041,8 +1217,11 @@ for (const file of files) {
     if (REF_DEST_NEXT_RE.test(def))
       def = `${def.trimEnd()} ${following(j).trim()}`
     const rm = def.match(REF_DEF_RE)
-    if (rm && (onPublic || !rm[1]!.startsWith('^')))
-      checkLinkTarget(`${where}:${i + 1}`, file, rm[2]!, rm[0]!.trim(), rm[1]!.startsWith('^') ? 'footnote' : 'ref')
+    if (rm && (onPublic || !rm[1]!.startsWith('^'))) {
+      checkLinkTarget(`${where}:${i + 1}`, file, rm[2]!, rm[0]!.trim(), rm[1]!.startsWith('^')
+        ? 'footnote'
+        : 'ref')
+    }
   })
 }
 

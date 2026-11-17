@@ -168,10 +168,16 @@ function globSegment(text: string): RegExp | null {
   if (!/[*?[]/.test(text))
     return null
   const seg = text.replace(/\*+/g, '*')
-  let re = /^[*?[]/.test(seg) ? '(?!\\.)' : ''
+  let re = /^[*?[]/.test(seg)
+    ? '(?!\\.)'
+    : ''
   for (let n = 0; n < seg.length; n++) {
     const c = seg[n]!
-    const close = c === '[' ? seg.indexOf(']', /^[!^]/.test(seg[n + 1] ?? '') ? n + 3 : n + 2) : -1
+    const close = c === '['
+      ? seg.indexOf(']', /^[!^]/.test(seg[n + 1] ?? '')
+          ? n + 3
+          : n + 2)
+      : -1
     if (c === '*') {
       re += '.*'
     }
@@ -211,8 +217,12 @@ function globReadsSecret(p: string): boolean {
   if (segs.slice(0, -1).some(seg => seg.replace(/\[[^\]]*\]|[*?]/g, '') !== '' && globSegment(seg)?.test('secrets')))
     return true
   const last = segs.at(-1)!
-  const ext = last.includes('.') ? last.slice(last.lastIndexOf('.') + 1) : ''
-  const extGlob = ext.startsWith('*') ? null : globSegment(ext)
+  const ext = last.includes('.')
+    ? last.slice(last.lastIndexOf('.') + 1)
+    : ''
+  const extGlob = ext.startsWith('*')
+    ? null
+    : globSegment(ext)
   if (extGlob && KEY_EXTENSIONS.some(e => extGlob.test(e)))
     return true
   return GLOB_PROBES.some((probe) => {
@@ -221,7 +231,9 @@ function globReadsSecret(p: string): boolean {
       return false
     return probe.every((want, k) => {
       const re = globSegment(have[k]!)
-      return re ? re.test(want) : have[k]!.toLowerCase() === want
+      return re
+        ? re.test(want)
+        : have[k]!.toLowerCase() === want
     })
   })
 }
@@ -231,7 +243,9 @@ function globReadsSecret(p: string): boolean {
 // where a regex backtracked quadratically over a run of `{`.
 function braceMembers(a: string): string[] {
   const last = a.lastIndexOf('}')
-  const open = last < 0 ? -1 : a.lastIndexOf('{', last)
+  const open = last < 0
+    ? -1
+    : a.lastIndexOf('{', last)
   if (open < 0)
     return [a]
   const close = a.indexOf('}', open)
@@ -257,7 +271,14 @@ function redirectSource(toks: string[], j: number): string | null {
 }
 
 // find's name and path tests: find matches their pattern as a glob itself, quoted or not.
-const FIND_TESTS: ReadonlySet<string> = new Set(['-name', '-iname', '-path', '-ipath', '-wholename', '-iwholename'])
+const FIND_TESTS: ReadonlySet<string> = new Set([
+  '-name',
+  '-iname',
+  '-path',
+  '-ipath',
+  '-wholename',
+  '-iwholename',
+])
 const FIND_EXEC = /^-(?:exec|ok)(?:dir)?$/
 // find's primaries that take one word after them (`-newerXY` too), and those always true.
 // Anything else takes none and can be true or false: a primary missing here at worst shifts
@@ -300,7 +321,23 @@ const FIND_ONE_ARG: ReadonlySet<string> = new Set([
   '-files0-from',
   '-printf',
 ])
-const FIND_TRUE: ReadonlySet<string> = new Set(['-prune', '-true', '-print', '-print0', '-printf', '-ls', '-maxdepth', '-mindepth', '-depth', '-xdev', '-mount', '-follow', '-daystart', '-noleaf', '-regextype'])
+const FIND_TRUE: ReadonlySet<string> = new Set([
+  '-prune',
+  '-true',
+  '-print',
+  '-print0',
+  '-printf',
+  '-ls',
+  '-maxdepth',
+  '-mindepth',
+  '-depth',
+  '-xdev',
+  '-mount',
+  '-follow',
+  '-daystart',
+  '-noleaf',
+  '-regextype',
+])
 
 // Every outcome a find expression can have for one file, as a bit mask over (value, whether an
 // -exec or -ok ran on the file): bit 1 << ((ran ? 2 : 0) + (value ? 1 : 0)).
@@ -360,10 +397,14 @@ function execReaches(words: string[], target: number): boolean {
       }
       return outcome(true, true) | outcome(false, true)
     }
-    p += FIND_ONE_ARG.has(w) || /^-newer[aBcmt][aBcmt]$/.test(w) ? 1 : 0
+    p += FIND_ONE_ARG.has(w) || /^-newer[aBcmt][aBcmt]$/.test(w)
+      ? 1
+      : 0
     if (at === target || FIND_TRUE.has(w))
       return outcome(true, false)
-    return w === '-false' ? outcome(false, false) : outcome(true, false) | outcome(false, false)
+    return w === '-false'
+      ? outcome(false, false)
+      : outcome(true, false) | outcome(false, false)
   }
   function unary(): Outcomes {
     const w = words[p]

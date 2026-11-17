@@ -49,7 +49,7 @@ allowBuilds:
 # Catalog-first (enforced by pnpm/json-enforce-catalog): every dependency
 # version lives here once; packages reference "catalog:".
 catalog:
-  '@antfu/eslint-config': ^9.0.0
+  '@antfu/eslint-config': ^10.0.0
   '@commitlint/cli': ^20.0.0
   '@commitlint/config-conventional': ^20.0.0
   '@secretlint/secretlint-rule-preset-recommend': ^13.0.0

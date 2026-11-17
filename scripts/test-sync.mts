@@ -39,7 +39,12 @@ const T3_AT = '2026-01-03T00:00:00Z'
 const T4_AT = '2026-01-04T00:00:00Z'
 
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', args, { cwd, env: ENV, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return execFileSync('git', args, {
+    cwd,
+    env: ENV,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
 }
 
 /** git for assertions and follow-on commits: never throws, returns '' on failure, so a failed sync reports instead of crashing the suite. */
@@ -59,7 +64,9 @@ function write(dir: string, rel: string, content: string): void {
 }
 
 function commit(dir: string, message: string, date?: string): string {
-  const env = date === undefined ? ENV : { ...ENV, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }
+  const env = date === undefined
+    ? ENV
+    : { ...ENV, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date }
   execFileSync('git', ['add', '-A'], { cwd: dir, env, stdio: 'ignore' })
   execFileSync('git', ['commit', '-q', '-m', message], { cwd: dir, env, stdio: 'ignore' })
   return git(dir, 'rev-parse', 'HEAD').trim()
@@ -67,14 +74,25 @@ function commit(dir: string, message: string, date?: string): string {
 
 /** Copies a working tree without its .git directory (segment-aware, so it works with Windows separators). */
 function copyTree(from: string, to: string): void {
-  cpSync(from, to, { recursive: true, filter: src => !src.split(sep).includes('.git') })
+  cpSync(from, to, {
+    recursive: true,
+    filter: src => !src.split(sep).includes('.git'),
+  })
 }
 
 interface Run { status: number | null, stdout: string, stderr: string, detail: string }
 function run(cwd: string, ...args: string[]): Run {
-  const r = spawnSync(process.execPath, [join(cwd, 'scripts/sync-template.mts'), ...args], { cwd, env: ENV, encoding: 'utf8' })
+  const r = spawnSync(process.execPath, [
+    join(cwd, 'scripts/sync-template.mts'),
+    ...args,
+  ], { cwd, env: ENV, encoding: 'utf8' })
   const detail = `exit ${r.status ?? `null (${r.error?.message ?? 'no error'})`}; stderr: ${(r.stderr ?? '').trim()}; stdout: ${(r.stdout ?? '').trim().slice(0, 600)}`
-  return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '', detail }
+  return {
+    status: r.status,
+    stdout: r.stdout ?? '',
+    stderr: r.stderr ?? '',
+    detail,
+  }
 }
 
 /** `git diff --cached --name-status` as "X path" lines, renames split into a deletion and an addition as the report prints them. */
@@ -100,8 +118,11 @@ const fails: string[] = []
 let checks = 0
 function check(name: string, ok: boolean, detail = ''): void {
   checks++
-  if (!ok)
-    fails.push(`${name}${detail ? ` — ${detail}` : ''}`)
+  if (!ok) {
+    fails.push(`${name}${detail
+      ? ` — ${detail}`
+      : ''}`)
+  }
 }
 
 // --- template fixture -------------------------------------------------------------
@@ -123,7 +144,24 @@ write(template, 'scripts/docs/check-docs.mts', '// check v1\n')
 write(template, 'scripts/sync-template.mts', `${REAL_SCRIPT}// t1\n`) // an older copy of the real script
 write(template, 'scripts/test-hooks.mts', '// hooks\n')
 write(template, '.claude/skills/x/SKILL.md', '# x\n')
-const settings = (deny: string[], hook: string, matcher = 'Bash'): string => `${JSON.stringify({ permissions: { allow: ['Bash(git status:*)'], deny }, hooks: { PreToolUse: [{ matcher, hooks: [{ type: 'command', command: hook }] }] } }, null, 2)}\n`
+function settings(deny: string[], hook: string, matcher = 'Bash'): string {
+  return `${JSON.stringify({
+    permissions: {
+      allow: ['Bash(git status:*)'],
+      deny,
+    },
+    hooks: {
+      PreToolUse: [
+        {
+          matcher,
+          hooks: [
+            { type: 'command', command: hook },
+          ],
+        },
+      ],
+    },
+  }, null, 2)}\n`
+}
 write(template, '.claude/settings.json', settings(['Read(**/.env)'], 'node hooks.mts'))
 write(template, '.github/workflows/ci.yml', 'ci v1\n')
 write(template, '.github/workflows/docs.yml', 'v1\n')
@@ -147,7 +185,13 @@ const child = join(tmp, 'child')
 copyTree(template, child)
 git(child, 'init', '-q', '-b', 'main')
 const CHECK_LLMS = 'node scripts/docs/check-docs.mts && node scripts/docs/gen-llms.mts --check'
-write(child, 'package.json', pkg({ ...T1_SCRIPTS, 'docs:check': CHECK_LLMS, 'lint': 'eslint .', 'dev': 'vite', 'llms': 'node scripts/docs/gen-llms.mts' }))
+write(child, 'package.json', pkg({
+  ...T1_SCRIPTS,
+  'docs:check': CHECK_LLMS,
+  'lint': 'eslint .',
+  'dev': 'vite',
+  'llms': 'node scripts/docs/gen-llms.mts',
+}))
 write(child, '.claude/skills/own/SKILL.md', '# own\n')
 write(child, 'docs/template/x1.md', '# own page\n')
 write(child, 'config/lint.json', '{}\n')
@@ -204,9 +248,24 @@ commit(fork, 'feat: own work')
   check('one commit since the baseline', r.stdout.includes('1 commit since the baseline'))
   check('breaking commit marked on first sync', r.stdout.includes('! ') && r.stdout.includes('refactor(docs)!: drop gen-llms'))
   const s = staged(child)
-  for (const want of ['M .github/workflows/ci.yml', 'M .github/workflows/docs.yml', 'D scripts/docs/gen-llms.mts', 'D docs/template/x[1].md', 'A scripts/test-sync.mts', 'M scripts/sync-template.mts', 'M docs/template/x.md', 'A .agents/skills/x/SKILL.md', `A ${STATE}`])
+  for (const want of [
+    'M .github/workflows/ci.yml',
+    'M .github/workflows/docs.yml',
+    'D scripts/docs/gen-llms.mts',
+    'D docs/template/x[1].md',
+    'A scripts/test-sync.mts',
+    'M scripts/sync-template.mts',
+    'M docs/template/x.md',
+    'A .agents/skills/x/SKILL.md',
+    `A ${STATE}`,
+  ])
     check(`first sync stages ${want}`, s.includes(want), s.join(', '))
-  for (const never of ['src/index.ts', 'package.json', '.claude/skills/own/SKILL.md', 'docs/template/x1.md'])
+  for (const never of [
+    'src/index.ts',
+    'package.json',
+    '.claude/skills/own/SKILL.md',
+    'docs/template/x1.md',
+  ])
     check(`first sync leaves ${never} alone`, !s.some(l => l.endsWith(never)) && existsSync(join(child, never)), s.join(', '))
   // A copy byte-identical to the one the template shipped would be retired if the path were
   // still synced; out of MECHANICS it is the child's own, never staged and never mentioned.
@@ -292,7 +351,13 @@ write(template, 'package.json', pkg({ ...T2_SCRIPTS, 'docs:check': 'node scripts
 write(template, '.github/labels.yml', 'labels\n')
 write(template, '.claude/settings.json', settings(['Read(**/.env)', 'Read(**/.pgpass)'], 'node hooks.mts --strict', 'Bash|Monitor'))
 const T3 = commit(template, 'feat(docs)!: strict docs:check\n\nBREAKING CHANGE: docs:check now fails on stale review dates.\n', T3_AT)
-const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.claude/rules/api.md', '.claude/hooks/deny-prod-db.mts', 'docs/template/x1.md']
+const OWN = [
+  '.claude/skills/own/SKILL.md',
+  '.agents/skills/own/SKILL.md',
+  '.claude/rules/api.md',
+  '.claude/hooks/deny-prod-db.mts',
+  'docs/template/x1.md',
+]
 {
   write(child, '.agents/skills/own/SKILL.md', '# own\n')
   write(child, '.claude/rules/api.md', '# api rule\n')
@@ -308,7 +373,13 @@ const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.cla
   check('breaking paragraph printed', r.stdout.includes('BREAKING CHANGE: docs:check now fails on stale review dates.'))
   check('commit list ends with the full log range', r.stdout.includes(`\n  Full log: git log ${T2.slice(0, 7)}..${T3.slice(0, 7)}\n`), r.stdout)
   const s = staged(child)
-  for (const want of ['A .github/labels.yml', 'M scripts/docs/check-docs.mts', 'D docs/template/x.md', 'A docs/template/y.md', `M ${STATE}`])
+  for (const want of [
+    'A .github/labels.yml',
+    'M scripts/docs/check-docs.mts',
+    'D docs/template/x.md',
+    'A docs/template/y.md',
+    `M ${STATE}`,
+  ])
     check(`commits-since stages ${want}`, s.includes(want), s.join(', '))
   check('rename reported as a deletion and an addition', r.stdout.includes('  D  docs/template/x.md') && r.stdout.includes('  A  docs/template/y.md'), r.stdout)
   for (const own of OWN)
@@ -339,7 +410,10 @@ const OWN = ['.claude/skills/own/SKILL.md', '.agents/skills/own/SKILL.md', '.cla
 
 // 5. Lost baseline: the recorded commit is not in the template's history.
 {
-  write(child, STATE, `${JSON.stringify({ url: URL, commit: 'd'.repeat(40) }, null, 2)}\n`)
+  write(child, STATE, `${JSON.stringify({
+    url: URL,
+    commit: 'd'.repeat(40),
+  }, null, 2)}\n`)
   commit(child, 'chore: bad state')
   const r = run(child)
   check('lost baseline exits 0', r.status === 0, r.detail)
@@ -364,19 +438,43 @@ function refused(name: string, body: string, why: string): void {
 refused('corrupt state', '{not json\n', 'not valid JSON')
 refused('array state', json([VALID]), 'not a JSON object')
 refused('string exclude', json({ ...VALID, exclude: '.github/workflows/docs.yml' }), '"exclude"')
-refused('number in exclude', json({ ...VALID, exclude: [1] }), '"exclude" must be an array of path strings')
-refused('glob include', json({ ...VALID, include: ['*.config.ts'] }), '*.config.ts')
+refused('number in exclude', json({
+  ...VALID,
+  exclude: [1],
+}), '"exclude" must be an array of path strings')
+refused('glob include', json({
+  ...VALID,
+  include: ['*.config.ts'],
+}), '*.config.ts')
 check('glob include deletes nothing', existsSync(join(child, 'eslint.config.ts')) && existsSync(join(child, 'packages/a/vitest.config.ts')))
-refused('dot include', json({ ...VALID, include: ['.'] }), '"."')
-refused('parent include', json({ ...VALID, include: ['../x'] }), '"../x"')
-refused('absolute include', json({ ...VALID, include: ['/abs/path'] }), 'not a repo-relative path')
-refused('magic exclude', json({ ...VALID, exclude: [':(glob)**'] }), ':(glob)**')
+refused('dot include', json({
+  ...VALID,
+  include: ['.'],
+}), '"."')
+refused('parent include', json({
+  ...VALID,
+  include: ['../x'],
+}), '"../x"')
+refused('absolute include', json({
+  ...VALID,
+  include: ['/abs/path'],
+}), 'not a repo-relative path')
+refused('magic exclude', json({
+  ...VALID,
+  exclude: [':(glob)**'],
+}), ':(glob)**')
 refused('invalid url', json({ ...VALID, url: 'not a url' }), '"url"')
 refused('invalid repo', json({ ...VALID, repo: 'not a url' }), '"repo"')
 refused('invalid ref', json({ ...VALID, ref: '-x' }), '"ref"')
 refused('dot-dot ref', json({ ...VALID, ref: 'a..b' }), '"ref"')
-refused('backslash exclude', json({ ...VALID, exclude: ['.github\\workflows'] }), 'forward slashes')
-refused('drive include', json({ ...VALID, include: ['C:/x'] }), 'forward slashes')
+refused('backslash exclude', json({
+  ...VALID,
+  exclude: ['.github\\workflows'],
+}), 'forward slashes')
+refused('drive include', json({
+  ...VALID,
+  include: ['C:/x'],
+}), 'forward slashes')
 
 // 6b. A byte-order mark (Windows editors write one) is not an error in the state file,
 // package.json, or .claude/settings.json.
@@ -402,7 +500,12 @@ refused('drive include', json({ ...VALID, include: ['C:/x'] }), 'forward slashes
 // slash dropped; an exclude entry that names no synced path is warned about.
 {
   write(child, '.gemini/settings.json', '{ "own": true }\n')
-  write(child, STATE, json({ url: URL, commit: 'nope', exclude: ['.gemini/settings.json', '.claude/skills/x'], include: ['config/'] }))
+  write(child, STATE, json({
+    url: URL,
+    commit: 'nope',
+    exclude: ['.gemini/settings.json', '.claude/skills/x'],
+    include: ['config/'],
+  }))
   commit(child, 'chore: invalid commit')
   const r = run(child)
   check('invalid commit exits 0', r.status === 0, r.detail)
@@ -479,7 +582,10 @@ refused('drive include', json({ ...VALID, include: ['C:/x'] }), 'forward slashes
 }
 {
   // The lists steer the run, so a state file with unstaged edits is refused like any synced path.
-  write(child, STATE, json({ ...VALID, exclude: ['.gemini/settings.json'] }))
+  write(child, STATE, json({
+    ...VALID,
+    exclude: ['.gemini/settings.json'],
+  }))
   const r = run(child)
   check('edited state file exits 1', r.status === 1 && r.stderr.includes('Uncommitted changes') && r.stderr.includes(STATE), r.detail)
   gitSafe(child, 'checkout', '--', STATE)
@@ -549,7 +655,12 @@ write(template, '.github/workflows/docs.yml', 'v3\n')
 write(template, 'turbo.json', '{}\n')
 const T4 = commit(template, 'chore: turbo', T4_AT)
 {
-  write(child, STATE, json({ url: URL, commit: T3, exclude: ['.github/workflows/docs.yml'], include: ['turbo.json', 'config'] }))
+  write(child, STATE, json({
+    url: URL,
+    commit: T3,
+    exclude: ['.github/workflows/docs.yml'],
+    include: ['turbo.json', 'config'],
+  }))
   commit(child, 'chore: exclude and include')
   gitSafe(child, 'remote', 'remove', 'template')
   const r = run(child)
@@ -570,7 +681,10 @@ const T4 = commit(template, 'chore: turbo', T4_AT)
   copyTree(template, pre)
   git(pre, 'init', '-q', '-b', 'main')
   write(pre, '.gemini/settings.json', '{ "own": true }\n')
-  write(pre, STATE, json({ url: URL, exclude: ['.gemini/settings.json'] }))
+  write(pre, STATE, json({
+    url: URL,
+    exclude: ['.gemini/settings.json'],
+  }))
   commit(pre, 'chore: init')
   git(pre, 'remote', 'add', 'template', 'file:///nonexistent/stale')
   const r = run(pre)
@@ -589,18 +703,27 @@ const T4 = commit(template, 'chore: turbo', T4_AT)
   const half = join(tmp, 'half-excluded')
   copyTree(template, half)
   git(half, 'init', '-q', '-b', 'main')
-  write(half, STATE, json({ url: URL, exclude: ['.claude/skills'] }))
+  write(half, STATE, json({
+    url: URL,
+    exclude: ['.claude/skills'],
+  }))
   commit(half, 'chore: init')
   const r = run(half)
   check('one-sided skill exclude exits 0', r.status === 0, r.detail)
   check('one-sided skill exclude warned', r.stderr.includes('".claude/skills" without ".agents"') && r.stderr.includes('exclude both or neither'), r.stderr)
   gitSafe(half, 'commit', '-q', '-m', 'chore: sync mechanics from template')
-  write(half, STATE, json({ ...readState(half), exclude: ['.agents'] }))
+  write(half, STATE, json({
+    ...readState(half),
+    exclude: ['.agents'],
+  }))
   commit(half, 'chore: exclude the mirror only')
   const mirror = run(half)
   check('one-sided mirror exclude warned', mirror.status === 0 && mirror.stderr.includes('".agents" without ".claude/skills"'), mirror.detail)
   gitSafe(half, 'commit', '-q', '-m', 'chore: sync mechanics from template')
-  write(half, STATE, json({ ...readState(half), exclude: ['.agents', '.claude/skills'] }))
+  write(half, STATE, json({
+    ...readState(half),
+    exclude: ['.agents', '.claude/skills'],
+  }))
   commit(half, 'chore: exclude the mirror too')
   const both = run(half)
   check('skill exclude of both sides warns nothing', both.status === 0 && both.stderr === '', both.detail)
@@ -738,7 +861,13 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('one failed checkout prints the Skipped header', r.stdout.includes('Skipped (git checkout failed — fix and re-run):'), r.stdout)
   check('skipped line names the path and the git reason', r.stdout.includes('  scripts/docs  ') && r.stdout.includes('filter'), r.stdout)
   const s = staged(dir)
-  for (const want of ['A .github/workflows/ci.yml', 'A .claude/skills/x/SKILL.md', 'A scripts/sync-template.mts', 'D scripts/docs/gen-llms.mts', `A ${STATE}`])
+  for (const want of [
+    'A .github/workflows/ci.yml',
+    'A .claude/skills/x/SKILL.md',
+    'A scripts/sync-template.mts',
+    'D scripts/docs/gen-llms.mts',
+    `A ${STATE}`,
+  ])
     check(`one failed checkout still stages ${want}`, s.includes(want), s.join(', '))
   check('file the template never shipped is kept without a baseline', !s.some(l => l.endsWith('scripts/docs/own.mts')) && existsSync(join(dir, 'scripts/docs/own.mts')), s.join(', '))
   check('file the template never shipped is not listed as kept', !r.stdout.includes('scripts/docs/own.mts'), r.stdout)
@@ -765,15 +894,45 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 // output style: a child hook registered ahead of the template's is no difference, and a
 // matcher-only change is one. A registration with no matcher prints `matcher (none)`.
 {
-  const hook = (matcher: string, command: string): unknown => ({ matcher, hooks: [{ type: 'command', command }] })
-  const permissions = { allow: ['Bash(git status:*)'], deny: ['Read(**/.env)', 'Read(**/.pgpass)'] }
-  write(child, '.claude/settings.json', json({ permissions, hooks: { PreToolUse: [hook('Bash', 'node tools/fmt-hook.mts'), hook('Bash|Monitor', 'node hooks.mts --strict')] } }))
+  const hook = (matcher: string, command: string): unknown => ({
+    matcher,
+    hooks: [
+      { type: 'command', command },
+    ],
+  })
+  const permissions = {
+    allow: ['Bash(git status:*)'],
+    deny: ['Read(**/.env)', 'Read(**/.pgpass)'],
+  }
+  write(child, '.claude/settings.json', json({
+    permissions,
+    hooks: {
+      PreToolUse: [
+        hook('Bash', 'node tools/fmt-hook.mts'),
+        hook('Bash|Monitor', 'node hooks.mts --strict'),
+      ],
+    },
+  }))
   commit(child, 'chore: own hook first')
   const same = run(child)
   check('own hook ahead of the template\'s is no difference', same.status === 0 && same.stdout.includes('Settings: none new.'), same.stdout)
   // A Stop registration takes no matcher.
-  const stop = { hooks: [{ type: 'command', command: 'node stop-check.mts' }] }
-  write(template, '.claude/settings.json', json({ outputStyle: 'writing', permissions, hooks: { PreToolUse: [hook('Bash|PowerShell', 'node hooks.mts --strict'), hook('Write', 'node write-guard.mts')], Stop: [stop] } }))
+  const stop = {
+    hooks: [
+      { type: 'command', command: 'node stop-check.mts' },
+    ],
+  }
+  write(template, '.claude/settings.json', json({
+    outputStyle: 'writing',
+    permissions,
+    hooks: {
+      PreToolUse: [
+        hook('Bash|PowerShell', 'node hooks.mts --strict'),
+        hook('Write', 'node write-guard.mts'),
+      ],
+      Stop: [stop],
+    },
+  }))
   commit(template, 'fix(hooks): guard powershell and writes')
   const r = run(child)
   check('settings change exits 0', r.status === 0, r.detail)
@@ -789,11 +948,35 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 // paired with it: a hook the template adds beside it is "missing here", and a command the
 // template changed pairs only with the registration the template shipped.
 {
-  const entry = (matcher: string, ...commands: string[]): unknown => ({ matcher, hooks: commands.map(command => ({ type: 'command', command })) })
-  const permissions = { allow: ['Bash(git status:*)'], deny: ['Read(**/.env)', 'Read(**/.pgpass)'] }
-  write(child, '.claude/settings.json', json({ outputStyle: 'writing', permissions, hooks: { PreToolUse: [entry('Bash|PowerShell', 'node hooks.mts --strict', 'node tools/fmt-hook.mts'), entry('Write', 'node write-guard.mts', 'node tools/own-write.mts')] } }))
+  const entry = (matcher: string, ...commands: string[]): unknown => ({
+    matcher,
+    hooks: commands.map(command => ({ type: 'command', command })),
+  })
+  const permissions = {
+    allow: ['Bash(git status:*)'],
+    deny: ['Read(**/.env)', 'Read(**/.pgpass)'],
+  }
+  write(child, '.claude/settings.json', json({
+    outputStyle: 'writing',
+    permissions,
+    hooks: {
+      PreToolUse: [
+        entry('Bash|PowerShell', 'node hooks.mts --strict', 'node tools/fmt-hook.mts'),
+        entry('Write', 'node write-guard.mts', 'node tools/own-write.mts'),
+      ],
+    },
+  }))
   commit(child, 'chore: apply settings follow-ups')
-  write(template, '.claude/settings.json', json({ outputStyle: 'writing', permissions, hooks: { PreToolUse: [entry('Bash|PowerShell', 'node hooks.mts --strict', 'node audit.mts'), entry('Write', 'node write-guard.mts --strict')] } }))
+  write(template, '.claude/settings.json', json({
+    outputStyle: 'writing',
+    permissions,
+    hooks: {
+      PreToolUse: [
+        entry('Bash|PowerShell', 'node hooks.mts --strict', 'node audit.mts'),
+        entry('Write', 'node write-guard.mts --strict'),
+      ],
+    },
+  }))
   commit(template, 'fix(hooks): audit, stricter writes')
   const r = run(child)
   check('own hooks sharing a matcher exit 0', r.status === 0, r.detail)
@@ -873,7 +1056,9 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('lost sync point keeps an own file at a path the template retired', !s.some(l => l.endsWith('docs/template/x.md')) && existsSync(join(clone, 'docs/template/x.md')), s.join(', '))
   const out = r.stdout.split('\n')
   const at = out.findIndex(l => l.startsWith('Kept ('))
-  const kept = at < 0 ? [] : out.slice(at + 1)
+  const kept = at < 0
+    ? []
+    : out.slice(at + 1)
   for (const file of ['docs/template/experimental.md', 'docs/template/x.md', ...OWN])
     check(`lost sync point lists ${file} as kept`, kept.includes(`  ${file}`), r.stdout)
 }
@@ -887,7 +1072,16 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   mkdirSync(hooksTemplate)
   git(hooksTemplate, 'init', '-q', '-b', 'main')
   const DISPATCH = 'node .claude/hooks/dispatch.mts'
-  const hookSettings = (...entries: [string, string][]): string => json({ hooks: { PreToolUse: entries.map(([matcher, command]) => ({ matcher, hooks: [{ type: 'command', command }] })) } })
+  const hookSettings = (...entries: [string, string][]): string => json({
+    hooks: {
+      PreToolUse: entries.map(([matcher, command]) => ({
+        matcher,
+        hooks: [
+          { type: 'command', command },
+        ],
+      })),
+    },
+  })
   write(hooksTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
   write(hooksTemplate, '.claude/hooks/dispatch.mts', '// dispatch\n')
   write(hooksTemplate, '.claude/settings.json', hookSettings(['Bash', DISPATCH]))
@@ -965,7 +1159,11 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   commit(routeTemplate, 'feat: an extra rule', T4_AT)
   run(kid)
   gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
-  write(kid, STATE, json({ url: routeUrl, commit: readState(kid).commit, exclude: ['.claude/rules'] }))
+  write(kid, STATE, json({
+    url: routeUrl,
+    commit: readState(kid).commit,
+    exclude: ['.claude/rules'],
+  }))
   commit(kid, 'chore: exclude the rules')
   git(routeTemplate, 'rm', '-q', '.claude/rules/extra.md')
   write(routeTemplate, '.claude/rules/added.md', '# a rule added while excluded here\n')
@@ -1017,7 +1215,10 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('fork records itself as the writer', forkState.url === UPSTREAM && forkState.repo === ACME_URL, JSON.stringify(forkState))
   check('fork says which URL it recorded as itself', synced.stdout.includes(`Recorded this repository as ${ACME_URL} ("repo" in ${STATE})`), synced.stdout)
   // The fork's lists configure its own sync from upstream, not a sync from the fork.
-  write(acme, STATE, json({ ...forkState, exclude: ['.gemini/settings.json'] }))
+  write(acme, STATE, json({
+    ...forkState,
+    exclude: ['.gemini/settings.json'],
+  }))
   commit(acme, 'chore: keep the acme gemini settings')
   const acmeHead = git(acme, 'rev-parse', 'HEAD').trim()
 
@@ -1073,7 +1274,11 @@ function bootstrapWithFilter(name: string, pattern: string): string {
 
   const legacy = join(tmp, 'acme-legacy')
   copyTree(acme, legacy)
-  write(legacy, STATE, json({ url: UPSTREAM, commit: forkState.commit, exclude: ['.gemini/settings.json'] }))
+  write(legacy, STATE, json({
+    url: UPSTREAM,
+    commit: forkState.commit,
+    exclude: ['.gemini/settings.json'],
+  }))
   git(legacy, 'init', '-q', '-b', 'main')
   commit(legacy, 'Initial commit')
   const old = run(legacy)
@@ -1100,13 +1305,29 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   mkdirSync(depsTemplate)
   git(depsTemplate, 'init', '-q', '-b', 'main')
   const manifest = (devDependencies: Record<string, string>, preCommit: string, lintStaged: Record<string, unknown>, packageManager = 'pnpm@11.0.0', scripts: Record<string, string> = { lint: 'eslint .' }, extra: Record<string, unknown> = {}): string =>
-    json({ 'name': 'fixture', packageManager, 'engines': { node: '>=24' }, scripts, devDependencies, 'simple-git-hooks': { 'pre-commit': preCommit }, 'lint-staged': lintStaged, ...extra })
+    json({
+      'name': 'fixture',
+      packageManager,
+      'engines': { node: '>=24' },
+      scripts,
+      devDependencies,
+      'simple-git-hooks': { 'pre-commit': preCommit },
+      'lint-staged': lintStaged,
+      ...extra,
+    })
   const T1_SETTINGS = 'allowBuilds:\n  esbuild: true\n\nminimumReleaseAge: 2880\n\ntrustPolicyExclude:\n  - vite@5.4.21\n'
   const workspace = (catalog: Record<string, string>, settings = T1_SETTINGS): string =>
-    `${settings}packages:\n  - packages/*\n\n# Catalog-first: every version lives here once.\ncatalog:\n${Object.entries(catalog).map(([name, range]) => `  ${name.startsWith('@') ? `'${name}'` : name}: ${range}\n`).join('')}`
+    `${settings}packages:\n  - packages/*\n\n# Catalog-first: every version lives here once.\ncatalog:\n${Object.entries(catalog).map(([name, range]) => `  ${name.startsWith('@')
+      ? `'${name}'`
+      : name}: ${range}\n`).join('')}`
   write(depsTemplate, 'scripts/sync-template.mts', REAL_SCRIPT)
   write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'vitepress': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }))
-  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.0.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'vitepress': '^1.6.0' }))
+  write(depsTemplate, 'pnpm-workspace.yaml', workspace({
+    '@types/node': '^24.0.0',
+    'eslint': '^9.0.0',
+    'lint-staged': '^16.0.0',
+    'vitepress': '^1.6.0',
+  }))
   write(depsTemplate, '.claude/rules/tpl.md', '# tpl rule\n')
   commit(depsTemplate, 'chore: t1', T1_AT)
   const depsUrl = pathToFileURL(depsTemplate).href
@@ -1118,12 +1339,34 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   write(kid, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'zod': 'catalog:' }, 'pnpm lint-staged', { '*.ts': 'eslint --fix' }, 'pnpm@11.5.0', { 'lint': 'eslint .', 'lint:secrets': 'secretlint .' }))
   write(kid, 'pnpm-workspace.yaml', `${workspace({ '@types/node': '^24.0.0', 'eslint': '^9.1.0', 'lint-staged': '^16.0.0' }, T1_SETTINGS.replace('2880', '1440'))}  zod: ^3.0.0 # own\n`)
   commit(kid, 'chore: own dependencies')
-  const commitlint = { extends: ['@commitlint/config-conventional'], rules: { 'subject-max-length': [2, 'always', 50] } }
-  write(depsTemplate, 'package.json', manifest({ 'eslint': 'catalog:', 'lint-staged': 'catalog:', 'secretlint': 'catalog:', 'vitepress': 'catalog:' }, 'CI=1 pnpm lint-staged', { '*.ts': 'eslint --fix', '*': ['secretlint --no-glob'] }, 'pnpm@11.9.0', { 'lint': 'eslint .', 'lint:secrets': 'secretlint --maskSecrets .' }, { engines: { node: '>=24.5.0' }, commitlint }))
+  const commitlint = {
+    extends: ['@commitlint/config-conventional'],
+    rules: {
+      'subject-max-length': [2, 'always', 50],
+    },
+  }
+  write(depsTemplate, 'package.json', manifest({
+    'eslint': 'catalog:',
+    'lint-staged': 'catalog:',
+    'secretlint': 'catalog:',
+    'vitepress': 'catalog:',
+  }, 'CI=1 pnpm lint-staged', {
+    '*.ts': 'eslint --fix',
+    '*': ['secretlint --no-glob'],
+  }, 'pnpm@11.9.0', { 'lint': 'eslint .', 'lint:secrets': 'secretlint --maskSecrets .' }, {
+    engines: { node: '>=24.5.0' },
+    commitlint,
+  }))
   const T2_SETTINGS = 'allowBuilds:\n  \'@parcel/watcher\': false\n  esbuild: true\n\nminimumReleaseAge: 2880\nonlyBuiltDependencies: [esbuild]\nshellEmulator: true # scripts run alike on Windows\n\ntrustPolicyExclude:\n  - vite@5.4.21\n  - vite@5.4.22 # the next one\n'
     + 'nodeLinker: \'isolated\'\noverrides: # pinned for a CVE\n  lodash: ^4.17.21\npackageExtensions:\n  react-redux@1: { peerDependencies: { react-dom: \'*\' } }\n\ncatalogs:\n  react17:\n    react: ^17.0.2\n'
   // A package glob the template adds is the workspace's own business, never a follow-up.
-  write(depsTemplate, 'pnpm-workspace.yaml', workspace({ '@types/node': '^24.5.0', 'eslint': '^9.0.0', 'lint-staged': '^16.0.0', 'secretlint': '^13.0.0', 'vitepress': '^1.6.0' }, T2_SETTINGS).replace('  - packages/*\n', '  - packages/*\n  - apps/*\n'))
+  write(depsTemplate, 'pnpm-workspace.yaml', workspace({
+    '@types/node': '^24.5.0',
+    'eslint': '^9.0.0',
+    'lint-staged': '^16.0.0',
+    'secretlint': '^13.0.0',
+    'vitepress': '^1.6.0',
+  }, T2_SETTINGS).replace('  - packages/*\n', '  - packages/*\n  - apps/*\n'))
   write(depsTemplate, '.secretlintrc.json', '{ "rules": [] }\n')
   // Beside the synced `scripts/docs`, not under it.
   write(depsTemplate, 'scripts/docs-preview.mts', '// preview\n')
@@ -1159,7 +1402,12 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('package globs are never compared, even one the template added', !r.stdout.includes('apps/*'), r.stdout)
   check('file the template added outside the synced paths is listed', r.stdout.includes(`  .secretlintrc.json  missing here\n    git restore --source=${added.slice(0, 7)} --staged --worktree -- .secretlintrc.json\n`), r.stdout)
   check('file beside a synced path, not under it, is listed', r.stdout.includes('  scripts/docs-preview.mts  missing here\n'), r.stdout)
-  for (const never of ['docs/internal/decisions/20260102-secretlint.md', 'packages/example/src/secret.ts', '.claude/rules/secrets.md', 'CHANGELOG.md'])
+  for (const never of [
+    'docs/internal/decisions/20260102-secretlint.md',
+    'packages/example/src/secret.ts',
+    '.claude/rules/secrets.md',
+    'CHANGELOG.md',
+  ])
     check(`added file never listed: ${never}`, !r.stdout.includes(`  ${never}  missing here`), r.stdout)
   gitSafe(kid, 'restore', `--source=${added.slice(0, 7)}`, '--staged', '--worktree', '--', '.secretlintrc.json')
   check('the printed command fetches the file', readFileSync(join(kid, '.secretlintrc.json'), 'utf8') === '{ "rules": [] }\n')
@@ -1260,7 +1508,18 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   copyTree(branchTemplate, kid)
   git(kid, 'init', '-q', '-b', 'main')
   commit(kid, 'Initial commit', COPY_AT)
-  const guard = (command: string): string => json({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command }] }] } })
+  const guard = (command: string): string => json({
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [
+            { type: 'command', command },
+          ],
+        },
+      ],
+    },
+  })
   git(branchTemplate, 'checkout', '-q', '-b', 'next')
   write(branchTemplate, 'docs/template/next.md', '# only on next\n')
   write(branchTemplate, '.claude/rules/next.md', '# a rule only on next\n')
@@ -1276,7 +1535,12 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('sync from another template branch exits 0', onNext.status === 0 && readState(kid).ref === 'next', onNext.detail)
   gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
   write(kid, '.claude/settings.json', guard('node next-guard.mts'))
-  write(kid, STATE, json({ url: branchUrl, ref: 'next', commit: readState(kid).commit, exclude: ['.claude/rules'] }))
+  write(kid, STATE, json({
+    url: branchUrl,
+    ref: 'next',
+    commit: readState(kid).commit,
+    exclude: ['.claude/rules'],
+  }))
   commit(kid, 'chore: register the next guard, exclude the rules')
   git(branchTemplate, 'checkout', '-q', 'next')
   git(branchTemplate, 'rm', '-q', '.claude/rules/next.md')
@@ -1324,7 +1588,13 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('template with no settings skips the settings', r.stdout.includes('Settings: skipped — the template has no readable .claude/settings.json.'), r.stdout)
   gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
   write(bareTemplate, 'package.json', pkg({ lint: 'eslint .' }))
-  write(bareTemplate, '.claude/settings.json', json({ outputStyle: 'writing', permissions: { allow: ['Bash(git status:*)'], deny: ['Read(**/.env)'] } }))
+  write(bareTemplate, '.claude/settings.json', json({
+    outputStyle: 'writing',
+    permissions: {
+      allow: ['Bash(git status:*)'],
+      deny: ['Read(**/.env)'],
+    },
+  }))
   commit(bareTemplate, 'feat: a manifest and settings', T2_AT)
   const invalid = run(kid)
   check('unreadable files here exit 0', invalid.status === 0, invalid.detail)
@@ -1332,7 +1602,12 @@ function bootstrapWithFilter(name: string, pattern: string): string {
   check('settings here that are not JSON skip the settings', invalid.stdout.includes('Settings: skipped — .claude/settings.json here is not valid JSON.'), invalid.stdout)
   check('a file the template added that this repository has is never listed', invalid.stdout.includes('Files: none new.'), invalid.stdout)
   gitSafe(kid, 'commit', '-q', '-m', 'chore: sync mechanics from template')
-  write(kid, '.claude/settings.json', json({ outputStyle: 'terse', permissions: { deny: ['Read(**/.env)'] } }))
+  write(kid, '.claude/settings.json', json({
+    outputStyle: 'terse',
+    permissions: {
+      deny: ['Read(**/.env)'],
+    },
+  }))
   commit(kid, 'chore: readable settings')
   const readable = run(kid)
   check('allow rule the template has is missing here', readable.status === 0 && readable.stdout.includes('  permissions.allow Bash(git status:*)  missing here\n'), readable.detail)

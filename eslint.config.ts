@@ -79,9 +79,14 @@ export default antfu(
     files: ['**/*.{ts,mts,cts,tsx}'],
     ignores: ['**/*.d.?([cm])ts', '**/*.md/**'],
     rules: {
-      'no-restricted-imports': ['error', {
-        patterns: [{ regex: '^\\.\\.?/.*\\.[cm]?jsx?$', message: 'Import the .ts/.mts source: node runs it as written and has no .js file to load.' }],
-      }],
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            { regex: '^\\.\\.?/.*\\.[cm]?jsx?$', message: 'Import the .ts/.mts source: node runs it as written and has no .js file to load.' },
+          ],
+        },
+      ],
     },
   },
   {
@@ -124,7 +129,13 @@ export default antfu(
   // off.
   .override('antfu/jsdoc/rules', {
     rules: {
-      'jsdoc/require-jsdoc': ['error', { ...docBlocks, contexts: [...docBlocks.contexts, 'ExportDefaultDeclaration[declaration.type!=/Function/]'] }],
+      'jsdoc/require-jsdoc': [
+        'error',
+        {
+          ...docBlocks,
+          contexts: [...docBlocks.contexts, 'ExportDefaultDeclaration[declaration.type!=/Function/]'],
+        },
+      ],
     },
   })
   // A tool config's default export is read by its tool, never by a caller, so the default
@@ -132,5 +143,7 @@ export default antfu(
   .append({
     name: 'repo/tool-config-default-export',
     files: ['**/*.config.?([cm])ts', '**/.vitepress/config.?([cm])ts'],
-    rules: { 'jsdoc/require-jsdoc': ['error', docBlocks] },
+    rules: {
+      'jsdoc/require-jsdoc': ['error', docBlocks],
+    },
   })

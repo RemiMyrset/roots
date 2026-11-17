@@ -13,7 +13,18 @@ import { exportedWords, gitSubcommand, resolveHead, segments, tokenize, unquote 
 // Subcommands whose hooks matter here. `-n` means --no-verify only for commit (push: dry-run).
 const HOOKED: ReadonlySet<string> = new Set(['commit', 'push', 'merge'])
 // `git commit` long options that take a separate value, so their value is never read as a flag.
-const COMMIT_VALUE_OPT: ReadonlySet<string> = new Set(['--author', '--date', '--fixup', '--squash', '--message', '--file', '--template', '--reuse-message', '--reedit-message', '--trailer'])
+const COMMIT_VALUE_OPT: ReadonlySet<string> = new Set([
+  '--author',
+  '--date',
+  '--fixup',
+  '--squash',
+  '--message',
+  '--file',
+  '--template',
+  '--reuse-message',
+  '--reedit-message',
+  '--trailer',
+])
 // `git commit` short options whose value is the rest of the word, or the next word when the
 // letter ends it (`-m x`, `-mx`), and those whose optional value can only be glued on (`-uno`).
 const COMMIT_VALUE_SHORT = 'mFcCtU'

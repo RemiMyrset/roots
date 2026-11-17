@@ -86,7 +86,16 @@ function skillFile(name: string): string {
 }
 
 /** Unquoted descriptions YAML reads as a boolean, a number, null, or a YAML 1.1 merge or value key, each planted as its own skill. */
-const NON_STRINGS = [['bool', 'true'], ['number', '123'], ['null-word', 'null'], ['tilde', '~'], ['yes-word', 'yes'], ['infinity', '.inf'], ['merge-key', '<<'], ['value-key', '=']] as const
+const NON_STRINGS = [
+  ['bool', 'true'],
+  ['number', '123'],
+  ['null-word', 'null'],
+  ['tilde', '~'],
+  ['yes-word', 'yes'],
+  ['infinity', '.inf'],
+  ['merge-key', '<<'],
+  ['value-key', '='],
+] as const
 
 /** One skill planted in the source and, byte for byte, in the mirror, so only its frontmatter is judged. */
 function plantMirrored(dir: string, name: string, content: string): void {
@@ -104,8 +113,11 @@ const fails: string[] = []
 let checks = 0
 function check(name: string, ok: boolean, detail = ''): void {
   checks++
-  if (!ok)
-    fails.push(`${name}${detail ? ` — ${detail.trim().slice(0, 400)}` : ''}`)
+  if (!ok) {
+    fails.push(`${name}${detail
+      ? ` — ${detail.trim().slice(0, 400)}`
+      : ''}`)
+  }
 }
 function expectAll(name: string, out: string, wants: string[]): void {
   for (const want of wants)
@@ -432,7 +444,20 @@ function runAutomd(cwd: string): Run {
   check('a blank line opening with a tab is reported once', c.out.split('.claude/skills/tab-blank/SKILL.md: ').length === 2, c.out)
   // Each break is reported once: a line with a tab stands for the value it continues, so that is
   // not also an empty description, nor the line after it a stray one.
-  for (const skill of ['tab-after-space', 'block-tab-blank', 'list-tab-blank', 'block-tab-line', 'esc-char', 'nel-char', 'ls-char', 'block-name-clip', 'nbsp-indent', 'ideo-blank', 'name-nbsp', 'block-name'])
+  for (const skill of [
+    'tab-after-space',
+    'block-tab-blank',
+    'list-tab-blank',
+    'block-tab-line',
+    'esc-char',
+    'nel-char',
+    'ls-char',
+    'block-name-clip',
+    'nbsp-indent',
+    'ideo-blank',
+    'name-nbsp',
+    'block-name',
+  ])
     check(`a ${skill} break is reported once`, c.out.split(`.claude/skills/${skill}/SKILL.md: `).length === 2, c.out)
   check('a "(pending)" inside a comment is not a pending bullet', !c.out.includes('template-copy.md: Source is (pending)') && !c.out.includes('template-copy.md: Tests is (pending)'), c.out)
   check('an index page without a region is not an error', !c.out.includes('missing <!-- automd:'), c.out)
@@ -727,7 +752,10 @@ function runAutomd(cwd: string): Run {
   // A directory with its own `.git` entry is another checkout, so its rulebook is its own: a
   // linked worktree (a `.git` file) and a nested clone (a `.git` directory).
   const nested = fixture('clean')
-  for (const [dir, git] of [['.claude/worktrees/lane', 'file'], ['vendor/clone', 'dir']] as const) {
+  for (const [dir, git] of [
+    ['.claude/worktrees/lane', 'file'],
+    ['vendor/clone', 'dir'],
+  ] as const) {
     mkdirSync(join(nested, dir), { recursive: true })
     if (git === 'file')
       writeFileSync(join(nested, dir, '.git'), 'gitdir: /elsewhere/.git/worktrees/lane\n')
@@ -808,22 +836,56 @@ function runAutomd(cwd: string): Run {
 // 9. The readers, called directly: what feeds the index regions and the sidebars.
 {
   const dir = fixture('clean')
-  const decisions = readDecisions(dir).map(d => [d.id, d.num, d.legacy, d.title, d.status])
+  const decisions = readDecisions(dir).map(d => [
+    d.id,
+    d.num,
+    d.legacy,
+    d.title,
+    d.status,
+  ])
   check('readDecisions reads legacy then dated records past the fenced Status', same(decisions, [
-    ['0001', '0001', true, 'First', 'superseded by [0002](./0002-second.md)'],
-    ['0002', '0002', true, 'Second', 'superseded by [20260105-third](./20260105-third.md)'],
-    ['20260105-third', '2026-01-05', false, 'Third', 'superseded by [20260106-fourth](./20260106-fourth.md)'],
-    ['20260106-fourth', '2026-01-06', false, 'Fourth', 'accepted'],
+    [
+      '0001',
+      '0001',
+      true,
+      'First',
+      'superseded by [0002](./0002-second.md)',
+    ],
+    [
+      '0002',
+      '0002',
+      true,
+      'Second',
+      'superseded by [20260105-third](./20260105-third.md)',
+    ],
+    [
+      '20260105-third',
+      '2026-01-05',
+      false,
+      'Third',
+      'superseded by [20260106-fourth](./20260106-fourth.md)',
+    ],
+    [
+      '20260106-fourth',
+      '2026-01-06',
+      false,
+      'Fourth',
+      'accepted',
+    ],
   ]), JSON.stringify(decisions))
   const specs = readSpecs(dir)
-  check('readSpecs reads the one spec', same(specs, [{ area: 'cli', file: 'hello.md', title: 'Hello' }]), JSON.stringify(specs))
+  check('readSpecs reads the one spec', same(specs, [
+    { area: 'cli', file: 'hello.md', title: 'Hello' },
+  ]), JSON.stringify(specs))
   check('decisionsSidebar labels each record and names a status other than accepted', same(decisionsSidebar(dir), [
     { text: '0001. First (superseded)', link: '/decisions/0001-first' },
     { text: '0002. Second (superseded)', link: '/decisions/0002-second' },
     { text: '2026-01-05 Third (superseded)', link: '/decisions/20260105-third' },
     { text: '2026-01-06 Fourth', link: '/decisions/20260106-fourth' },
   ]), JSON.stringify(decisionsSidebar(dir)))
-  check('specsSidebar links each spec', same(specsSidebar(dir), [{ text: 'cli: Hello', link: '/specs/cli/hello' }]), JSON.stringify(specsSidebar(dir)))
+  check('specsSidebar links each spec', same(specsSidebar(dir), [
+    { text: 'cli: Hello', link: '/specs/cli/hello' },
+  ]), JSON.stringify(specsSidebar(dir)))
   check('escapeCell escapes a bare pipe', escapeCell('a | b') === 'a \\| b')
   check('escapeCell leaves an escaped pipe alone', escapeCell('a \\| b') === 'a \\| b')
 
@@ -955,7 +1017,13 @@ function runAutomd(cwd: string): Run {
   const decisions = join(dir, 'docs/internal/decisions')
   writeFileSync(join(decisions, '2100-high.md'), '# 2100. High\n\n- **Status:** accepted\n- **Date:** 2026-01-03\n')
   const order = readDecisions(dir).map(d => d.file)
-  check('a legacy number of 2100 still lists before the dated records', same(order, ['0001-first.md', '0002-second.md', '2100-high.md', '20260105-third.md', '20260106-fourth.md']), JSON.stringify(order))
+  check('a legacy number of 2100 still lists before the dated records', same(order, [
+    '0001-first.md',
+    '0002-second.md',
+    '2100-high.md',
+    '20260105-third.md',
+    '20260106-fourth.md',
+  ]), JSON.stringify(order))
   const third = join(decisions, '20260105-third.md')
   writeFileSync(third, readFileSync(third, 'utf8').replace('- **Date:** 2026-01-05', '- **Date:** 2025-12-01'))
   const ok = run('docs:check', dir, withoutCi)
@@ -1026,7 +1094,13 @@ function runAutomd(cwd: string): Run {
   check('docs:list exits 0 from below the repository root', all.status === 0, all.out)
   const at = rows.map(r => all.out.indexOf(r))
   check('docs:list prints every record, legacy first, then oldest first', at.every((x, i) => x >= 0 && (i === 0 || x > at[i - 1]!)), all.out)
-  expectAll('docs:list', all.out, ['## Decisions (docs/internal/decisions/, numbered records first, then dated ones oldest first)', '| ID | Title | Status |', '## Specs (docs/internal/specs/)', '### cli', '- [Hello](./cli/hello.md)'])
+  expectAll('docs:list', all.out, [
+    '## Decisions (docs/internal/decisions/, numbered records first, then dated ones oldest first)',
+    '| ID | Title | Status |',
+    '## Specs (docs/internal/specs/)',
+    '### cli',
+    '- [Hello](./cli/hello.md)',
+  ])
   const specs = run('docs:list', dir, withoutCi, ['specs'])
   check('docs:list specs prints the specs alone', specs.status === 0 && specs.out.includes('- [Hello](./cli/hello.md)') && !specs.out.includes('## Decisions'), specs.out)
   const decisions = run('docs:list', dir, withoutCi, ['decisions'])

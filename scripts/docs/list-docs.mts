@@ -24,10 +24,14 @@ if (rest.length > 0 || (which !== undefined && which !== 'decisions' && which !=
 const sections: string[] = []
 if (which !== 'specs') {
   const decisions = readDecisions()
-  sections.push(`## Decisions (${DECISIONS_DIR}/, numbered records first, then dated ones oldest first)`, decisions.length > 0 ? renderDecisionsIndex(decisions) : '_No decisions yet._')
+  sections.push(`## Decisions (${DECISIONS_DIR}/, numbered records first, then dated ones oldest first)`, decisions.length > 0
+    ? renderDecisionsIndex(decisions)
+    : '_No decisions yet._')
 }
 if (which !== 'decisions') {
   const specs = readSpecs()
-  sections.push(`## Specs (${SPECS_DIR}/)`, specs.length > 0 ? renderSpecIndex(specs) : '_No specs yet._')
+  sections.push(`## Specs (${SPECS_DIR}/)`, specs.length > 0
+    ? renderSpecIndex(specs)
+    : '_No specs yet._')
 }
 console.log(sections.join('\n\n'))

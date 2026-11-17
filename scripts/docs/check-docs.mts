@@ -125,7 +125,9 @@ function bulletValue(text: string, bullet: 'Source' | 'Tests'): string | undefin
   const at = lines.findIndex(line => line.startsWith(opener))
   if (at < 0)
     return undefined
-  const parts = [lines[at]!.slice(opener.length)]
+  const parts = [
+    lines[at]!.slice(opener.length),
+  ]
   for (let i = at + 1; i < lines.length && CONTINUATION_RE.test(lines[i]!); i++)
     parts.push(lines[i]!)
   return parts.map(part => part.trim()).join(' ').trim()
@@ -221,8 +223,12 @@ function checkDecisions(): number {
     const hyphenated = file.match(HYPHENATED_DATE_NAME_RE)
     if (hyphenated && Number(hyphenated[1]) >= DATE_FROM_YEAR) {
       const [, year, month, day] = hyphenated
-      const iso = day === undefined ? '' : `${year}-${month!.padStart(2, '0')}-${day.padStart(2, '0')}`
-      const compact = isRealIsoDate(iso) ? ` (${iso.replaceAll('-', '')})` : ''
+      const iso = day === undefined
+        ? ''
+        : `${year}-${month!.padStart(2, '0')}-${day.padStart(2, '0')}`
+      const compact = isRealIsoDate(iso)
+        ? ` (${iso.replaceAll('-', '')})`
+        : ''
       errors.push(`${where}: filename must be YYYYMMDD-kebab-title.md, the date without hyphens${compact}; as written it reads as legacy record ${identity.id}`)
       continue
     }
@@ -273,7 +279,9 @@ function checkDecisions(): number {
       // names a record, and its target once the text is right, so one underlying problem is
       // reported once.
       const link = status.match(SUPERSEDED_LINK_RE)
-      const target = link ? decisionIdentity(link[2]!) : undefined
+      const target = link
+        ? decisionIdentity(link[2]!)
+        : undefined
       if (!link || !target)
         errors.push(`${where}: superseded status must link the newer record: "superseded by [ID](./file.md)"`)
       else if (link[1] !== target.id)
@@ -407,7 +415,9 @@ function checkAutomdMarkers(): void {
       if (body.split('\n').some(line => CONFLICT_LINE_RE.test(line))) {
         // An index region conflicts again on the next pair of branches that each add an entry;
         // the lasting fix is to drop it, since the sidebar and docs:list read the files.
-        const lasting = Object.hasOwn(INDEX_RENDERERS, region.name) ? '. To stop the next conflict, delete the region: the handbook sidebar and `pnpm docs:list` read the list from the files' : ''
+        const lasting = Object.hasOwn(INDEX_RENDERERS, region.name)
+          ? '. To stop the next conflict, delete the region: the handbook sidebar and `pnpm docs:list` read the list from the files'
+          : ''
         errors.push(`${where}: ${marker} region holds merge conflict lines — regenerate it with \`pnpm docs:gen\`; never hand-merge a generated region${lasting}`)
         continue
       }
@@ -547,7 +557,9 @@ function readBlock(lines: string[], indents: number[], digit: string | undefined
   const top = lines.findIndex(l => l !== '')
   if (top < 0)
     return { text: '' }
-  const floor = digit === undefined ? indents[top] ?? 0 : Number(digit)
+  const floor = digit === undefined
+    ? indents[top] ?? 0
+    : Number(digit)
   if (digit === undefined && indents.slice(0, top).some(n => n > floor))
     return { why: 'with a blank line above its first text line that holds more spaces than that line, which YAML rejects; empty the blank line' }
   const body: string[] = []
@@ -557,14 +569,21 @@ function readBlock(lines: string[], indents: number[], digit: string | undefined
       continue
     if (ended)
       return { why: 'with text after a comment indented less than the block, which ends it, so YAML rejects the text; indent the comment with the text, or drop it' }
-    if ((indents[i] ?? 0) >= floor)
+    if ((indents[i] ?? 0) >= floor) {
       body.push(line)
-    else if (line.startsWith('#'))
+    }
+    else if (line.startsWith('#')) {
       ended = true
-    else
-      return { why: `with a line indented less than ${digit === undefined ? 'its first text line' : `the ${digit} spaces its header sets`}, which ends the block, so YAML rejects the line; indent every line at least as far` }
+    }
+    else {
+      return { why: `with a line indented less than ${digit === undefined
+        ? 'its first text line'
+        : `the ${digit} spaces its header sets`}, which ends the block, so YAML rejects the line; indent every line at least as far` }
+    }
   }
-  return { text: body.join(' ') }
+  return {
+    text: body.join(' '),
+  }
 }
 
 /**
@@ -593,10 +612,14 @@ function flowCloses(value: string): boolean {
     }
     else if (c === '#' && (i === 0 || FLOW_SPACE_RE.test(value[i - 1]!))) {
       const end = value.indexOf('\n', i)
-      i = end < 0 ? value.length : end - 1
+      i = end < 0
+        ? value.length
+        : end - 1
     }
     else if (c === '[' || c === '{') {
-      open.push(c === '[' ? ']' : '}')
+      open.push(c === '['
+        ? ']'
+        : '}')
       last = c
     }
     else if (c === ']' || c === '}') {
@@ -677,14 +700,20 @@ function checkSkillFrontmatter(): void {
           errors.push(`${where}: line ${i + 2} sets ${key[1]} a second time, which YAML rejects; keep one`)
         // A comment right after `key:` leaves the value empty on that line.
         const inline = (key[2] ?? '').replace(YAML_TRIM_RE, '')
-        current = [inline.startsWith('#') ? '' : inline]
+        current = [
+          inline.startsWith('#')
+            ? ''
+            : inline,
+        ]
         margins.set(current, [0])
         listAtKey = false
         values.set(key[1]!, current)
       }
       else if (TAB_INDENT_RE.test(line)) {
         const c = TAB_INDENT_RE.exec(line)![0].at(-1)!
-        const what = c === '\t' ? 'a tab' : `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')} (a space YAML reads as text)`
+        const what = c === '\t'
+          ? 'a tab'
+          : `U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')} (a space YAML reads as text)`
         if (line.trim() === '') {
           errors.push(`${where}: line ${i + 2}, in the frontmatter, is blank but holds ${what}, which YAML rejects; empty the line`)
           add('', 0)
@@ -731,8 +760,12 @@ function checkSkillFrontmatter(): void {
         continue
       }
       // Below an empty `key:`, the blank and comment lines before the value are no part of it.
-      const start = lines[0] === '' ? lines.findIndex((l, i) => i > 0 && l !== '' && !l.startsWith('#')) : 0
-      const shown = start < 0 ? [] : lines.slice(start).filter(l => l !== '')
+      const start = lines[0] === ''
+        ? lines.findIndex((l, i) => i > 0 && l !== '' && !l.startsWith('#'))
+        : 0
+      const shown = start < 0
+        ? []
+        : lines.slice(start).filter(l => l !== '')
       const first = shown[0] ?? ''
       if (first === '') {
         text.set(key, '')
@@ -767,15 +800,21 @@ function checkSkillFrontmatter(): void {
       if (/^["']/.test(first)) {
         const single = first.startsWith('\'')
         const quoted = (single ? SINGLE_QUOTED_RE : DOUBLE_QUOTED_RE).exec(shown.join('\n'))
-        if (quoted)
-          text.set(key, single ? quoted[1]!.replaceAll('\'\'', '\'') : quoted[1]!)
-        else
+        if (quoted) {
+          text.set(key, single
+            ? quoted[1]!.replaceAll('\'\'', '\'')
+            : quoted[1]!)
+        }
+        else {
           fail(key, 'is a quoted value YAML rejects: it must close at its end, with an apostrophe written \'\' inside single quotes and only YAML escapes inside double quotes')
+        }
         continue
       }
       // A comment line ends an unquoted value; YAML cannot place value text after one.
       const comment = shown.findIndex((l, i) => i > 0 && l.startsWith('#'))
-      const plain = comment < 0 ? shown : shown.slice(0, comment)
+      const plain = comment < 0
+        ? shown
+        : shown.slice(0, comment)
       if (comment >= 0 && shown.slice(comment).some(l => !l.startsWith('#')))
         fail(key, 'continues after a comment line, which ends an unquoted value, so YAML rejects the lines after it; move the comment below the value, or drop it')
       else if (PLAIN_RESERVED_START_RE.test(first))
@@ -818,4 +857,6 @@ if (errors.length > 0) {
   console.error('')
   process.exit(1)
 }
-console.log(`✔ docs:check — ${decisionCount} decision(s), specs valid, rulebooks within budget${warnings.length ? `, ${warnings.length} warning(s)` : ''}`)
+console.log(`✔ docs:check — ${decisionCount} decision(s), specs valid, rulebooks within budget${warnings.length
+  ? `, ${warnings.length} warning(s)`
+  : ''}`)

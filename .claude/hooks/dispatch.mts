@@ -43,13 +43,19 @@ const watchdog = setTimeout(() => {
 
 async function dispatch(cmd: string): Promise<void> {
   const dir = import.meta.dirname
-  const ctx: GuardContext = { cwd: process.cwd(), env: process.env, settingsFile: join(dir, '..', 'settings.json') }
+  const ctx: GuardContext = {
+    cwd: process.cwd(),
+    env: process.env,
+    settingsFile: join(dir, '..', 'settings.json'),
+  }
   let guards: string[]
   try {
     guards = readdirSync(dir).filter(f => /^deny-.*\.mts$/.test(f)).sort()
   }
   catch (e) {
-    process.stderr.write(`guards: cannot list ${dir} (${e instanceof Error ? e.message : String(e)}); denying by default (fail closed).\n`)
+    process.stderr.write(`guards: cannot list ${dir} (${e instanceof Error
+      ? e.message
+      : String(e)}); denying by default (fail closed).\n`)
     process.exitCode = 2
     return
   }
@@ -62,7 +68,9 @@ async function dispatch(cmd: string): Promise<void> {
       why = (mod.verdict as Verdict)(cmd, ctx)
     }
     catch (e) {
-      process.stderr.write(`guards: ${guard} failed (${e instanceof Error ? e.message : String(e)}); denying by default (fail closed).\n`)
+      process.stderr.write(`guards: ${guard} failed (${e instanceof Error
+        ? e.message
+        : String(e)}); denying by default (fail closed).\n`)
       process.exitCode = 2
       return
     }

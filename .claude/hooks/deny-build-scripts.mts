@@ -33,7 +33,10 @@ function pnpmEnables(toks: string[], lead: number): boolean {
 // an `export` or `declare -x` of it.
 function assignsBuilds(toks: string[], lead: number): boolean {
   const assigned = toks.slice(0, lead).map(unquote).filter(w => w.includes('='))
-  return [...assigned, ...exportedWords(toks)].some((w) => {
+  return [
+    ...assigned,
+    ...exportedWords(toks),
+  ].some((w) => {
     const name = w.split('=')[0]!
     return /^p?npm_config_/i.test(name) && SETTING.test(name)
   })
